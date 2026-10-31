@@ -49,8 +49,10 @@ describe('startPiece', () => {
     await startPiece('Blue vase');
 
     const [piece] = await getRunningPieces();
+
+    // SQLite's clock and Date.now() can differ by a few milliseconds either way.
     expect(Date.parse(piece.started_at)).toBeGreaterThanOrEqual(before - 1000);
-    expect(Date.parse(piece.started_at)).toBeLessThanOrEqual(Date.now());
+    expect(Date.parse(piece.started_at)).toBeLessThanOrEqual(Date.now() + 1000);
   });
 
   // Otherwise a blank name creates a piece nobody can identify later.
