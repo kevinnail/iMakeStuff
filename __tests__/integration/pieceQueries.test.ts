@@ -1,5 +1,5 @@
 import { getDb } from '@/db/database';
-import { getRunningPieces, startPiece, startSegment, stopPiece } from '@/db/queries/pieceQueries';
+import { finishPiece, getRunningPieces, startPiece, startSegment } from '@/db/queries/pieceQueries';
 import { createTestDb } from '../setup';
 
 jest.mock('@/db/database', () => ({
@@ -11,6 +11,14 @@ interface SegmentRow {
   started_at: string;
   ended_at: string | null;
 }
+
+interface FinishedPieceRow {
+  notes: string | null;
+  photo_file_name: string | null;
+  finished_at: string | null;
+}
+
+const finishedPieceSql = 'SELECT notes, photo_file_name, finished_at FROM pieces WHERE id = ?';
 
 let database: ReturnType<typeof createTestDb>;
 
@@ -64,26 +72,73 @@ describe('startSegment', () => {
   });
 });
 
-describe('stopPiece', () => {
-  // Otherwise Stop leaves the timer running and the piece keeps collecting time.
-  it('ends the running segment', async () => {
+describe('finishPiece', () => {
+  const endedAt = '2026-10-31T17:30:00.000Z';
+
+  // Otherwise Done loses the photo, or leaves the timer running and the piece keeps collecting time.
+  it('saves the photo and ends the running segment at the Done time', async () => {
     const pieceId = await startPiece('Blue vase');
 
-    await stopPiece(pieceId);
+    await finishPiece(pieceId, { endedAt, notes: null, photoFileName: 'vase.jpg' });
 
-    const segment = await database.getFirstAsync<SegmentRow>(
-      'SELECT piece_id, started_at, ended_at FROM work_segments',
-    );
-    expect(segment?.ended_at).not.toBeNull();
-    expect(Date.parse(segment!.ended_at!)).toBeGreaterThanOrEqual(Date.parse(segment!.started_at));
+    expect(await database.getFirstAsync<FinishedPieceRow>(finishedPieceSql, pieceId)).toEqual({
+      notes: null,
+      photo_file_name: 'vase.jpg',
+      finished_at: endedAt,
+    });
+    expect(
+      await database.getAllAsync<SegmentRow>(
+        'SELECT piece_id, started_at, ended_at FROM work_segments',
+      ),
+    ).toEqual([{ piece_id: pieceId, started_at: expect.any(String), ended_at: endedAt }]);
     expect(await getRunningPieces()).toEqual([]);
   });
 
-  // Otherwise a second tap on Stop looks like it worked when nothing was running.
-  it('fails for a piece that is not running', async () => {
+  // Otherwise skipping the camera would make a piece impossible to finish.
+  it('saves a piece with notes and no photo', async () => {
     const pieceId = await startPiece('Blue vase');
-    await stopPiece(pieceId);
 
-    await expect(stopPiece(pieceId)).rejects.toThrow('That piece is not running.');
+    await finishPiece(pieceId, { endedAt, notes: 'Cobalt glaze', photoFileName: null });
+
+    expect(await database.getFirstAsync<FinishedPieceRow>(finishedPieceSql, pieceId)).toEqual({
+      notes: 'Cobalt glaze',
+      photo_file_name: null,
+      finished_at: endedAt,
+    });
+  });
+
+  // Otherwise a finished piece could have nothing to identify it, and its timer would stop anyway.
+  it('rejects a finish with neither a photo nor notes and keeps the timer running', async () => {
+    const pieceId = await startPiece('Blue vase');
+
+    await expect(
+      finishPiece(pieceId, { endedAt, notes: null, photoFileName: null }),
+    ).rejects.toThrow(/CHECK constraint/);
+
+    expect(await database.getFirstAsync<FinishedPieceRow>(finishedPieceSql, pieceId)).toEqual({
+      notes: null,
+      photo_file_name: null,
+      finished_at: null,
+    });
+    expect(await getRunningPieces()).toHaveLength(1);
+  });
+
+  // Otherwise finishing twice would overwrite the first photo and finish time.
+  it('fails for a piece that is already finished', async () => {
+    const pieceId = await startPiece('Blue vase');
+    await finishPiece(pieceId, { endedAt, notes: null, photoFileName: 'vase.jpg' });
+
+    await expect(
+      finishPiece(pieceId, {
+        endedAt: '2026-10-31T18:00:00.000Z',
+        notes: null,
+        photoFileName: 'other.jpg',
+      }),
+    ).rejects.toThrow('That piece is already finished.');
+    expect(await database.getFirstAsync<FinishedPieceRow>(finishedPieceSql, pieceId)).toEqual({
+      notes: null,
+      photo_file_name: 'vase.jpg',
+      finished_at: endedAt,
+    });
   });
 });
