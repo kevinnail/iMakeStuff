@@ -10,6 +10,7 @@ Needs Node 24 (Expo SDK 58 supports 22.13+, 24.3+, or 26+; CI uses 24). Switchin
 npm install
 npm start          # Metro for the dev build; open the "iMakeStuff (Dev)" app on the phone
 npm test           # Jest
+npm run test:watch # Jest, stays running and reruns on save
 npm run lint
 npm run typecheck
 npm run format:check
