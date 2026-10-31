@@ -14,7 +14,25 @@
         "ITSAppUsesNonExemptEncryption": false
       }
     },
-    "plugins": ["expo-router"],
+    "plugins": [
+      "expo-router",
+      ["expo-dev-client", { "toolsButton": false }],
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "Allow iMakeStuff to take a photo of each piece you finish.",
+          "photosPermission": false,
+          "microphonePermission": false
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "savePhotosPermission": "Allow iMakeStuff to save the photos you take to your camera roll.",
+          "photosPermission": false
+        }
+      ]
+    ],
     "experiments": {
       "typedRoutes": true
     },

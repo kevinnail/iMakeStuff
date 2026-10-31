@@ -1,17 +1,24 @@
 import { create } from 'zustand';
 
 import {
+  finishPiece,
   getRunningPieces,
   startPiece,
-  stopPiece,
   type RunningPiece,
 } from '@/db/queries/pieceQueries';
+import { deletePhoto, savePhoto } from '@/utils/photoStorage';
+
+interface FinishInput {
+  endedAt: string;
+  notes: string | null;
+  cameraPhotoUri: string | null;
+}
 
 interface WorkState {
   runningPieces: RunningPiece[];
   load: () => Promise<void>;
   start: (name: string) => Promise<void>;
-  stop: (pieceId: number) => Promise<void>;
+  finish: (pieceId: number, input: FinishInput) => Promise<void>;
 }
 
 // Every action rereads the running pieces from the database, so the screen always
@@ -25,8 +32,14 @@ export const useWorkStore = create<WorkState>()((set) => ({
     await startPiece(name);
     set({ runningPieces: await getRunningPieces() });
   },
-  stop: async (pieceId) => {
-    await stopPiece(pieceId);
+  finish: async (pieceId, { endedAt, notes, cameraPhotoUri }) => {
+    const photoFileName = cameraPhotoUri ? await savePhoto(cameraPhotoUri) : null;
+    try {
+      await finishPiece(pieceId, { endedAt, notes, photoFileName });
+    } catch (error) {
+      if (photoFileName) deletePhoto(photoFileName);
+      throw error;
+    }
     set({ runningPieces: await getRunningPieces() });
   },
 }));
