@@ -1,0 +1,13 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": ["**/*.ts", "**/*.tsx", ".expo/types/**/*.ts", "expo-env.d.ts"],
+  // Tests are typechecked with tsconfig.test.json, which adds the Jest types.
+  // Setting exclude replaces the base config's list, so node_modules is restated.
+  "exclude": ["node_modules", "__tests__"]
+}

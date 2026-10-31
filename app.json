@@ -1,0 +1,33 @@
+{
+  "expo": {
+    "name": "iMakeStuff",
+    "slug": "imakestuff",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "imakestuff",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.kevinnail.imakestuff",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "plugins": ["expo-router"],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "router": {
+        "asyncRoutes": {
+          "web": true
+        }
+      },
+      "eas": {
+        "projectId": "dbe1714c-51bb-4393-b9e9-af43018d87ae"
+      }
+    },
+    "owner": "kevinnail"
+  }
+}
