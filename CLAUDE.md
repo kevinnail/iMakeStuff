@@ -4,7 +4,9 @@ iMakeStuff (working name) is an iOS app for a self-employed maker that builds a 
 
 ## Status
 
-Partway through slice 0. The Node blocker was resolved 2026-10-30 (Node 24 through nvm-windows; see `docs/node-versions.md`). **Read `docs/RESUME.md` first**: it has the exact state and the next steps. The build plan is `docs/plans/pending/initial-build.md`. Plans live in `docs/plans/pending/` and move to `docs/plans/completed/` once built and signed off.
+**Start with the Status table at the top of `docs/plans/pending/initial-build.md`.** It says which slices are done and which is next. When a slice is built, tested, working on the phone, and committed, mark it Done there with the date and commit. Plans live in `docs/plans/pending/` and move to `docs/plans/completed/` once built and signed off.
+
+This project runs on Node 24 through nvm-windows (`docs/node-versions.md`).
 
 ## Stack
 
@@ -17,6 +19,18 @@ The stack is modeled on Kevin's Crop Planner app (`../Crop Planner/Crop Planner 
 Kevin develops on Windows with no Mac or Xcode. Every iOS build goes through EAS cloud (`eas build --profile development --platform ios`). Never tell him to run `expo run:ios`.
 
 The dev build installs as a separate app through a `.dev` bundle id, set in `app.config.js` when `APP_VARIANT=development`, so it never touches the App Store build's data. Same setup as Crop Planner.
+
+## Installing packages
+
+Every install follows the 2 week rule for the whole dependency tree:
+
+- **Set the cutoff in the same command as the install:** `export NPM_CONFIG_BEFORE=<current UTC time minus 14 days>`. `npm view` ignores this setting, so check publish dates with `npm view <pkg> time --json`.
+- **Expo packages go through `EXPO_OFFLINE=1 npx expo install <pkg>`.** Offline, versions come from the installed `expo`'s `bundledNativeModules.json`. Online, Expo picks the newest SDK 58 releases, which are often too new for the rule.
+- **After any install, `npm ls --all` must show nothing `invalid` or `missing`.** EAS runs `npm ci`, which fails when npm considers the lock file out of sync.
+- **npm 11 skips package install scripts until they're approved.** Approve only a package that needs its script: `npm install-scripts approve <pkg>` records it in `allowScripts` in `package.json`. Approved so far: `better-sqlite3`.
+- **`expo doctor` on EAS flags two things that are expected:**
+  - Newer SDK 58 patch versions held back by the rule.
+  - Jest 29 against Expo's Jest 30. That's deliberate: the tests use `ts-jest` in plain Node, not `jest-expo`.
 
 ## Rules for this app
 
