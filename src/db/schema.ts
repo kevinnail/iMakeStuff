@@ -14,11 +14,23 @@ export const SCHEMA_SQL = `
     CHECK (finished_at IS NULL OR photo_file_name IS NOT NULL OR trim(coalesce(notes, '')) <> '')
   );
 
-  CREATE TABLE IF NOT EXISTS work_segments (
+  CREATE TABLE IF NOT EXISTS breaks (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    piece_id   INTEGER NOT NULL REFERENCES pieces(id),
-    started_at TEXT NOT NULL DEFAULT (${SQL_NOW}),
+    started_at TEXT NOT NULL,
     ended_at   TEXT
+  );
+
+  -- A break pauses everything, so only one can be running.
+  CREATE UNIQUE INDEX IF NOT EXISTS breaks_one_running
+    ON breaks(ended_at IS NULL) WHERE ended_at IS NULL;
+
+  CREATE TABLE IF NOT EXISTS work_segments (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    piece_id           INTEGER NOT NULL REFERENCES pieces(id),
+    started_at         TEXT NOT NULL DEFAULT (${SQL_NOW}),
+    ended_at           TEXT,
+    -- Set when a break ended this segment, so Back to work knows which pieces to restart.
+    paused_by_break_id INTEGER REFERENCES breaks(id)
   );
 
   -- A piece's timer is either running or not, so it has at most one open segment.
