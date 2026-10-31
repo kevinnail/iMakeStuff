@@ -45,7 +45,8 @@ function RunningTime({ startedAt }: { startedAt: string }) {
 }
 
 export default function WorkScreen() {
-  const { runningPieces, load, start, finish } = useWorkStore();
+  const { runningPieces, runningBreak, load, start, finish, takeBreak, backToWork } =
+    useWorkStore();
   const [name, setName] = useState('');
   const [finishing, setFinishing] = useState<Finishing | null>(null);
   const [openingPieceId, setOpeningPieceId] = useState<number | null>(null);
@@ -95,6 +96,23 @@ export default function WorkScreen() {
     />
   );
 
+  if (runningBreak) {
+    return (
+      <View style={styles.screen}>
+        <View style={styles.breakRow}>
+          <Text style={styles.breakLabel}>On break</Text>
+          <RunningTime startedAt={runningBreak.started_at} />
+        </View>
+        <Pressable
+          style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
+          onPress={() => backToWork().catch(showError('Could not end the break'))}
+        >
+          <Text style={styles.buttonText}>Back to work</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
   if (runningPieces.length === 0) {
     return (
       <View style={styles.screen}>
@@ -139,6 +157,13 @@ export default function WorkScreen() {
           </Pressable>
         </View>
       ))}
+      <Pressable
+        style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
+        onPress={() => takeBreak().catch(showError('Could not start the break'))}
+        disabled={openingPieceId !== null}
+      >
+        <Text style={styles.buttonText}>Break</Text>
+      </Pressable>
       {finishPanel}
     </View>
   );
@@ -184,6 +209,15 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   pieceName: {
+    flex: 1,
+    fontSize: 18,
+  },
+  breakRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  breakLabel: {
     flex: 1,
     fontSize: 18,
   },

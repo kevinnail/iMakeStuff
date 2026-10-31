@@ -1,6 +1,12 @@
 import { create } from 'zustand';
 
 import {
+  endBreak,
+  getRunningBreak,
+  startBreak,
+  type RunningBreak,
+} from '@/db/queries/breakQueries';
+import {
   finishPiece,
   getRunningPieces,
   startPiece,
@@ -16,21 +22,30 @@ interface FinishInput {
 
 interface WorkState {
   runningPieces: RunningPiece[];
+  runningBreak: RunningBreak | null;
   load: () => Promise<void>;
   start: (name: string) => Promise<void>;
   finish: (pieceId: number, input: FinishInput) => Promise<void>;
+  takeBreak: () => Promise<void>;
+  backToWork: () => Promise<void>;
 }
 
-// Every action rereads the running pieces from the database, so the screen always
-// shows what is stored, including timers that kept running while the app was closed.
+async function readWork() {
+  const [runningPieces, runningBreak] = await Promise.all([getRunningPieces(), getRunningBreak()]);
+  return { runningPieces, runningBreak };
+}
+
+// Every action rereads the running pieces and break from the database, so the screen
+// always shows what is stored, including timers that kept running while the app was closed.
 export const useWorkStore = create<WorkState>()((set) => ({
   runningPieces: [],
+  runningBreak: null,
   load: async () => {
-    set({ runningPieces: await getRunningPieces() });
+    set(await readWork());
   },
   start: async (name) => {
     await startPiece(name);
-    set({ runningPieces: await getRunningPieces() });
+    set(await readWork());
   },
   finish: async (pieceId, { endedAt, notes, cameraPhotoUri }) => {
     const photoFileName = cameraPhotoUri ? await savePhoto(cameraPhotoUri) : null;
@@ -40,6 +55,14 @@ export const useWorkStore = create<WorkState>()((set) => ({
       if (photoFileName) deletePhoto(photoFileName);
       throw error;
     }
-    set({ runningPieces: await getRunningPieces() });
+    set(await readWork());
+  },
+  takeBreak: async () => {
+    await startBreak();
+    set(await readWork());
+  },
+  backToWork: async () => {
+    await endBreak();
+    set(await readWork());
   },
 }));
