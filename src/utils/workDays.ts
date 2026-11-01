@@ -3,7 +3,7 @@ export interface TimeRange {
   ended_at: string | null;
 }
 
-export interface PieceDay {
+export interface WorkDay {
   dayStart: number;
   firstStart: number;
   lastStop: number;
@@ -18,7 +18,7 @@ function startOfNextDay(milliseconds: number) {
   return date.getTime();
 }
 
-function startOfDay(milliseconds: number) {
+export function startOfDay(milliseconds: number) {
   const date = new Date(milliseconds);
   date.setHours(0, 0, 0, 0);
   return date.getTime();
@@ -34,16 +34,17 @@ function totalOverlap(ranges: TimeRange[], from: number, to: number, now: number
   return ranges.reduce((total, range) => total + overlap(range, from, to, now), 0);
 }
 
-// The piece's segments are split at local midnight into one entry per day, oldest first.
-export function getPieceDays(
-  pieceSegments: TimeRange[],
+// Segments are split at local midnight into one entry per day, oldest first. For one piece,
+// pass the other pieces' segments as otherSegments; for whole days, pass every segment and none.
+export function getWorkDays(
+  segments: TimeRange[],
   otherSegments: TimeRange[],
   breaks: TimeRange[],
   now: number,
-): PieceDay[] {
-  const worked = new Map<number, Pick<PieceDay, 'firstStart' | 'lastStop' | 'worked'>>();
+): WorkDay[] {
+  const worked = new Map<number, Pick<WorkDay, 'firstStart' | 'lastStop' | 'worked'>>();
 
-  for (const segment of pieceSegments) {
+  for (const segment of segments) {
     const end = segment.ended_at ? Date.parse(segment.ended_at) : now;
     let start = Date.parse(segment.started_at);
     while (start < end) {
