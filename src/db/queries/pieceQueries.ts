@@ -1,7 +1,7 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { getDb } from '@/db/database';
-import type { TimeRange } from '@/utils/pieceDays';
+import type { TimeRange } from '@/utils/workDays';
 
 export interface UnfinishedPiece {
   id: number;
