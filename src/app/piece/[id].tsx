@@ -3,21 +3,13 @@ import { useEffect, useState } from 'react';
 import { Alert, Image, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { getPieceDetail, type PieceRecord } from '@/db/queries/pieceQueries';
-import { formatDay, formatDuration } from '@/utils/formatTime';
-import { getPieceDays, type PieceDay } from '@/utils/pieceDays';
+import { formatClockTime, formatDay, formatDuration } from '@/utils/formatTime';
+import { getWorkDays, type WorkDay } from '@/utils/workDays';
 import { getPhotoUri } from '@/utils/photoStorage';
 
 interface PiecePage {
   piece: PieceRecord;
-  days: PieceDay[];
-}
-
-// "9:00 AM"
-function formatClockTime(milliseconds: number) {
-  return new Date(milliseconds).toLocaleTimeString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-  });
+  days: WorkDay[];
 }
 
 type DayField = 'worked' | 'otherPieces' | 'onBreak';
@@ -28,13 +20,13 @@ const dayColumns: { label: string; field: DayField; width: number }[] = [
   { label: 'Other pieces', field: 'otherPieces', width: 124 },
 ];
 
-function sumDays(days: PieceDay[], field: DayField) {
+function sumDays(days: WorkDay[], field: DayField) {
   return days.reduce((total, day) => total + day[field], 0);
 }
 
 // The whole piece: worked time large, when it was worked, then where the rest of the
 // time went.
-function Totals({ days }: { days: PieceDay[] }) {
+function Totals({ days }: { days: WorkDay[] }) {
   const firstDay = days[0];
   const lastDay = days[days.length - 1];
   const when =
@@ -63,7 +55,7 @@ function Totals({ days }: { days: PieceDay[] }) {
 }
 
 // One line per day, so a piece worked over many days still fits on one screen.
-function DayTable({ days }: { days: PieceDay[] }) {
+function DayTable({ days }: { days: WorkDay[] }) {
   return (
     <View style={styles.dayTable}>
       <View style={styles.tableRow}>
@@ -100,7 +92,7 @@ export default function PieceScreen() {
         setPage(
           detail && {
             piece: detail.piece,
-            days: getPieceDays(detail.segments, detail.otherSegments, detail.breaks, Date.now()),
+            days: getWorkDays(detail.segments, detail.otherSegments, detail.breaks, Date.now()),
           },
         ),
       )
