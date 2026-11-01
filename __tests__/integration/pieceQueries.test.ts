@@ -3,6 +3,8 @@ import { getRunningBreak, startBreak } from '@/db/queries/breakQueries';
 import {
   endDay,
   finishPiece,
+  getPieceDetail,
+  getPieces,
   getUnfinishedPieces,
   startPiece,
   switchToPiece,
@@ -278,5 +280,92 @@ describe('finishPiece', () => {
       photo_file_name: 'vase.jpg',
       finished_at: endedAt,
     });
+  });
+});
+
+describe('getPieces', () => {
+  // Otherwise the Pieces tab would bury unfinished work or show finished pieces out of order.
+  it('lists unfinished pieces first, then finished ones newest first, with their worked time', async () => {
+    await database.execAsync(`
+      INSERT INTO pieces (id, name, notes, finished_at) VALUES
+        (1, 'Blue vase', 'Cobalt', '2026-10-30T17:00:00.000Z'),
+        (2, 'Green bowl', 'Lime', '2026-10-31T17:00:00.000Z'),
+        (3, 'Red cup', NULL, NULL);
+      INSERT INTO work_segments (piece_id, started_at, ended_at) VALUES
+        (1, '2026-10-30T09:00:00.000Z', '2026-10-30T10:00:00.000Z'),
+        (2, '2026-10-31T09:00:00.000Z', '2026-10-31T11:00:00.000Z'),
+        (3, '2026-10-31T12:00:00.000Z', '2026-10-31T12:30:00.000Z');
+    `);
+
+    expect(await getPieces()).toEqual([
+      {
+        id: 3,
+        name: 'Red cup',
+        photo_file_name: null,
+        finished_at: null,
+        worked_milliseconds: 30 * 60 * 1000,
+      },
+      {
+        id: 2,
+        name: 'Green bowl',
+        photo_file_name: null,
+        finished_at: '2026-10-31T17:00:00.000Z',
+        worked_milliseconds: 2 * 60 * 60 * 1000,
+      },
+      {
+        id: 1,
+        name: 'Blue vase',
+        photo_file_name: null,
+        finished_at: '2026-10-30T17:00:00.000Z',
+        worked_milliseconds: 60 * 60 * 1000,
+      },
+    ]);
+  });
+
+  // Otherwise the piece being worked on right now would show only its earlier sittings.
+  it('counts a running piece up to now', async () => {
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    await database.execAsync(`
+      INSERT INTO pieces (id, name) VALUES (1, 'Blue vase');
+      INSERT INTO work_segments (piece_id, started_at) VALUES (1, '${oneHourAgo}');
+    `);
+
+    const [piece] = await getPieces();
+    expect(piece.worked_milliseconds).toBeGreaterThanOrEqual(60 * 60 * 1000 - 1000);
+    expect(piece.worked_milliseconds).toBeLessThanOrEqual(60 * 60 * 1000 + 5000);
+  });
+});
+
+describe('getPieceDetail', () => {
+  // Otherwise the piece page would be missing the other pieces and breaks its day lines are split from.
+  it('returns the piece, its segments, and other segments and breaks since its first start', async () => {
+    await database.execAsync(`
+      INSERT INTO pieces (id, name, notes) VALUES (1, 'Blue vase', NULL), (2, 'Green bowl', NULL);
+      INSERT INTO work_segments (piece_id, started_at, ended_at) VALUES
+        (2, '2026-10-30T09:00:00.000Z', '2026-10-30T10:00:00.000Z'),
+        (1, '2026-10-31T11:00:00.000Z', '2026-10-31T12:00:00.000Z'),
+        (1, '2026-10-31T09:00:00.000Z', '2026-10-31T10:00:00.000Z'),
+        (2, '2026-10-31T10:00:00.000Z', '2026-10-31T10:30:00.000Z');
+      INSERT INTO breaks (started_at, ended_at) VALUES
+        ('2026-10-30T12:00:00.000Z', '2026-10-30T13:00:00.000Z'),
+        ('2026-10-31T10:30:00.000Z', '2026-10-31T11:00:00.000Z');
+    `);
+
+    expect(await getPieceDetail(1)).toEqual({
+      piece: { id: 1, name: 'Blue vase', notes: null, photo_file_name: null, finished_at: null },
+      segments: [
+        { started_at: '2026-10-31T09:00:00.000Z', ended_at: '2026-10-31T10:00:00.000Z' },
+        { started_at: '2026-10-31T11:00:00.000Z', ended_at: '2026-10-31T12:00:00.000Z' },
+      ],
+      otherSegments: [
+        { started_at: '2026-10-31T10:00:00.000Z', ended_at: '2026-10-31T10:30:00.000Z' },
+      ],
+      breaks: [{ started_at: '2026-10-31T10:30:00.000Z', ended_at: '2026-10-31T11:00:00.000Z' }],
+    });
+  });
+
+  // Otherwise a link to a deleted or mistyped piece would crash the page instead of saying so.
+  it('returns null for a piece that does not exist', async () => {
+    expect(await getPieceDetail(999)).toBeNull();
   });
 });
