@@ -1,5 +1,6 @@
+import { useFocusEffect } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -117,9 +118,12 @@ export default function WorkScreen() {
   const trimmedName = name.trim();
   const working = pieces.some((piece) => piece.running_since !== null);
 
-  useEffect(() => {
-    load().catch(showError('Could not load your work'));
-  }, [load]);
+  // Reloads whenever the tab is shown, so fixes made on a day's page show here.
+  useFocusEffect(
+    useCallback(() => {
+      load().catch(showError('Could not load your work'));
+    }, [load]),
+  );
 
   function handleStart() {
     start(trimmedName)
