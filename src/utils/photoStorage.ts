@@ -22,3 +22,7 @@ export async function saveToCameraRoll(uri: string) {
   const { granted } = await MediaLibrary.requestPermissionsAsync(true);
   if (granted) await MediaLibrary.Asset.create(uri);
 }
+
+export function getPhotoUri(fileName: string) {
+  return new File(getPhotoDirectory(), fileName).uri;
+}
