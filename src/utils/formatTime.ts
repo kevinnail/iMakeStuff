@@ -10,3 +10,8 @@ export function formatDuration(milliseconds: number) {
 export function formatDay(milliseconds: number) {
   return new Date(milliseconds).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
+
+// "9:00 AM"
+export function formatClockTime(milliseconds: number) {
+  return new Date(milliseconds).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+}
