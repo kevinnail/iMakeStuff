@@ -20,7 +20,6 @@ import { saveToCameraRoll } from '@/utils/photoStorage';
 
 interface Finishing {
   piece: UnfinishedPiece;
-  endedAt: string;
   cameraPhotoUri: string | null;
 }
 
@@ -76,8 +75,8 @@ export default function WorkScreen() {
       .catch(showError('Could not start'));
   }
 
+  // The piece's clock keeps running through the camera and notes; Save sets the finish time.
   async function openFinish(piece: UnfinishedPiece) {
-    const endedAt = new Date().toISOString();
     setOpeningPieceId(piece.id);
     try {
       const { granted } = await ImagePicker.requestCameraPermissionsAsync();
@@ -88,7 +87,7 @@ export default function WorkScreen() {
           showError('Could not save the photo to your camera roll'),
         );
       }
-      setFinishing({ piece, endedAt, cameraPhotoUri });
+      setFinishing({ piece, cameraPhotoUri });
     } finally {
       setOpeningPieceId(null);
     }
@@ -96,16 +95,13 @@ export default function WorkScreen() {
 
   const finishPanel = finishing && (
     <FinishPiecePanel
-      key={finishing.endedAt}
       pieceName={finishing.piece.name}
       cameraPhotoUri={finishing.cameraPhotoUri}
       onCancel={() => setFinishing(null)}
       onSave={(notes) =>
-        finish(finishing.piece.id, {
-          endedAt: finishing.endedAt,
-          notes,
-          cameraPhotoUri: finishing.cameraPhotoUri,
-        }).then(() => setFinishing(null))
+        finish(finishing.piece.id, { notes, cameraPhotoUri: finishing.cameraPhotoUri }).then(() =>
+          setFinishing(null),
+        )
       }
     />
   );

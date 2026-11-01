@@ -1,12 +1,36 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { getDb } from '@/db/database';
+import type { TimeRange } from '@/utils/pieceDays';
 
 export interface UnfinishedPiece {
   id: number;
   name: string;
   worked_milliseconds: number;
   running_since: string | null;
+}
+
+export interface PieceListItem {
+  id: number;
+  name: string;
+  photo_file_name: string | null;
+  finished_at: string | null;
+  worked_milliseconds: number;
+}
+
+export interface PieceRecord {
+  id: number;
+  name: string;
+  notes: string | null;
+  photo_file_name: string | null;
+  finished_at: string | null;
+}
+
+export interface PieceDetail {
+  piece: PieceRecord;
+  segments: TimeRange[];
+  otherSegments: TimeRange[];
+  breaks: TimeRange[];
 }
 
 export interface FinishDetails {
@@ -100,4 +124,46 @@ export async function getUnfinishedPieces(): Promise<UnfinishedPiece[]> {
      GROUP BY pieces.id
      ORDER BY pieces.id`,
   );
+}
+
+// Unfinished pieces first, then finished ones newest first.
+export async function getPieces(): Promise<PieceListItem[]> {
+  const database = await getDb();
+  return database.getAllAsync<PieceListItem>(
+    `SELECT pieces.id, pieces.name, pieces.photo_file_name, pieces.finished_at,
+       round(total(julianday(coalesce(work_segments.ended_at, 'now'))
+         - julianday(work_segments.started_at)) * 86400000) AS worked_milliseconds
+     FROM pieces
+     JOIN work_segments ON work_segments.piece_id = pieces.id
+     GROUP BY pieces.id
+     ORDER BY pieces.finished_at IS NOT NULL, pieces.finished_at DESC, pieces.id DESC`,
+  );
+}
+
+export async function getPieceDetail(pieceId: number): Promise<PieceDetail | null> {
+  const database = await getDb();
+  const piece = await database.getFirstAsync<PieceRecord>(
+    'SELECT id, name, notes, photo_file_name, finished_at FROM pieces WHERE id = ?',
+    pieceId,
+  );
+  if (!piece) return null;
+  const firstStartSql = '(SELECT min(started_at) FROM work_segments WHERE piece_id = ?)';
+  const [segments, otherSegments, breaks] = await Promise.all([
+    database.getAllAsync<TimeRange>(
+      'SELECT started_at, ended_at FROM work_segments WHERE piece_id = ? ORDER BY started_at',
+      pieceId,
+    ),
+    database.getAllAsync<TimeRange>(
+      `SELECT started_at, ended_at FROM work_segments
+       WHERE piece_id <> ? AND (ended_at IS NULL OR ended_at > ${firstStartSql})`,
+      pieceId,
+      pieceId,
+    ),
+    database.getAllAsync<TimeRange>(
+      `SELECT started_at, ended_at FROM breaks
+       WHERE ended_at IS NULL OR ended_at > ${firstStartSql}`,
+      pieceId,
+    ),
+  ]);
+  return { piece, segments, otherSegments, breaks };
 }

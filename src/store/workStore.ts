@@ -17,7 +17,6 @@ import {
 import { deletePhoto, savePhoto } from '@/utils/photoStorage';
 
 interface FinishInput {
-  endedAt: string;
   notes: string | null;
   cameraPhotoUri: string | null;
 }
@@ -53,7 +52,9 @@ export const useWorkStore = create<WorkState>()((set) => ({
     await switchToPiece(pieceId);
     set(await readWork());
   },
-  finish: async (pieceId, { endedAt, notes, cameraPhotoUri }) => {
+  // The finish time is the moment Save is tapped.
+  finish: async (pieceId, { notes, cameraPhotoUri }) => {
+    const endedAt = new Date().toISOString();
     const photoFileName = cameraPhotoUri ? await savePhoto(cameraPhotoUri) : null;
     try {
       await finishPiece(pieceId, { endedAt, notes, photoFileName });
