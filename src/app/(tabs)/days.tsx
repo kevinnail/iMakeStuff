@@ -43,16 +43,23 @@ export default function DaysScreen() {
       ItemSeparatorComponent={() => <View style={styles.separator} />}
       renderItem={({ item: { day, finishedPieces } }) => (
         <View style={styles.day}>
-          <View style={styles.dayHeader}>
-            <Text style={styles.date}>{formatDay(day.dayStart)}</Text>
-            <Text style={styles.worked}>{formatDuration(day.worked)}</Text>
-          </View>
-          <View style={styles.dayHeader}>
-            <Text style={styles.secondaryText}>
-              {formatClockTime(day.firstStart)} to {formatClockTime(day.lastStop)}
-            </Text>
-            <Text style={styles.secondaryText}>Break {formatDuration(day.onBreak)}</Text>
-          </View>
+          <Pressable
+            style={styles.day}
+            onPress={() =>
+              router.push({ pathname: '/day/[dayStart]', params: { dayStart: day.dayStart } })
+            }
+          >
+            <View style={styles.dayHeader}>
+              <Text style={styles.date}>{formatDay(day.dayStart)}</Text>
+              <Text style={styles.worked}>{formatDuration(day.worked)}</Text>
+            </View>
+            <View style={styles.dayHeader}>
+              <Text style={styles.secondaryText}>
+                {formatClockTime(day.firstStart)} to {formatClockTime(day.lastStop)}
+              </Text>
+              <Text style={styles.secondaryText}>Break {formatDuration(day.onBreak)}</Text>
+            </View>
+          </Pressable>
           {finishedPieces.map((piece) => (
             <Pressable
               key={piece.id}
