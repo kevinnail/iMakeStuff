@@ -6,6 +6,7 @@ import {
   startBreak,
   type RunningBreak,
 } from '@/db/queries/breakQueries';
+import { getWorkRecords, type WorkRecords } from '@/db/queries/dayQueries';
 import {
   endDay,
   finishPiece,
@@ -15,6 +16,7 @@ import {
   type UnfinishedPiece,
 } from '@/db/queries/pieceQueries';
 import { deletePhoto, savePhoto } from '@/utils/photoStorage';
+import { startOfDay } from '@/utils/workDays';
 
 interface FinishInput {
   notes: string | null;
@@ -24,6 +26,8 @@ interface FinishInput {
 interface WorkState {
   pieces: UnfinishedPiece[];
   runningBreak: RunningBreak | null;
+  // Everything since midnight, for the line about today on the Work screen.
+  today: WorkRecords;
   load: () => Promise<void>;
   start: (name: string) => Promise<void>;
   switchTo: (pieceId: number) => Promise<void>;
@@ -34,13 +38,19 @@ interface WorkState {
 }
 
 async function readWork() {
-  const [pieces, runningBreak] = await Promise.all([getUnfinishedPieces(), getRunningBreak()]);
-  return { pieces, runningBreak };
+  const midnight = new Date(startOfDay(Date.now())).toISOString();
+  const [pieces, runningBreak, today] = await Promise.all([
+    getUnfinishedPieces(),
+    getRunningBreak(),
+    getWorkRecords(midnight),
+  ]);
+  return { pieces, runningBreak, today };
 }
 
 export const useWorkStore = create<WorkState>()((set) => ({
   pieces: [],
   runningBreak: null,
+  today: { segments: [], breaks: [], finishedPieces: [] },
   load: async () => {
     set(await readWork());
   },
