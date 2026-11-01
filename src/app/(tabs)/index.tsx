@@ -4,21 +4,30 @@ import {
   ActivityIndicator,
   Alert,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
+  type StyleProp,
+  type TextStyle,
 } from 'react-native';
 
 import { FinishPiecePanel } from '@/components/FinishPiecePanel';
-import type { RunningPiece } from '@/db/queries/pieceQueries';
+import type { UnfinishedPiece } from '@/db/queries/pieceQueries';
 import { useWorkStore } from '@/store/workStore';
 import { saveToCameraRoll } from '@/utils/photoStorage';
 
 interface Finishing {
-  piece: RunningPiece;
+  piece: UnfinishedPiece;
   endedAt: string;
   cameraPhotoUri: string | null;
+}
+
+interface RunningTimeProps {
+  startedAt: string;
+  baseMilliseconds?: number;
+  style?: StyleProp<TextStyle>;
 }
 
 function formatElapsed(milliseconds: number) {
@@ -33,7 +42,7 @@ function showError(title: string) {
   return (error: Error) => Alert.alert(title, error.message);
 }
 
-function RunningTime({ startedAt }: { startedAt: string }) {
+function RunningTime({ startedAt, baseMilliseconds = 0, style }: RunningTimeProps) {
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
@@ -41,16 +50,21 @@ function RunningTime({ startedAt }: { startedAt: string }) {
     return () => clearInterval(interval);
   }, []);
 
-  return <Text style={styles.runningTime}>{formatElapsed(now - Date.parse(startedAt))}</Text>;
+  return (
+    <Text style={[styles.time, style]}>
+      {formatElapsed(baseMilliseconds + now - Date.parse(startedAt))}
+    </Text>
+  );
 }
 
 export default function WorkScreen() {
-  const { runningPieces, runningBreak, load, start, finish, takeBreak, backToWork } =
+  const { pieces, runningBreak, load, start, switchTo, finish, takeBreak, backToWork, endDay } =
     useWorkStore();
   const [name, setName] = useState('');
   const [finishing, setFinishing] = useState<Finishing | null>(null);
   const [openingPieceId, setOpeningPieceId] = useState<number | null>(null);
   const trimmedName = name.trim();
+  const working = pieces.some((piece) => piece.running_since !== null);
 
   useEffect(() => {
     load().catch(showError('Could not load your work'));
@@ -62,7 +76,7 @@ export default function WorkScreen() {
       .catch(showError('Could not start'));
   }
 
-  async function openFinish(piece: RunningPiece) {
+  async function openFinish(piece: UnfinishedPiece) {
     const endedAt = new Date().toISOString();
     setOpeningPieceId(piece.id);
     try {
@@ -96,26 +110,9 @@ export default function WorkScreen() {
     />
   );
 
-  if (runningBreak) {
-    return (
-      <View style={styles.screen}>
-        <View style={styles.breakRow}>
-          <Text style={styles.breakLabel}>On break</Text>
-          <RunningTime startedAt={runningBreak.started_at} />
-        </View>
-        <Pressable
-          style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
-          onPress={() => backToWork().catch(showError('Could not end the break'))}
-        >
-          <Text style={styles.buttonText}>Back to work</Text>
-        </Pressable>
-      </View>
-    );
-  }
-
-  if (runningPieces.length === 0) {
-    return (
-      <View style={styles.screen}>
+  return (
+    <View style={styles.screen}>
+      <View style={styles.startRow}>
         <TextInput
           style={styles.nameInput}
           value={name}
@@ -132,38 +129,78 @@ export default function WorkScreen() {
           <Text style={styles.buttonText}>Start</Text>
         </Pressable>
       </View>
-    );
-  }
 
-  return (
-    <View style={styles.screen}>
-      {runningPieces.map((piece) => (
-        <View key={piece.id} style={styles.pieceRow}>
-          <Text style={styles.pieceName}>{piece.name}</Text>
-          <RunningTime startedAt={piece.started_at} />
+      <ScrollView style={styles.pieceList} contentContainerStyle={styles.pieceListContent}>
+        {pieces.map((piece) => (
+          <Pressable
+            key={piece.id}
+            style={[styles.pieceRow, piece.running_since !== null && styles.pieceRowCurrent]}
+            onPress={() => switchTo(piece.id).catch(showError('Could not switch pieces'))}
+            disabled={piece.running_since !== null}
+          >
+            <View style={styles.pieceDetails}>
+              <Text style={[styles.pieceName, piece.running_since !== null && styles.currentText]}>
+                {piece.name}
+              </Text>
+              {piece.running_since ? (
+                <RunningTime
+                  startedAt={piece.running_since}
+                  baseMilliseconds={piece.worked_milliseconds}
+                  style={styles.currentText}
+                />
+              ) : (
+                <Text style={styles.time}>{formatElapsed(piece.worked_milliseconds)}</Text>
+              )}
+            </View>
+            <Pressable
+              style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
+              onPress={() => openFinish(piece).catch(showError('Could not open the camera'))}
+              disabled={openingPieceId !== null}
+            >
+              <Text
+                style={[styles.buttonText, openingPieceId === piece.id && styles.buttonTextHidden]}
+              >
+                Done
+              </Text>
+              {openingPieceId === piece.id && (
+                <ActivityIndicator color="#fff" style={StyleSheet.absoluteFill} />
+              )}
+            </Pressable>
+          </Pressable>
+        ))}
+      </ScrollView>
+
+      {runningBreak && (
+        <View style={styles.breakRow}>
+          <Text style={styles.breakLabel}>On break</Text>
+          <RunningTime startedAt={runningBreak.started_at} style={styles.breakTime} />
+        </View>
+      )}
+      {(working || runningBreak) && (
+        <View style={styles.controlRow}>
+          {runningBreak ? (
+            <Pressable
+              style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
+              onPress={() => backToWork().catch(showError('Could not end the break'))}
+            >
+              <Text style={styles.buttonText}>Back to work</Text>
+            </Pressable>
+          ) : (
+            <Pressable
+              style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
+              onPress={() => takeBreak().catch(showError('Could not start the break'))}
+            >
+              <Text style={styles.buttonText}>Break</Text>
+            </Pressable>
+          )}
           <Pressable
             style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
-            onPress={() => openFinish(piece).catch(showError('Could not open the camera'))}
-            disabled={openingPieceId !== null}
+            onPress={() => endDay().catch(showError('Could not end the day'))}
           >
-            <Text
-              style={[styles.buttonText, openingPieceId === piece.id && styles.buttonTextHidden]}
-            >
-              Done
-            </Text>
-            {openingPieceId === piece.id && (
-              <ActivityIndicator color="#fff" style={StyleSheet.absoluteFill} />
-            )}
+            <Text style={styles.buttonText}>End day</Text>
           </Pressable>
         </View>
-      ))}
-      <Pressable
-        style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
-        onPress={() => takeBreak().catch(showError('Could not start the break'))}
-        disabled={openingPieceId !== null}
-      >
-        <Text style={styles.buttonText}>Break</Text>
-      </Pressable>
+      )}
       {finishPanel}
     </View>
   );
@@ -175,7 +212,13 @@ const styles = StyleSheet.create({
     padding: 16,
     gap: 12,
   },
+  startRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
   nameInput: {
+    flex: 1,
     fontSize: 18,
     padding: 12,
     borderWidth: 1,
@@ -183,7 +226,6 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   button: {
-    alignSelf: 'flex-start',
     paddingVertical: 10,
     paddingHorizontal: 20,
     borderRadius: 8,
@@ -203,26 +245,56 @@ const styles = StyleSheet.create({
   buttonTextHidden: {
     opacity: 0,
   },
+  pieceList: {
+    flex: 1,
+  },
+  pieceListContent: {
+    gap: 12,
+  },
   pieceRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+    paddingVertical: 28,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    backgroundColor: '#eee',
+  },
+  pieceRowCurrent: {
+    backgroundColor: '#2e7d32',
+  },
+  pieceDetails: {
+    flex: 1,
+    gap: 6,
   },
   pieceName: {
-    flex: 1,
-    fontSize: 18,
+    fontSize: 20,
+  },
+  currentText: {
+    color: '#fff',
   },
   breakRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+    backgroundColor: '#f6ff00',
+    height: 200,
+    padding: 20,
   },
   breakLabel: {
     flex: 1,
-    fontSize: 18,
+    fontSize: 30,
   },
-  runningTime: {
+  controlRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  time: {
     fontSize: 18,
+    fontVariant: ['tabular-nums'],
+  },
+  breakTime: {
+    fontSize: 30,
     fontVariant: ['tabular-nums'],
   },
 });

@@ -33,7 +33,7 @@ export const SCHEMA_SQL = `
     paused_by_break_id INTEGER REFERENCES breaks(id)
   );
 
-  -- A piece's timer is either running or not, so it has at most one open segment.
-  CREATE UNIQUE INDEX IF NOT EXISTS work_segments_one_running_per_piece
-    ON work_segments(piece_id) WHERE ended_at IS NULL;
+  -- Only the piece in your hands collects time, so only one segment can be running.
+  CREATE UNIQUE INDEX IF NOT EXISTS work_segments_one_running
+    ON work_segments(ended_at IS NULL) WHERE ended_at IS NULL;
 `;

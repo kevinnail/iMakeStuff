@@ -7,10 +7,12 @@ import {
   type RunningBreak,
 } from '@/db/queries/breakQueries';
 import {
+  endDay,
   finishPiece,
-  getRunningPieces,
+  getUnfinishedPieces,
   startPiece,
-  type RunningPiece,
+  switchToPiece,
+  type UnfinishedPiece,
 } from '@/db/queries/pieceQueries';
 import { deletePhoto, savePhoto } from '@/utils/photoStorage';
 
@@ -21,30 +23,34 @@ interface FinishInput {
 }
 
 interface WorkState {
-  runningPieces: RunningPiece[];
+  pieces: UnfinishedPiece[];
   runningBreak: RunningBreak | null;
   load: () => Promise<void>;
   start: (name: string) => Promise<void>;
+  switchTo: (pieceId: number) => Promise<void>;
   finish: (pieceId: number, input: FinishInput) => Promise<void>;
   takeBreak: () => Promise<void>;
   backToWork: () => Promise<void>;
+  endDay: () => Promise<void>;
 }
 
 async function readWork() {
-  const [runningPieces, runningBreak] = await Promise.all([getRunningPieces(), getRunningBreak()]);
-  return { runningPieces, runningBreak };
+  const [pieces, runningBreak] = await Promise.all([getUnfinishedPieces(), getRunningBreak()]);
+  return { pieces, runningBreak };
 }
 
-// Every action rereads the running pieces and break from the database, so the screen
-// always shows what is stored, including timers that kept running while the app was closed.
 export const useWorkStore = create<WorkState>()((set) => ({
-  runningPieces: [],
+  pieces: [],
   runningBreak: null,
   load: async () => {
     set(await readWork());
   },
   start: async (name) => {
     await startPiece(name);
+    set(await readWork());
+  },
+  switchTo: async (pieceId) => {
+    await switchToPiece(pieceId);
     set(await readWork());
   },
   finish: async (pieceId, { endedAt, notes, cameraPhotoUri }) => {
@@ -63,6 +69,10 @@ export const useWorkStore = create<WorkState>()((set) => ({
   },
   backToWork: async () => {
     await endBreak();
+    set(await readWork());
+  },
+  endDay: async () => {
+    await endDay();
     set(await readWork());
   },
 }));
