@@ -12,7 +12,7 @@ export interface WorkDay {
   onBreak: number;
 }
 
-function startOfNextDay(milliseconds: number) {
+export function startOfNextDay(milliseconds: number) {
   const date = new Date(milliseconds);
   date.setHours(24, 0, 0, 0);
   return date.getTime();
