@@ -1,6 +1,6 @@
 import { getDb } from '@/db/database';
 import { endBreak, getRunningBreak, startBreak } from '@/db/queries/breakQueries';
-import { finishPiece, getRunningPieces, startPiece } from '@/db/queries/pieceQueries';
+import { finishPiece, startPiece, switchToPiece } from '@/db/queries/pieceQueries';
 import { createTestDb } from '../setup';
 
 jest.mock('@/db/database', () => ({
@@ -20,6 +20,7 @@ interface BreakRow {
 
 const segmentsSql = 'SELECT piece_id, started_at, ended_at FROM work_segments ORDER BY id';
 const breaksSql = 'SELECT started_at, ended_at FROM breaks';
+const runningSegmentsSql = 'SELECT piece_id FROM work_segments WHERE ended_at IS NULL';
 
 let database: ReturnType<typeof createTestDb>;
 
@@ -40,7 +41,7 @@ describe('startBreak', () => {
     expect(await database.getAllAsync<SegmentRow>(segmentsSql)).toEqual([
       { piece_id: pieceId, started_at: expect.any(String), ended_at: breakRow.started_at },
     ]);
-    expect(await getRunningPieces()).toEqual([]);
+    expect(await database.getAllAsync(runningSegmentsSql)).toEqual([]);
     expect(await getRunningBreak()).toEqual({
       id: expect.any(Number),
       started_at: breakRow.started_at,
@@ -82,22 +83,33 @@ describe('endBreak', () => {
     expect(await getRunningBreak()).toBeNull();
   });
 
-  // Otherwise Back to work would also restart pieces that were stopped before the break.
-  it('restarts only the pieces this break paused', async () => {
-    const finishedPieceId = await startPiece('Blue vase');
-    await finishPiece(finishedPieceId, {
-      endedAt: new Date().toISOString(),
-      notes: 'Cobalt glaze',
-      photoFileName: null,
-    });
-    const pausedPieceId = await startPiece('Green bowl');
+  // Otherwise Back to work would resume a piece you had set down before the break.
+  it('restarts only the piece that was green when the break started', async () => {
+    const setDownPieceId = await startPiece('Blue vase');
+    const greenPieceId = await startPiece('Green bowl');
+    await switchToPiece(setDownPieceId);
+    await switchToPiece(greenPieceId);
     await startBreak();
 
     await endBreak();
 
-    expect(await getRunningPieces()).toEqual([
-      { id: pausedPieceId, name: 'Green bowl', started_at: expect.any(String) },
-    ]);
+    expect(await database.getAllAsync(runningSegmentsSql)).toEqual([{ piece_id: greenPieceId }]);
+  });
+
+  // Otherwise a piece finished during the break would start collecting time again.
+  it('does not restart a piece finished during the break', async () => {
+    const pieceId = await startPiece('Blue vase');
+    await startBreak();
+    await finishPiece(pieceId, {
+      endedAt: new Date().toISOString(),
+      notes: 'Cobalt glaze',
+      photoFileName: null,
+    });
+
+    await endBreak();
+
+    expect(await database.getAllAsync(runningSegmentsSql)).toEqual([]);
+    expect(await getRunningBreak()).toBeNull();
   });
 
   // Otherwise Back to work with no break would fail silently and the screen would show nothing changed.
