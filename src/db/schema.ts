@@ -17,7 +17,8 @@ export const SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS breaks (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     started_at TEXT NOT NULL,
-    ended_at   TEXT
+    ended_at   TEXT,
+    CHECK (ended_at IS NULL OR ended_at >= started_at)
   );
 
   -- A break pauses everything, so only one can be running.
@@ -30,7 +31,8 @@ export const SCHEMA_SQL = `
     started_at         TEXT NOT NULL DEFAULT (${SQL_NOW}),
     ended_at           TEXT,
     -- Set when a break ended this segment, so Back to work knows which pieces to restart.
-    paused_by_break_id INTEGER REFERENCES breaks(id)
+    paused_by_break_id INTEGER REFERENCES breaks(id),
+    CHECK (ended_at IS NULL OR ended_at >= started_at)
   );
 
   -- Only the piece in your hands collects time, so only one segment can be running.

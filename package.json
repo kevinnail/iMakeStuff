@@ -13,6 +13,7 @@
     "test:watch": "jest --watchAll --verbose --runInBand"
   },
   "dependencies": {
+    "@react-native-community/datetimepicker": "9.2.1",
     "expo": "~58.0.11",
     "expo-constants": "~58.0.12",
     "expo-dev-client": "~58.0.13",

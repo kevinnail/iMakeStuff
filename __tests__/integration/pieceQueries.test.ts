@@ -201,7 +201,8 @@ describe('endDay', () => {
 });
 
 describe('finishPiece', () => {
-  const endedAt = '2026-10-31T17:30:00.000Z';
+  // After the start, which is the real current time, so the database accepts the end.
+  const endedAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
 
   // Otherwise Done loses the photo, or leaves the clock running and the piece keeps collecting time.
   it('saves the photo and ends the running segment at the Done time', async () => {
@@ -270,7 +271,7 @@ describe('finishPiece', () => {
 
     await expect(
       finishPiece(pieceId, {
-        endedAt: '2026-10-31T18:00:00.000Z',
+        endedAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
         notes: null,
         photoFileName: 'other.jpg',
       }),
