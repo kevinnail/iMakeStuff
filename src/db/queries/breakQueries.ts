@@ -22,7 +22,8 @@ export async function startBreak(): Promise<void> {
   });
 }
 
-// Ends the break and restarts every piece it paused, from the moment the break ended.
+// Ends the break and restarts the piece it paused, from the moment the break ended,
+// unless that piece was finished during the break.
 export async function endBreak(): Promise<void> {
   const database = await getDb();
   const endedAt = new Date().toISOString();
@@ -34,7 +35,10 @@ export async function endBreak(): Promise<void> {
     if (!endedBreak) throw new Error('You are not on a break.');
     await database.runAsync(
       `INSERT INTO work_segments (piece_id, started_at)
-       SELECT piece_id, ? FROM work_segments WHERE paused_by_break_id = ?`,
+       SELECT work_segments.piece_id, ?
+       FROM work_segments
+       JOIN pieces ON pieces.id = work_segments.piece_id
+       WHERE work_segments.paused_by_break_id = ? AND pieces.finished_at IS NULL`,
       endedAt,
       endedBreak.id,
     );
