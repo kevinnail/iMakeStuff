@@ -1,9 +1,12 @@
+import type { SQLiteDatabase } from 'expo-sqlite';
+
 import { getDb } from '@/db/database';
 
-export interface RunningPiece {
+export interface UnfinishedPiece {
   id: number;
   name: string;
-  started_at: string;
+  worked_milliseconds: number;
+  running_since: string | null;
 }
 
 export interface FinishDetails {
@@ -12,21 +15,51 @@ export interface FinishDetails {
   photoFileName: string | null;
 }
 
-// Rejected by the database when the piece already has a running segment.
-export async function startSegment(pieceId: number): Promise<void> {
-  const database = await getDb();
-  await database.runAsync('INSERT INTO work_segments (piece_id) VALUES (?)', pieceId);
+async function stopRunning(database: SQLiteDatabase, endedAt: string): Promise<number> {
+  const endedBreaks = await database.runAsync(
+    'UPDATE breaks SET ended_at = ? WHERE ended_at IS NULL',
+    endedAt,
+  );
+  const endedSegments = await database.runAsync(
+    'UPDATE work_segments SET ended_at = ? WHERE ended_at IS NULL',
+    endedAt,
+  );
+  return endedBreaks.changes + endedSegments.changes;
+}
+
+async function startSegment(database: SQLiteDatabase, pieceId: number, startedAt: string) {
+  await stopRunning(database, startedAt);
+  await database.runAsync(
+    'INSERT INTO work_segments (piece_id, started_at) VALUES (?, ?)',
+    pieceId,
+    startedAt,
+  );
 }
 
 export async function startPiece(name: string): Promise<number> {
   const database = await getDb();
+  const startedAt = new Date().toISOString();
   let pieceId = 0;
   await database.withTransactionAsync(async () => {
     const result = await database.runAsync('INSERT INTO pieces (name) VALUES (?)', name);
     pieceId = result.lastInsertRowId;
-    await startSegment(pieceId);
+    await startSegment(database, pieceId, startedAt);
   });
   return pieceId;
+}
+
+export async function switchToPiece(pieceId: number): Promise<void> {
+  const database = await getDb();
+  const startedAt = new Date().toISOString();
+  await database.withTransactionAsync(() => startSegment(database, pieceId, startedAt));
+}
+
+export async function endDay(): Promise<void> {
+  const database = await getDb();
+  const endedAt = new Date().toISOString();
+  await database.withTransactionAsync(async () => {
+    if ((await stopRunning(database, endedAt)) === 0) throw new Error('Nothing is running.');
+  });
 }
 
 export async function finishPiece(
@@ -52,13 +85,19 @@ export async function finishPiece(
   });
 }
 
-export async function getRunningPieces(): Promise<RunningPiece[]> {
+// In the order the pieces were started, so rows don't move when you swap.
+export async function getUnfinishedPieces(): Promise<UnfinishedPiece[]> {
   const database = await getDb();
-  return database.getAllAsync<RunningPiece>(
-    `SELECT pieces.id, pieces.name, work_segments.started_at
-     FROM work_segments
-     JOIN pieces ON pieces.id = work_segments.piece_id
-     WHERE work_segments.ended_at IS NULL
-     ORDER BY work_segments.started_at`,
+  return database.getAllAsync<UnfinishedPiece>(
+    `SELECT pieces.id, pieces.name,
+       round(total(julianday(work_segments.ended_at) - julianday(work_segments.started_at))
+         * 86400000) AS worked_milliseconds,
+       max(CASE WHEN work_segments.ended_at IS NULL THEN work_segments.started_at END)
+         AS running_since
+     FROM pieces
+     JOIN work_segments ON work_segments.piece_id = pieces.id
+     WHERE pieces.finished_at IS NULL
+     GROUP BY pieces.id
+     ORDER BY pieces.id`,
   );
 }
