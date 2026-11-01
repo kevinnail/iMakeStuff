@@ -14,9 +14,12 @@ import {
 } from 'react-native';
 
 import { FinishPiecePanel } from '@/components/FinishPiecePanel';
+import type { WorkRecords } from '@/db/queries/dayQueries';
 import type { UnfinishedPiece } from '@/db/queries/pieceQueries';
 import { useWorkStore } from '@/store/workStore';
+import { formatDuration } from '@/utils/formatTime';
 import { saveToCameraRoll } from '@/utils/photoStorage';
+import { getWorkDays, startOfDay } from '@/utils/workDays';
 
 interface Finishing {
   piece: UnfinishedPiece;
@@ -41,13 +44,20 @@ function showError(title: string) {
   return (error: Error) => Alert.alert(title, error.message);
 }
 
-function RunningTime({ startedAt, baseMilliseconds = 0, style }: RunningTimeProps) {
+// The current time, updated every second.
+function useNow() {
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
     const interval = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(interval);
   }, []);
+
+  return now;
+}
+
+function RunningTime({ startedAt, baseMilliseconds = 0, style }: RunningTimeProps) {
+  const now = useNow();
 
   return (
     <Text style={[styles.time, style]}>
@@ -56,9 +66,51 @@ function RunningTime({ startedAt, baseMilliseconds = 0, style }: RunningTimeProp
   );
 }
 
+// "Today: 5h 20m worked, 30m break, 2 finished", counting the running piece up to now.
+// Everything is filtered to the current day here, not only when the store loads, so the
+// numbers reset at midnight even if nothing is tapped.
+function TodayTable({ today }: { today: WorkRecords }) {
+  const now = useNow();
+  const midnight = startOfDay(now);
+  const day = getWorkDays(today.segments, [], today.breaks, now).find(
+    (workDay) => workDay.dayStart === midnight,
+  );
+  const columns = [
+    { label: 'Work Today', value: formatDuration(day?.worked ?? 0) },
+    { label: 'Break', value: formatDuration(day?.onBreak ?? 0) },
+    {
+      label: 'Finished',
+      value: String(
+        today.finishedPieces.filter((piece) => Date.parse(piece.finished_at) >= midnight).length,
+      ),
+    },
+  ];
+
+  return (
+    <View style={styles.todayTable}>
+      {columns.map(({ label, value }) => (
+        <View key={label} style={styles.todayColumn}>
+          <Text style={styles.todayLabel}>{label}</Text>
+          <Text style={styles.todayValue}>{value}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
 export default function WorkScreen() {
-  const { pieces, runningBreak, load, start, switchTo, finish, takeBreak, backToWork, endDay } =
-    useWorkStore();
+  const {
+    pieces,
+    runningBreak,
+    today,
+    load,
+    start,
+    switchTo,
+    finish,
+    takeBreak,
+    backToWork,
+    endDay,
+  } = useWorkStore();
   const [name, setName] = useState('');
   const [finishing, setFinishing] = useState<Finishing | null>(null);
   const [openingPieceId, setOpeningPieceId] = useState<number | null>(null);
@@ -197,6 +249,7 @@ export default function WorkScreen() {
           </Pressable>
         </View>
       )}
+      <TodayTable today={today} />
       {finishPanel}
     </View>
   );
@@ -286,6 +339,22 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   time: {
+    fontSize: 18,
+    fontVariant: ['tabular-nums'],
+  },
+  todayTable: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  todayColumn: {
+    flex: 1,
+    gap: 2,
+  },
+  todayLabel: {
+    fontSize: 16,
+    color: '#555',
+  },
+  todayValue: {
     fontSize: 18,
     fontVariant: ['tabular-nums'],
   },
