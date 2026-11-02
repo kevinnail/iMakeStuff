@@ -6,8 +6,21 @@ import { getPieces, type PieceListItem } from '@/db/queries/pieceQueries';
 import { formatDay, formatDuration } from '@/utils/formatTime';
 import { getPhotoUri } from '@/utils/photoStorage';
 
+type PieceFilter = 'all' | 'unfinished' | 'finished';
+
+const filters: { value: PieceFilter; label: string; emptyText: string }[] = [
+  { value: 'all', label: 'All', emptyText: 'No pieces yet.' },
+  { value: 'unfinished', label: 'Unfinished', emptyText: 'No unfinished pieces.' },
+  { value: 'finished', label: 'Finished', emptyText: 'No finished pieces.' },
+];
+
 export default function PiecesScreen() {
   const [pieces, setPieces] = useState<PieceListItem[]>([]);
+  const [filter, setFilter] = useState<PieceFilter>('all');
+  const shownPieces = pieces.filter(
+    (piece) => filter === 'all' || (filter === 'finished') === (piece.finished_at !== null),
+  );
+  const emptyText = filters.find(({ value }) => value === filter)?.emptyText;
 
   // Reloads every time the tab is shown, so a piece finished on Work appears here.
   useFocusEffect(
@@ -20,9 +33,27 @@ export default function PiecesScreen() {
 
   return (
     <FlatList
-      data={pieces}
+      data={shownPieces}
       keyExtractor={(piece) => String(piece.id)}
+      contentInsetAdjustmentBehavior="automatic"
       contentContainerStyle={styles.list}
+      // A row of three joined buttons that picks which pieces the list shows.
+      ListHeaderComponent={
+        <View style={styles.filterRow}>
+          {filters.map(({ value, label }) => (
+            <Pressable
+              key={value}
+              style={[styles.filterButton, filter === value && styles.filterButtonSelected]}
+              onPress={() => setFilter(value)}
+            >
+              <Text style={[styles.filterText, filter === value && styles.filterTextSelected]}>
+                {label}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      }
+      ListEmptyComponent={<Text style={styles.detailText}>{emptyText}</Text>}
       renderItem={({ item: piece }) => (
         <Pressable
           style={styles.row}
@@ -52,6 +83,29 @@ const styles = StyleSheet.create({
   list: {
     padding: 16,
     gap: 12,
+  },
+  filterRow: {
+    flexDirection: 'row',
+    padding: 2,
+    borderRadius: 8,
+    backgroundColor: '#e0e0e0',
+  },
+  filterButton: {
+    flex: 1,
+    paddingVertical: 6,
+    borderRadius: 6,
+  },
+  filterButtonSelected: {
+    backgroundColor: '#1a1a1a',
+  },
+  filterText: {
+    fontSize: 16,
+    lineHeight: 18,
+    textAlign: 'center',
+    color: '#1a1a1a',
+  },
+  filterTextSelected: {
+    color: '#fff',
   },
   row: {
     flexDirection: 'row',
