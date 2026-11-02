@@ -13,6 +13,7 @@ import {
   type StyleProp,
   type TextStyle,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { FinishPiecePanel } from '@/components/FinishPiecePanel';
 import type { WorkRecords } from '@/db/queries/dayQueries';
@@ -163,7 +164,8 @@ export default function WorkScreen() {
   );
 
   return (
-    <View style={styles.screen}>
+    // The tab bar has no header, so the screen keeps itself clear of the status bar and tab bar.
+    <SafeAreaView edges={['top', 'bottom']} style={styles.screen}>
       <View style={styles.startRow}>
         <TextInput
           style={styles.nameInput}
@@ -255,7 +257,7 @@ export default function WorkScreen() {
       )}
       <TodayTable today={today} />
       {finishPanel}
-    </View>
+    </SafeAreaView>
   );
 }
 
