@@ -20,6 +20,13 @@ interface TimelineEntry {
   ended_at: string | null;
 }
 
+export interface PastWork {
+  piece: { id: number } | { name: string };
+  startedAt: string;
+  endedAt: string;
+  finish: { notes: string | null; photoFileName: string | null } | null;
+}
+
 const tableByKind = { segment: 'work_segments', break: 'breaks' } as const;
 
 // Entries that overlap startedAt to endedAt. A running entry runs until now, and entries
@@ -120,5 +127,40 @@ export async function addBreak(startedAt: string, endedAt: string): Promise<void
       endedAt,
       segment.ended_at,
     );
+  });
+}
+
+export async function addPastWork({ piece, startedAt, endedAt, finish }: PastWork): Promise<void> {
+  const database = await getDb();
+  const now = new Date().toISOString();
+  await database.withTransactionAsync(async () => {
+    const overlapping = await getOverlappingEntries(database, startedAt, endedAt, now);
+    if (overlapping.length > 0) throw new Error('That overlaps another entry.');
+    const pieceId =
+      'id' in piece
+        ? piece.id
+        : (
+            await database.runAsync(
+              'INSERT INTO pieces (name, created_at) VALUES (?, ?)',
+              piece.name,
+              startedAt,
+            )
+          ).lastInsertRowId;
+    await database.runAsync(
+      'INSERT INTO work_segments (piece_id, started_at, ended_at) VALUES (?, ?, ?)',
+      pieceId,
+      startedAt,
+      endedAt,
+    );
+    if (!finish) return;
+    const finished = await database.runAsync(
+      `UPDATE pieces SET finished_at = ?, notes = ?, photo_file_name = ?
+       WHERE id = ? AND finished_at IS NULL`,
+      endedAt,
+      finish.notes,
+      finish.photoFileName,
+      pieceId,
+    );
+    if (finished.changes === 0) throw new Error('That piece is already finished.');
   });
 }
