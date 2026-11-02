@@ -15,7 +15,7 @@ import {
   switchToPiece,
   type UnfinishedPiece,
 } from '@/db/queries/pieceQueries';
-import { deletePhoto, savePhoto } from '@/utils/photoStorage';
+import { withSavedPhoto } from '@/utils/photoStorage';
 import { startOfDay } from '@/utils/workDays';
 
 interface FinishInput {
@@ -62,16 +62,11 @@ export const useWorkStore = create<WorkState>()((set) => ({
     await switchToPiece(pieceId);
     set(await readWork());
   },
-  // The finish time is the moment Save is tapped.
   finish: async (pieceId, { notes, cameraPhotoUri }) => {
     const endedAt = new Date().toISOString();
-    const photoFileName = cameraPhotoUri ? await savePhoto(cameraPhotoUri) : null;
-    try {
-      await finishPiece(pieceId, { endedAt, notes, photoFileName });
-    } catch (error) {
-      if (photoFileName) deletePhoto(photoFileName);
-      throw error;
-    }
+    await withSavedPhoto(cameraPhotoUri, (photoFileName) =>
+      finishPiece(pieceId, { endedAt, notes, photoFileName }),
+    );
     set(await readWork());
   },
   takeBreak: async () => {

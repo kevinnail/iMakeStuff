@@ -41,6 +41,15 @@ export default function DaysScreen() {
       keyExtractor={({ day }) => String(day.dayStart)}
       contentContainerStyle={styles.list}
       ItemSeparatorComponent={() => <View style={styles.separator} />}
+      ListHeaderComponent={
+        <Pressable
+          style={({ pressed }) => [styles.addButton, pressed && styles.buttonPressed]}
+          onPress={() => router.push('/add-work')}
+        >
+          <Text style={styles.addButtonText}>Add past work</Text>
+        </Pressable>
+      }
+      ListHeaderComponentStyle={styles.listHeader}
       renderItem={({ item: { day, finishedPieces } }) => (
         <View style={styles.day}>
           <Pressable
@@ -83,6 +92,24 @@ export default function DaysScreen() {
 const styles = StyleSheet.create({
   list: {
     padding: 16,
+  },
+  listHeader: {
+    flexDirection: 'row',
+    paddingBottom: 16,
+  },
+  addButton: {
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    backgroundColor: '#1a1a1a',
+  },
+  buttonPressed: {
+    opacity: 0.6,
+  },
+  addButtonText: {
+    fontSize: 18,
+    lineHeight: 20,
+    color: '#fff',
   },
   separator: {
     height: StyleSheet.hairlineWidth,

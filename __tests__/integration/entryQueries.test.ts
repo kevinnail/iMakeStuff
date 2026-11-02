@@ -1,5 +1,5 @@
 import { getDb } from '@/db/database';
-import { addBreak, getDayEntries, updateEntryTimes } from '@/db/queries/entryQueries';
+import { addBreak, addPastWork, getDayEntries, updateEntryTimes } from '@/db/queries/entryQueries';
 import { createTestDb } from '../setup';
 
 jest.mock('@/db/database', () => ({
@@ -204,5 +204,87 @@ describe('addBreak', () => {
     await expect(addBreak('2026-10-31T12:30:00.000Z', '2026-10-31T13:30:00.000Z')).rejects.toThrow(
       'That overlaps another break.',
     );
+  });
+});
+
+describe('addPastWork', () => {
+  const startedAt = '2026-10-30T16:00:00.000Z';
+  const endedAt = '2026-10-30T19:00:00.000Z';
+
+  // Otherwise a forgotten day's work could not be recorded at all.
+  it('creates a new piece with its work on the chosen day', async () => {
+    await addPastWork({ piece: { name: 'Red cup' }, startedAt, endedAt, finish: null });
+
+    expect(
+      await database.getAllAsync(
+        `SELECT pieces.name, pieces.finished_at, work_segments.started_at, work_segments.ended_at
+         FROM work_segments JOIN pieces ON pieces.id = work_segments.piece_id`,
+      ),
+    ).toEqual([{ name: 'Red cup', finished_at: null, started_at: startedAt, ended_at: endedAt }]);
+  });
+
+  // Otherwise a forgotten sitting on a piece already in the list would need a duplicate piece.
+  it('adds the work to an existing piece', async () => {
+    await addPastWork({ piece: { id: 2 }, startedAt, endedAt, finish: null });
+
+    expect(await database.getAllAsync<SegmentRow>(segmentsSql)).toEqual([
+      { piece_id: 2, started_at: startedAt, ended_at: endedAt },
+    ]);
+  });
+
+  // Otherwise a piece made entirely on a forgotten day could never be finished.
+  it('finishes the piece at the end of the work', async () => {
+    await addPastWork({
+      piece: { name: 'Red cup' },
+      startedAt,
+      endedAt,
+      finish: { notes: 'Copper red', photoFileName: null },
+    });
+
+    expect(
+      await database.getAllAsync("SELECT notes, finished_at FROM pieces WHERE name = 'Red cup'"),
+    ).toEqual([{ notes: 'Copper red', finished_at: endedAt }]);
+  });
+
+  // Otherwise a finished piece could be saved with nothing to identify it.
+  it('rejects finishing with neither a photo nor notes and saves nothing', async () => {
+    await expect(
+      addPastWork({
+        piece: { name: 'Red cup' },
+        startedAt,
+        endedAt,
+        finish: { notes: null, photoFileName: null },
+      }),
+    ).rejects.toThrow(/CHECK constraint/);
+
+    expect(await database.getAllAsync("SELECT id FROM pieces WHERE name = 'Red cup'")).toEqual([]);
+    expect(await database.getAllAsync(segmentsSql)).toEqual([]);
+  });
+
+  // Otherwise past work could end before it starts and count negative time.
+  it('rejects an end before its start and saves nothing', async () => {
+    await expect(
+      addPastWork({
+        piece: { name: 'Red cup' },
+        startedAt: endedAt,
+        endedAt: startedAt,
+        finish: null,
+      }),
+    ).rejects.toThrow(/CHECK constraint/);
+
+    expect(await database.getAllAsync("SELECT id FROM pieces WHERE name = 'Red cup'")).toEqual([]);
+  });
+
+  // Otherwise the same minutes could count as work on two pieces.
+  it('rejects work that overlaps another entry', async () => {
+    await database.execAsync(`
+      INSERT INTO work_segments (piece_id, started_at, ended_at)
+        VALUES (1, '2026-10-30T18:00:00.000Z', '2026-10-30T20:00:00.000Z');
+    `);
+
+    await expect(
+      addPastWork({ piece: { id: 2 }, startedAt, endedAt, finish: null }),
+    ).rejects.toThrow('That overlaps another entry.');
+    expect(await database.getAllAsync(segmentsSql)).toHaveLength(1);
   });
 });

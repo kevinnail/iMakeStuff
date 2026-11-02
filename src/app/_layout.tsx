@@ -6,6 +6,10 @@ export default function RootLayout() {
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       <Stack.Screen name="piece/[id]" options={{ headerBackButtonDisplayMode: 'minimal' }} />
       <Stack.Screen name="day/[dayStart]" options={{ headerBackButtonDisplayMode: 'minimal' }} />
+      <Stack.Screen
+        name="add-work"
+        options={{ title: 'Add past work', headerBackButtonDisplayMode: 'minimal' }}
+      />
     </Stack>
   );
 }
