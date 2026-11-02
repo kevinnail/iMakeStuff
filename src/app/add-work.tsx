@@ -143,7 +143,7 @@ export default function AddWorkScreen() {
         <>
           {libraryPhotoUri && <Image source={{ uri: libraryPhotoUri }} style={styles.photo} />}
           <Pressable
-            style={styles.choiceButton}
+            style={({ pressed }) => [styles.photoButton, pressed && styles.buttonPressed]}
             onPress={() =>
               choosePhoto().catch((error: Error) =>
                 Alert.alert('Could not open your photos', error.message),
@@ -206,6 +206,17 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#999',
     borderRadius: 8,
+  },
+  photoButton: {
+    alignSelf: 'flex-start',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderWidth: 1,
+    borderColor: '#1a1a1a',
+    borderRadius: 8,
+  },
+  buttonPressed: {
+    opacity: 0.6,
   },
   notesInput: {
     height: 100,
