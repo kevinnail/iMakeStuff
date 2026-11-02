@@ -17,6 +17,7 @@ import {
 
 import { addPastWork } from '@/db/queries/entryQueries';
 import { getPieces, type PieceListItem } from '@/db/queries/pieceQueries';
+import { colors } from '@/theme';
 import { withSavedPhoto } from '@/utils/photoStorage';
 
 type PieceChoice = PieceListItem | 'new' | null;
@@ -112,6 +113,7 @@ export default function AddWorkScreen() {
           value={newName}
           onChangeText={setNewName}
           placeholder="What did you make?"
+          placeholderTextColor={colors.secondaryText}
           autoFocus
         />
       )}
@@ -121,6 +123,7 @@ export default function AddWorkScreen() {
           value={new Date(startedAt)}
           mode="datetime"
           display="compact"
+          accentColor={colors.primary}
           onValueChange={(_event, date) => setStartedAt(date.getTime())}
         />
       </View>
@@ -130,13 +133,18 @@ export default function AddWorkScreen() {
           value={new Date(endedAt)}
           mode="datetime"
           display="compact"
+          accentColor={colors.primary}
           onValueChange={(_event, date) => setEndedAt(date.getTime())}
         />
       </View>
       {canFinish && (
         <View style={styles.row}>
           <Text style={styles.label}>Finished</Text>
-          <Switch value={finishing} onValueChange={setFinishing} />
+          <Switch
+            value={finishing}
+            onValueChange={setFinishing}
+            trackColor={{ true: colors.primary }}
+          />
         </View>
       )}
       {finishing && (
@@ -159,6 +167,7 @@ export default function AddWorkScreen() {
             value={notes}
             onChangeText={setNotes}
             placeholder={libraryPhotoUri ? 'Notes' : 'No photo: describe the piece.'}
+            placeholderTextColor={colors.secondaryText}
             multiline
           />
         </>
@@ -189,22 +198,26 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 18,
+    color: colors.text,
   },
   choiceButton: {
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderRadius: 8,
-    backgroundColor: '#eee',
+    backgroundColor: colors.surface,
   },
   choiceText: {
     fontSize: 18,
     lineHeight: 20,
+    color: colors.text,
   },
   input: {
     fontSize: 18,
     padding: 12,
+    color: colors.text,
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#999',
+    borderColor: colors.separator,
     borderRadius: 8,
   },
   photoButton: {
@@ -212,7 +225,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 20,
     borderWidth: 1,
-    borderColor: '#1a1a1a',
+    borderColor: colors.primary,
     borderRadius: 8,
   },
   buttonPressed: {
@@ -235,7 +248,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 20,
     borderRadius: 8,
-    backgroundColor: '#1a1a1a',
+    backgroundColor: colors.primary,
   },
   buttonDisabled: {
     opacity: 0.4,
@@ -243,6 +256,6 @@ const styles = StyleSheet.create({
   saveButtonText: {
     fontSize: 18,
     lineHeight: 20,
-    color: '#fff',
+    color: colors.textOnFill,
   },
 });

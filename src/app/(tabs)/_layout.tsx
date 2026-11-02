@@ -1,9 +1,11 @@
 import { NativeTabs } from 'expo-router/native-tabs';
 
+import { colors } from '@/theme';
+
 // iOS's own tab bar, with SF Symbols icons that fill in when the tab is selected.
 export default function TabLayout() {
   return (
-    <NativeTabs>
+    <NativeTabs tintColor={colors.primary}>
       <NativeTabs.Trigger name="index">
         <NativeTabs.Trigger.Icon sf={{ default: 'stopwatch', selected: 'stopwatch.fill' }} />
         <NativeTabs.Trigger.Label>Work</NativeTabs.Trigger.Label>

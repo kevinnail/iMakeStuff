@@ -6,6 +6,7 @@ import { getPieceDetail, type PieceRecord } from '@/db/queries/pieceQueries';
 import { formatClockTime, formatDay, formatDuration } from '@/utils/formatTime';
 import { getWorkDays, type WorkDay } from '@/utils/workDays';
 import { getPhotoUri } from '@/utils/photoStorage';
+import { colors } from '@/theme';
 
 interface PiecePage {
   piece: PieceRecord;
@@ -135,12 +136,13 @@ const styles = StyleSheet.create({
   },
   text: {
     fontSize: 18,
+    color: colors.text,
   },
   totals: {
     padding: 16,
     gap: 8,
     borderRadius: 12,
-    backgroundColor: '#f2f2f2',
+    backgroundColor: colors.surface,
   },
   tableRow: {
     flexDirection: 'row',
@@ -159,6 +161,7 @@ const styles = StyleSheet.create({
   },
   workedLine: {
     fontSize: 18,
+    color: colors.text,
   },
   workedTime: {
     fontSize: 32,
@@ -167,10 +170,11 @@ const styles = StyleSheet.create({
   },
   secondaryText: {
     fontSize: 16,
-    color: '#555',
+    color: colors.secondaryText,
   },
   tableValue: {
     fontSize: 16,
     fontVariant: ['tabular-nums'],
+    color: colors.text,
   },
 });

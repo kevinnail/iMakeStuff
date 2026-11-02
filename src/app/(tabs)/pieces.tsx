@@ -4,6 +4,7 @@ import { Alert, FlatList, Image, Pressable, StyleSheet, Text, View } from 'react
 
 import { getPieces, type PieceListItem } from '@/db/queries/pieceQueries';
 import { formatDay, formatDuration } from '@/utils/formatTime';
+import { colors } from '@/theme';
 import { getPhotoUri } from '@/utils/photoStorage';
 
 type PieceFilter = 'all' | 'unfinished' | 'finished';
@@ -88,7 +89,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     padding: 2,
     borderRadius: 8,
-    backgroundColor: '#e0e0e0',
+    backgroundColor: colors.surface,
   },
   filterButton: {
     flex: 1,
@@ -96,16 +97,16 @@ const styles = StyleSheet.create({
     borderRadius: 6,
   },
   filterButtonSelected: {
-    backgroundColor: '#1a1a1a',
+    backgroundColor: colors.primary,
   },
   filterText: {
     fontSize: 16,
     lineHeight: 18,
     textAlign: 'center',
-    color: '#1a1a1a',
+    color: colors.text,
   },
   filterTextSelected: {
-    color: '#fff',
+    color: colors.textOnFill,
   },
   row: {
     flexDirection: 'row',
@@ -116,7 +117,7 @@ const styles = StyleSheet.create({
     width: 72,
     height: 72,
     borderRadius: 8,
-    backgroundColor: '#eee',
+    backgroundColor: colors.surface,
   },
   details: {
     flex: 1,
@@ -124,9 +125,10 @@ const styles = StyleSheet.create({
   },
   name: {
     fontSize: 20,
+    color: colors.text,
   },
   detailText: {
     fontSize: 16,
-    color: '#555',
+    color: colors.secondaryText,
   },
 });

@@ -14,6 +14,7 @@ import {
 import { getWorkRecords, type FinishedPiece } from '@/db/queries/dayQueries';
 import { formatClockTime, formatDay, formatDuration } from '@/utils/formatTime';
 import { getMonthWeeks } from '@/utils/monthGrid';
+import { colors } from '@/theme';
 import { getPhotoUri } from '@/utils/photoStorage';
 import { getWorkDays, startOfDay, type WorkDay } from '@/utils/workDays';
 
@@ -214,7 +215,7 @@ const styles = StyleSheet.create({
   // The line between the calendar and the list of days.
   sectionDivider: {
     height: 1,
-    backgroundColor: '#c4c4c4',
+    backgroundColor: colors.separator,
   },
   sectionRow: {
     flexDirection: 'row',
@@ -225,7 +226,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     paddingHorizontal: 12,
     borderRadius: 8,
-    backgroundColor: '#1a1a1a',
+    backgroundColor: colors.primary,
   },
   buttonPressed: {
     opacity: 0.6,
@@ -233,7 +234,7 @@ const styles = StyleSheet.create({
   addButtonText: {
     fontSize: 16,
     lineHeight: 18,
-    color: '#fff',
+    color: colors.textOnFill,
   },
   calendar: {
     gap: 4,
@@ -246,6 +247,7 @@ const styles = StyleSheet.create({
   monthTitle: {
     fontSize: 20,
     fontWeight: '600',
+    color: colors.text,
   },
   arrowButton: {
     paddingVertical: 4,
@@ -257,6 +259,7 @@ const styles = StyleSheet.create({
   arrowText: {
     fontSize: 32,
     lineHeight: 34,
+    color: colors.text,
   },
   week: {
     flexDirection: 'row',
@@ -266,7 +269,7 @@ const styles = StyleSheet.create({
     flex: 1,
     textAlign: 'center',
     fontSize: 16,
-    color: '#555',
+    color: colors.secondaryText,
   },
   square: {
     flex: 1,
@@ -276,28 +279,29 @@ const styles = StyleSheet.create({
     borderRadius: 6,
   },
   workedSquare: {
-    backgroundColor: '#2e7d32',
+    backgroundColor: colors.primary,
   },
   todaySquare: {
     borderWidth: 2,
-    borderColor: '#1a1a1a',
+    borderColor: colors.text,
   },
   dayNumber: {
     fontSize: 16,
-    color: '#555',
+    color: colors.secondaryText,
   },
   workedDayNumber: {
-    color: '#fff',
+    color: colors.textOnFill,
     fontWeight: '600',
   },
   listTitle: {
     fontSize: 16,
     fontWeight: '600',
+    color: colors.text,
   },
   separator: {
     height: StyleSheet.hairlineWidth,
     marginVertical: 12,
-    backgroundColor: '#ccc',
+    backgroundColor: colors.separator,
   },
   day: {
     gap: 6,
@@ -310,15 +314,17 @@ const styles = StyleSheet.create({
   date: {
     fontSize: 20,
     fontWeight: '600',
+    color: colors.text,
   },
   worked: {
     fontSize: 20,
     fontWeight: '700',
     fontVariant: ['tabular-nums'],
+    color: colors.text,
   },
   secondaryText: {
     fontSize: 16,
-    color: '#555',
+    color: colors.secondaryText,
   },
   pieceRow: {
     flexDirection: 'row',
@@ -329,10 +335,11 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 6,
-    backgroundColor: '#eee',
+    backgroundColor: colors.surface,
   },
   pieceName: {
     flex: 1,
     fontSize: 16,
+    color: colors.text,
   },
 });

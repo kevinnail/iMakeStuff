@@ -21,6 +21,7 @@ import type { UnfinishedPiece } from '@/db/queries/pieceQueries';
 import { useWorkStore } from '@/store/workStore';
 import { formatDuration } from '@/utils/formatTime';
 import { saveToCameraRoll } from '@/utils/photoStorage';
+import { colors } from '@/theme';
 import { getWorkDays, startOfDay } from '@/utils/workDays';
 
 interface Finishing {
@@ -172,6 +173,7 @@ export default function WorkScreen() {
           value={name}
           onChangeText={setName}
           placeholder="What are you making?"
+          placeholderTextColor={colors.secondaryText}
           returnKeyType="go"
           onSubmitEditing={trimmedName ? handleStart : undefined}
         />
@@ -207,17 +209,17 @@ export default function WorkScreen() {
               )}
             </View>
             <Pressable
-              style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
+              style={({ pressed }) => [styles.doneButton, pressed && styles.buttonPressed]}
               onPress={() => openFinish(piece).catch(showError('Could not open the camera'))}
               disabled={openingPieceId !== null}
             >
               <Text
-                style={[styles.buttonText, openingPieceId === piece.id && styles.buttonTextHidden]}
+                style={[styles.doneText, openingPieceId === piece.id && styles.buttonTextHidden]}
               >
                 Done
               </Text>
               {openingPieceId === piece.id && (
-                <ActivityIndicator color="#fff" style={StyleSheet.absoluteFill} />
+                <ActivityIndicator color={colors.text} style={StyleSheet.absoluteFill} />
               )}
             </Pressable>
           </Pressable>
@@ -276,15 +278,17 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 18,
     padding: 12,
+    color: colors.text,
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#999',
+    borderColor: colors.separator,
     borderRadius: 8,
   },
   button: {
     paddingVertical: 10,
     paddingHorizontal: 20,
     borderRadius: 8,
-    backgroundColor: '#1a1a1a',
+    backgroundColor: colors.primary,
   },
   buttonDisabled: {
     opacity: 0.4,
@@ -295,7 +299,19 @@ const styles = StyleSheet.create({
   buttonText: {
     fontSize: 18,
     lineHeight: 20,
-    color: '#fff',
+    color: colors.textOnFill,
+  },
+  // Dark so it shows on both a plain row and the running piece's row.
+  doneButton: {
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    backgroundColor: colors.background,
+  },
+  doneText: {
+    fontSize: 18,
+    lineHeight: 20,
+    color: colors.text,
   },
   buttonTextHidden: {
     opacity: 0,
@@ -313,10 +329,10 @@ const styles = StyleSheet.create({
     paddingVertical: 28,
     paddingHorizontal: 16,
     borderRadius: 12,
-    backgroundColor: '#eee',
+    backgroundColor: colors.surface,
   },
   pieceRowCurrent: {
-    backgroundColor: '#2e7d32',
+    backgroundColor: colors.primary,
   },
   pieceDetails: {
     flex: 1,
@@ -324,21 +340,23 @@ const styles = StyleSheet.create({
   },
   pieceName: {
     fontSize: 20,
+    color: colors.text,
   },
   currentText: {
-    color: '#fff',
+    color: colors.textOnFill,
   },
   breakRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    backgroundColor: '#f6ff00',
+    backgroundColor: colors.accent,
     height: 200,
     padding: 20,
   },
   breakLabel: {
     flex: 1,
     fontSize: 30,
+    color: colors.textOnFill,
   },
   controlRow: {
     flexDirection: 'row',
@@ -347,6 +365,7 @@ const styles = StyleSheet.create({
   time: {
     fontSize: 18,
     fontVariant: ['tabular-nums'],
+    color: colors.text,
   },
   todayTable: {
     flexDirection: 'row',
@@ -358,14 +377,16 @@ const styles = StyleSheet.create({
   },
   todayLabel: {
     fontSize: 16,
-    color: '#555',
+    color: colors.secondaryText,
   },
   todayValue: {
     fontSize: 18,
     fontVariant: ['tabular-nums'],
+    color: colors.text,
   },
   breakTime: {
     fontSize: 30,
     fontVariant: ['tabular-nums'],
+    color: colors.textOnFill,
   },
 });
