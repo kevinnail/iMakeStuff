@@ -1,11 +1,23 @@
-import { Tabs } from 'expo-router';
+import { NativeTabs } from 'expo-router/native-tabs';
 
+// iOS's own tab bar, with SF Symbols icons that fill in when the tab is selected.
 export default function TabLayout() {
   return (
-    <Tabs>
-      <Tabs.Screen name="index" options={{ title: 'Work' }} />
-      <Tabs.Screen name="pieces" options={{ title: 'Pieces' }} />
-      <Tabs.Screen name="days" options={{ title: 'Days' }} />
-    </Tabs>
+    <NativeTabs>
+      <NativeTabs.Trigger name="index">
+        <NativeTabs.Trigger.Icon sf={{ default: 'stopwatch', selected: 'stopwatch.fill' }} />
+        <NativeTabs.Trigger.Label>Work</NativeTabs.Trigger.Label>
+      </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="pieces">
+        <NativeTabs.Trigger.Icon
+          sf={{ default: 'square.grid.2x2', selected: 'square.grid.2x2.fill' }}
+        />
+        <NativeTabs.Trigger.Label>Pieces</NativeTabs.Trigger.Label>
+      </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="days">
+        <NativeTabs.Trigger.Icon sf="calendar" />
+        <NativeTabs.Trigger.Label>Days</NativeTabs.Trigger.Label>
+      </NativeTabs.Trigger>
+    </NativeTabs>
   );
 }
