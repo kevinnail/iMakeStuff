@@ -17,10 +17,10 @@ describe('getWorkRecords', () => {
   // Otherwise today's line would count yesterday's work, or miss the piece running now.
   it('returns only records running or ended after the given time', async () => {
     await database.execAsync(`
-      INSERT INTO pieces (id, name, notes, finished_at) VALUES
-        (1, 'Blue vase', 'Cobalt', '2026-10-30T17:00:00.000Z'),
-        (2, 'Green bowl', 'Lime', '2026-10-31T10:00:00.000Z'),
-        (3, 'Red cup', NULL, NULL);
+      INSERT INTO pieces (id, name, category, notes, finished_at) VALUES
+        (1, 'Blue vase', 'piece', 'Cobalt', '2026-10-30T17:00:00.000Z'),
+        (2, 'Green bowl', 'piece', 'Lime', '2026-10-31T10:00:00.000Z'),
+        (3, 'Red cup', 'piece', NULL, NULL);
       INSERT INTO work_segments (piece_id, started_at, ended_at) VALUES
         (1, '2026-10-30T09:00:00.000Z', '2026-10-30T17:00:00.000Z'),
         (2, '2026-10-31T09:00:00.000Z', '2026-10-31T10:00:00.000Z'),
@@ -40,11 +40,35 @@ describe('getWorkRecords', () => {
         {
           id: 2,
           name: 'Green bowl',
+          category: 'piece',
           photo_file_name: null,
           finished_at: '2026-10-31T10:00:00.000Z',
         },
       ],
     });
+  });
+
+  // Otherwise prep would add to the Finished count, or its hours would go missing from the day.
+  it('returns prep with its category and its time with the day', async () => {
+    await database.execAsync(`
+      INSERT INTO pieces (id, name, category, notes, finished_at) VALUES
+        (1, 'Blue vase', 'piece', 'Cobalt', '2026-10-31T10:00:00.000Z'),
+        (2, 'Dichroic cane', 'prep', 'Blue and gold', '2026-10-31T12:00:00.000Z');
+      INSERT INTO work_segments (piece_id, started_at, ended_at) VALUES
+        (1, '2026-10-31T09:00:00.000Z', '2026-10-31T10:00:00.000Z'),
+        (2, '2026-10-31T10:00:00.000Z', '2026-10-31T12:00:00.000Z');
+    `);
+
+    const { segments, finishedPieces } = await getWorkRecords('2026-10-31T00:00:00.000Z');
+
+    expect(segments).toEqual([
+      { started_at: '2026-10-31T09:00:00.000Z', ended_at: '2026-10-31T10:00:00.000Z' },
+      { started_at: '2026-10-31T10:00:00.000Z', ended_at: '2026-10-31T12:00:00.000Z' },
+    ]);
+    expect(finishedPieces.map(({ name, category }) => ({ name, category }))).toEqual([
+      { name: 'Blue vase', category: 'piece' },
+      { name: 'Dichroic cane', category: 'prep' },
+    ]);
   });
 
   // Otherwise a fresh install with no work would break the Work screen and the Days tab.
