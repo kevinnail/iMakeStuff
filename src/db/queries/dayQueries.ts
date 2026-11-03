@@ -1,9 +1,11 @@
 import { getDb } from '@/db/database';
+import type { PieceCategory } from '@/db/queries/pieceQueries';
 import type { TimeRange } from '@/utils/workDays';
 
 export interface FinishedPiece {
   id: number;
   name: string;
+  category: PieceCategory;
   photo_file_name: string | null;
   finished_at: string;
 }
@@ -28,7 +30,7 @@ export async function getWorkRecords(since: string): Promise<WorkRecords> {
       since,
     ),
     database.getAllAsync<FinishedPiece>(
-      `SELECT id, name, photo_file_name, finished_at FROM pieces
+      `SELECT id, name, category, photo_file_name, finished_at FROM pieces
        WHERE finished_at > ? ORDER BY finished_at`,
       since,
     ),
