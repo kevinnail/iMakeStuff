@@ -11,6 +11,7 @@ import {
   View,
 } from 'react-native';
 
+import { PrepTag } from '@/components/PrepTag';
 import { getWorkRecords, type FinishedPiece } from '@/db/queries/dayQueries';
 import { formatClockTime, formatDay, formatDuration } from '@/utils/formatTime';
 import { getMonthWeeks } from '@/utils/monthGrid';
@@ -196,6 +197,7 @@ export default function DaysScreen() {
                 <View style={styles.photo} />
               )}
               <Text style={styles.pieceName}>{piece.name}</Text>
+              {piece.category === 'prep' && <PrepTag />}
             </Pressable>
           ))}
         </View>
@@ -338,7 +340,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
   },
   pieceName: {
-    flex: 1,
+    flexShrink: 1,
     fontSize: 16,
     color: colors.text,
   },
