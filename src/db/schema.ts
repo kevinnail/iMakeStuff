@@ -6,12 +6,16 @@ export const SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS pieces (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     name            TEXT NOT NULL CHECK (trim(name) <> ''),
+    -- Prep (a cane, a frit mix) is recorded like a piece and used up by pieces later.
+    category        TEXT NOT NULL CHECK (category IN ('piece', 'prep')),
     notes           TEXT,
     photo_file_name TEXT,
     created_at      TEXT NOT NULL DEFAULT (${SQL_NOW}),
     finished_at     TEXT,
+    used_up_at      TEXT,
     -- A finished piece must be identifiable later: it needs a photo or a description.
-    CHECK (finished_at IS NULL OR photo_file_name IS NOT NULL OR trim(coalesce(notes, '')) <> '')
+    CHECK (finished_at IS NULL OR photo_file_name IS NOT NULL OR trim(coalesce(notes, '')) <> ''),
+    CHECK (used_up_at IS NULL OR category = 'prep')
   );
 
   CREATE TABLE IF NOT EXISTS breaks (

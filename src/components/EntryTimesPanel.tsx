@@ -3,6 +3,8 @@ import { useState } from 'react';
 import { Alert, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { colors } from '@/theme';
+
 interface EntryTimesPanelProps {
   title: string;
   initialStartedAt: number;
@@ -45,6 +47,7 @@ export function EntryTimesPanel({
               value={new Date(startedAt)}
               mode="datetime"
               display="compact"
+              accentColor={colors.primary}
               onValueChange={(_event, date) => setStartedAt(date.getTime())}
             />
           </View>
@@ -59,6 +62,7 @@ export function EntryTimesPanel({
                 value={new Date(endedAt)}
                 mode="datetime"
                 display="compact"
+                accentColor={colors.primary}
                 onValueChange={(_event, date) => setEndedAt(date.getTime())}
               />
             )}
@@ -85,17 +89,18 @@ const styles = StyleSheet.create({
   overlay: {
     flex: 1,
     justifyContent: 'flex-end',
-    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
   },
   panel: {
     padding: 16,
     gap: 12,
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
   },
   title: {
     fontSize: 20,
+    color: colors.text,
   },
   row: {
     flexDirection: 'row',
@@ -105,6 +110,7 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 18,
+    color: colors.text,
   },
   buttonRow: {
     flexDirection: 'row',
@@ -118,13 +124,13 @@ const styles = StyleSheet.create({
   textButtonText: {
     fontSize: 18,
     lineHeight: 20,
-    color: '#1a1a1a',
+    color: colors.text,
   },
   saveButton: {
     paddingVertical: 10,
     paddingHorizontal: 20,
     borderRadius: 8,
-    backgroundColor: '#1a1a1a',
+    backgroundColor: colors.primary,
   },
   buttonDisabled: {
     opacity: 0.4,
@@ -132,6 +138,6 @@ const styles = StyleSheet.create({
   saveButtonText: {
     fontSize: 18,
     lineHeight: 20,
-    color: '#fff',
+    color: colors.textOnFill,
   },
 });

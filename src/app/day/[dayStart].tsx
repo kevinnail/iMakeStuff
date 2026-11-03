@@ -9,6 +9,7 @@ import {
   updateEntryTimes,
   type DayEntry,
 } from '@/db/queries/entryQueries';
+import { colors } from '@/theme';
 import { formatClockTime, formatDay } from '@/utils/formatTime';
 import { startOfNextDay } from '@/utils/workDays';
 
@@ -125,13 +126,15 @@ const styles = StyleSheet.create({
     width: 84,
     fontSize: 16,
     fontVariant: ['tabular-nums'],
+    color: colors.text,
   },
   entryName: {
     flex: 1,
     fontSize: 16,
+    color: colors.text,
   },
   breakName: {
-    color: '#555',
+    color: colors.accent,
   },
   buttonRow: {
     flexDirection: 'row',
@@ -141,7 +144,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 20,
     borderRadius: 8,
-    backgroundColor: '#1a1a1a',
+    backgroundColor: colors.primary,
   },
   buttonPressed: {
     opacity: 0.6,
@@ -149,6 +152,6 @@ const styles = StyleSheet.create({
   buttonText: {
     fontSize: 18,
     lineHeight: 20,
-    color: '#fff',
+    color: colors.textOnFill,
   },
 });

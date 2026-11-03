@@ -1,6 +1,7 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { getDb } from '@/db/database';
+import type { PieceCategory } from '@/db/queries/pieceQueries';
 
 export type EntryKind = 'segment' | 'break';
 
@@ -21,7 +22,7 @@ interface TimelineEntry {
 }
 
 export interface PastWork {
-  piece: { id: number } | { name: string };
+  piece: { id: number } | { name: string; category: PieceCategory };
   startedAt: string;
   endedAt: string;
   finish: { notes: string | null; photoFileName: string | null } | null;
@@ -141,8 +142,9 @@ export async function addPastWork({ piece, startedAt, endedAt, finish }: PastWor
         ? piece.id
         : (
             await database.runAsync(
-              'INSERT INTO pieces (name, created_at) VALUES (?, ?)',
+              'INSERT INTO pieces (name, category, created_at) VALUES (?, ?, ?)',
               piece.name,
+              piece.category,
               startedAt,
             )
           ).lastInsertRowId;

@@ -2,23 +2,30 @@ import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Alert, FlatList, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { JoinedButtons } from '@/components/JoinedButtons';
 import { getPieces, type PieceListItem } from '@/db/queries/pieceQueries';
 import { formatDay, formatDuration } from '@/utils/formatTime';
+import { colors } from '@/theme';
 import { getPhotoUri } from '@/utils/photoStorage';
 
-type PieceFilter = 'all' | 'unfinished' | 'finished';
+type PieceFilter = 'all' | 'unfinished' | 'finished' | 'prep';
 
 const filters: { value: PieceFilter; label: string; emptyText: string }[] = [
   { value: 'all', label: 'All', emptyText: 'No pieces yet.' },
-  { value: 'unfinished', label: 'Unfinished', emptyText: 'No unfinished pieces.' },
+  { value: 'unfinished', label: 'Working', emptyText: 'No unfinished pieces.' },
   { value: 'finished', label: 'Finished', emptyText: 'No finished pieces.' },
+  { value: 'prep', label: 'Prep', emptyText: 'No prep yet.' },
 ];
 
 export default function PiecesScreen() {
   const [pieces, setPieces] = useState<PieceListItem[]>([]);
   const [filter, setFilter] = useState<PieceFilter>('all');
-  const shownPieces = pieces.filter(
-    (piece) => filter === 'all' || (filter === 'finished') === (piece.finished_at !== null),
+  // Prep shows only under Prep; the other filters list pieces.
+  const shownPieces = pieces.filter((piece) =>
+    filter === 'prep'
+      ? piece.category === 'prep'
+      : piece.category === 'piece' &&
+        (filter === 'all' || (filter === 'finished') === (piece.finished_at !== null)),
   );
   const emptyText = filters.find(({ value }) => value === filter)?.emptyText;
 
@@ -37,21 +44,8 @@ export default function PiecesScreen() {
       keyExtractor={(piece) => String(piece.id)}
       contentInsetAdjustmentBehavior="automatic"
       contentContainerStyle={styles.list}
-      // A row of three joined buttons that picks which pieces the list shows.
       ListHeaderComponent={
-        <View style={styles.filterRow}>
-          {filters.map(({ value, label }) => (
-            <Pressable
-              key={value}
-              style={[styles.filterButton, filter === value && styles.filterButtonSelected]}
-              onPress={() => setFilter(value)}
-            >
-              <Text style={[styles.filterText, filter === value && styles.filterTextSelected]}>
-                {label}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
+        <JoinedButtons options={filters} selected={filter} onSelect={setFilter} />
       }
       ListEmptyComponent={<Text style={styles.detailText}>{emptyText}</Text>}
       renderItem={({ item: piece }) => (
@@ -84,29 +78,6 @@ const styles = StyleSheet.create({
     padding: 16,
     gap: 12,
   },
-  filterRow: {
-    flexDirection: 'row',
-    padding: 2,
-    borderRadius: 8,
-    backgroundColor: '#e0e0e0',
-  },
-  filterButton: {
-    flex: 1,
-    paddingVertical: 6,
-    borderRadius: 6,
-  },
-  filterButtonSelected: {
-    backgroundColor: '#1a1a1a',
-  },
-  filterText: {
-    fontSize: 16,
-    lineHeight: 18,
-    textAlign: 'center',
-    color: '#1a1a1a',
-  },
-  filterTextSelected: {
-    color: '#fff',
-  },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -116,7 +87,7 @@ const styles = StyleSheet.create({
     width: 72,
     height: 72,
     borderRadius: 8,
-    backgroundColor: '#eee',
+    backgroundColor: colors.surface,
   },
   details: {
     flex: 1,
@@ -124,9 +95,10 @@ const styles = StyleSheet.create({
   },
   name: {
     fontSize: 20,
+    color: colors.text,
   },
   detailText: {
     fontSize: 16,
-    color: '#555',
+    color: colors.secondaryText,
   },
 });

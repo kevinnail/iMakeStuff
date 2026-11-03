@@ -16,10 +16,17 @@ import {
 } from 'react-native';
 
 import { addPastWork } from '@/db/queries/entryQueries';
-import { getPieces, type PieceListItem } from '@/db/queries/pieceQueries';
+import { getPieces, type PieceCategory, type PieceListItem } from '@/db/queries/pieceQueries';
+import { colors } from '@/theme';
 import { withSavedPhoto } from '@/utils/photoStorage';
 
-type PieceChoice = PieceListItem | 'new' | null;
+// A category on its own means a new piece or new prep.
+type PieceChoice = PieceListItem | PieceCategory | null;
+
+const newOptions: { category: PieceCategory; label: string; buttonText: string }[] = [
+  { category: 'piece', label: 'New piece…', buttonText: 'New piece' },
+  { category: 'prep', label: 'New prep…', buttonText: 'New prep' },
+];
 
 // Yesterday at the given hour, the most likely day to be catching up on.
 function yesterdayAt(hours: number) {
@@ -41,10 +48,15 @@ export default function AddWorkScreen() {
   const [saving, setSaving] = useState(false);
   const trimmedName = newName.trim();
   const trimmedNotes = notes.trim();
-  const canFinish = pieceChoice === 'new' || (pieceChoice !== null && !pieceChoice.finished_at);
+  const newCategory = typeof pieceChoice === 'string' ? pieceChoice : null;
+  const chosenPiece = typeof pieceChoice === 'string' ? null : pieceChoice;
+  const choiceText = newCategory
+    ? newOptions.find(({ category }) => category === newCategory)?.buttonText
+    : (chosenPiece?.name ?? 'Choose a piece');
+  const canFinish = newCategory !== null || (chosenPiece !== null && !chosenPiece.finished_at);
   const canSave =
     !saving &&
-    (pieceChoice === 'new' ? trimmedName !== '' : pieceChoice !== null) &&
+    (newCategory ? trimmedName !== '' : chosenPiece !== null) &&
     endedAt >= startedAt &&
     (!finishing || libraryPhotoUri !== null || trimmedNotes !== '');
 
@@ -56,15 +68,21 @@ export default function AddWorkScreen() {
 
   function choosePiece() {
     const options = [
-      ...pieces.map((piece) => (piece.finished_at ? `${piece.name} (finished)` : piece.name)),
-      'New piece…',
+      ...pieces.map((piece) => {
+        const marks = [piece.category === 'prep' && 'prep', piece.finished_at && 'finished'];
+        const markText = marks.filter(Boolean).join(', ');
+        return markText ? `${piece.name} (${markText})` : piece.name;
+      }),
+      ...newOptions.map(({ label }) => label),
       'Cancel',
     ];
     ActionSheetIOS.showActionSheetWithOptions(
       { options, cancelButtonIndex: options.length - 1 },
       (index) => {
-        if (index === pieces.length) setPieceChoice('new');
-        else if (index < pieces.length) setPieceChoice(pieces[index]);
+        if (index < pieces.length) setPieceChoice(pieces[index]);
+        else if (index < pieces.length + newOptions.length) {
+          setPieceChoice(newOptions[index - pieces.length].category);
+        }
         setFinishing(false);
       },
     );
@@ -80,10 +98,14 @@ export default function AddWorkScreen() {
 
   function handleSave() {
     if (pieceChoice === null) return;
+    const piece =
+      typeof pieceChoice === 'string'
+        ? { name: trimmedName, category: pieceChoice }
+        : { id: pieceChoice.id };
     setSaving(true);
     withSavedPhoto(finishing ? libraryPhotoUri : null, (photoFileName) =>
       addPastWork({
-        piece: pieceChoice === 'new' ? { name: trimmedName } : { id: pieceChoice.id },
+        piece,
         startedAt: new Date(startedAt).toISOString(),
         endedAt: new Date(endedAt).toISOString(),
         finish: finishing ? { notes: trimmedNotes || null, photoFileName } : null,
@@ -101,17 +123,16 @@ export default function AddWorkScreen() {
       <View style={styles.row}>
         <Text style={styles.label}>Piece</Text>
         <Pressable style={styles.choiceButton} onPress={choosePiece}>
-          <Text style={styles.choiceText}>
-            {pieceChoice === 'new' ? 'New piece' : (pieceChoice?.name ?? 'Choose a piece')}
-          </Text>
+          <Text style={styles.choiceText}>{choiceText}</Text>
         </Pressable>
       </View>
-      {pieceChoice === 'new' && (
+      {newCategory && (
         <TextInput
           style={styles.input}
           value={newName}
           onChangeText={setNewName}
           placeholder="What did you make?"
+          placeholderTextColor={colors.secondaryText}
           autoFocus
         />
       )}
@@ -121,6 +142,7 @@ export default function AddWorkScreen() {
           value={new Date(startedAt)}
           mode="datetime"
           display="compact"
+          accentColor={colors.primary}
           onValueChange={(_event, date) => setStartedAt(date.getTime())}
         />
       </View>
@@ -130,13 +152,18 @@ export default function AddWorkScreen() {
           value={new Date(endedAt)}
           mode="datetime"
           display="compact"
+          accentColor={colors.primary}
           onValueChange={(_event, date) => setEndedAt(date.getTime())}
         />
       </View>
       {canFinish && (
         <View style={styles.row}>
           <Text style={styles.label}>Finished</Text>
-          <Switch value={finishing} onValueChange={setFinishing} />
+          <Switch
+            value={finishing}
+            onValueChange={setFinishing}
+            trackColor={{ true: colors.primary }}
+          />
         </View>
       )}
       {finishing && (
@@ -159,6 +186,7 @@ export default function AddWorkScreen() {
             value={notes}
             onChangeText={setNotes}
             placeholder={libraryPhotoUri ? 'Notes' : 'No photo: describe the piece.'}
+            placeholderTextColor={colors.secondaryText}
             multiline
           />
         </>
@@ -189,22 +217,26 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 18,
+    color: colors.text,
   },
   choiceButton: {
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderRadius: 8,
-    backgroundColor: '#eee',
+    backgroundColor: colors.surface,
   },
   choiceText: {
     fontSize: 18,
     lineHeight: 20,
+    color: colors.text,
   },
   input: {
     fontSize: 18,
     padding: 12,
+    color: colors.text,
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#999',
+    borderColor: colors.separator,
     borderRadius: 8,
   },
   photoButton: {
@@ -212,7 +244,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 20,
     borderWidth: 1,
-    borderColor: '#1a1a1a',
+    borderColor: colors.primary,
     borderRadius: 8,
   },
   buttonPressed: {
@@ -235,7 +267,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 20,
     borderRadius: 8,
-    backgroundColor: '#1a1a1a',
+    backgroundColor: colors.primary,
   },
   buttonDisabled: {
     opacity: 0.4,
@@ -243,6 +275,6 @@ const styles = StyleSheet.create({
   saveButtonText: {
     fontSize: 18,
     lineHeight: 20,
-    color: '#fff',
+    color: colors.textOnFill,
   },
 });

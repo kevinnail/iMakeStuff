@@ -40,7 +40,7 @@ beforeEach(() => {
 describe('startPiece', () => {
   // Otherwise pressing Start records nothing and the Work screen has no clock to show.
   it('creates the piece with one running segment', async () => {
-    const pieceId = await startPiece('Blue vase');
+    const pieceId = await startPiece('Blue vase', 'piece');
 
     const segments = await database.getAllAsync<SegmentRow>(segmentsSql);
     expect(segments).toEqual([
@@ -50,6 +50,7 @@ describe('startPiece', () => {
       {
         id: pieceId,
         name: 'Blue vase',
+        category: 'piece',
         worked_milliseconds: 0,
         running_since: segments[0].started_at,
       },
@@ -59,7 +60,7 @@ describe('startPiece', () => {
   // Otherwise the running time shows NaN, because the stored start time can't be parsed.
   it('stores the start time in a format JavaScript parses', async () => {
     const before = Date.now();
-    await startPiece('Blue vase');
+    await startPiece('Blue vase', 'piece');
 
     const [segment] = await database.getAllAsync<SegmentRow>(segmentsSql);
 
@@ -69,8 +70,8 @@ describe('startPiece', () => {
 
   // Otherwise starting a new piece would leave the green piece collecting time too.
   it('pauses the running piece when a new one starts', async () => {
-    const firstPieceId = await startPiece('Blue vase');
-    const secondPieceId = await startPiece('Green bowl');
+    const firstPieceId = await startPiece('Blue vase', 'piece');
+    const secondPieceId = await startPiece('Green bowl', 'piece');
 
     const segments = await database.getAllAsync<SegmentRow>(segmentsSql);
     expect(segments).toEqual([
@@ -79,11 +80,27 @@ describe('startPiece', () => {
     ]);
   });
 
+  // Otherwise prep would be counted as a finished piece and left out of the Prep list.
+  it('saves prep with its category', async () => {
+    const prepId = await startPiece('Dichroic cane', 'prep');
+
+    expect(await getUnfinishedPieces()).toEqual([
+      expect.objectContaining({ id: prepId, name: 'Dichroic cane', category: 'prep' }),
+    ]);
+  });
+
+  // Otherwise a mistyped category would save work that no list or total recognizes.
+  it('rejects a category other than piece or prep', async () => {
+    await expect(
+      database.runAsync("INSERT INTO pieces (name, category) VALUES ('Dichroic cane', 'tool')"),
+    ).rejects.toThrow(/CHECK constraint/);
+  });
+
   // Otherwise a blank name creates a piece nobody can identify later.
   it('rejects a blank name and leaves the running piece running', async () => {
-    const pieceId = await startPiece('Blue vase');
+    const pieceId = await startPiece('Blue vase', 'piece');
 
-    await expect(startPiece('   ')).rejects.toThrow(/CHECK constraint/);
+    await expect(startPiece('   ', 'piece')).rejects.toThrow(/CHECK constraint/);
 
     expect(await database.getAllAsync('SELECT id FROM pieces')).toHaveLength(1);
     expect(await database.getAllAsync<SegmentRow>(segmentsSql)).toEqual([
@@ -95,8 +112,8 @@ describe('startPiece', () => {
 describe('switchToPiece', () => {
   // Otherwise a swap would leave a gap between pieces, or finish the piece you set down.
   it('pauses the green piece and starts the tapped one at the same moment', async () => {
-    const firstPieceId = await startPiece('Blue vase');
-    const secondPieceId = await startPiece('Green bowl');
+    const firstPieceId = await startPiece('Blue vase', 'piece');
+    const secondPieceId = await startPiece('Green bowl', 'piece');
 
     await switchToPiece(firstPieceId);
 
@@ -113,7 +130,7 @@ describe('switchToPiece', () => {
 
   // Otherwise tapping a piece during a break would leave the break running while you work.
   it('ends a running break and starts the tapped piece', async () => {
-    const pieceId = await startPiece('Blue vase');
+    const pieceId = await startPiece('Blue vase', 'piece');
     await startBreak();
 
     await switchToPiece(pieceId);
@@ -132,8 +149,8 @@ describe('switchToPiece', () => {
 
   // Otherwise two clocks could count at once and the same time would go to two pieces.
   it('rejects a second running segment', async () => {
-    await startPiece('Blue vase');
-    const secondPieceId = await startPiece('Green bowl');
+    await startPiece('Blue vase', 'piece');
+    const secondPieceId = await startPiece('Green bowl', 'piece');
 
     await expect(
       database.runAsync('INSERT INTO work_segments (piece_id) VALUES (?)', secondPieceId),
@@ -144,7 +161,7 @@ describe('switchToPiece', () => {
 describe('getUnfinishedPieces', () => {
   // Otherwise swapping back would reset a piece's clock instead of resuming its total.
   it('lists each piece with the total of its ended segments', async () => {
-    const pieceId = await startPiece('Blue vase');
+    const pieceId = await startPiece('Blue vase', 'piece');
     await database.execAsync(`
       DELETE FROM work_segments;
       INSERT INTO work_segments (piece_id, started_at, ended_at) VALUES
@@ -153,7 +170,13 @@ describe('getUnfinishedPieces', () => {
     `);
 
     expect(await getUnfinishedPieces()).toEqual([
-      { id: pieceId, name: 'Blue vase', worked_milliseconds: 105 * 60 * 1000, running_since: null },
+      {
+        id: pieceId,
+        name: 'Blue vase',
+        category: 'piece',
+        worked_milliseconds: 105 * 60 * 1000,
+        running_since: null,
+      },
     ]);
   });
 });
@@ -161,7 +184,7 @@ describe('getUnfinishedPieces', () => {
 describe('endDay', () => {
   // Otherwise the night would count as work on the green piece, or End day would finish it.
   it('stops the running piece and leaves it unfinished', async () => {
-    const pieceId = await startPiece('Blue vase');
+    const pieceId = await startPiece('Blue vase', 'piece');
 
     await endDay();
 
@@ -169,6 +192,7 @@ describe('endDay', () => {
       {
         id: pieceId,
         name: 'Blue vase',
+        category: 'piece',
         worked_milliseconds: expect.any(Number),
         running_since: null,
       },
@@ -177,7 +201,7 @@ describe('endDay', () => {
 
   // Otherwise ending the day on a break would count the whole night as break time.
   it('ends a running break', async () => {
-    await startPiece('Blue vase');
+    await startPiece('Blue vase', 'piece');
     await startBreak();
 
     await endDay();
@@ -190,7 +214,7 @@ describe('endDay', () => {
 
   // Otherwise a stray End day tap would look like it did something when nothing was running.
   it('fails when nothing is running', async () => {
-    const pieceId = await startPiece('Blue vase');
+    const pieceId = await startPiece('Blue vase', 'piece');
     await endDay();
 
     await expect(endDay()).rejects.toThrow('Nothing is running.');
@@ -206,7 +230,7 @@ describe('finishPiece', () => {
 
   // Otherwise Done loses the photo, or leaves the clock running and the piece keeps collecting time.
   it('saves the photo and ends the running segment at the Done time', async () => {
-    const pieceId = await startPiece('Blue vase');
+    const pieceId = await startPiece('Blue vase', 'piece');
 
     await finishPiece(pieceId, { endedAt, notes: null, photoFileName: 'vase.jpg' });
 
@@ -223,8 +247,8 @@ describe('finishPiece', () => {
 
   // Otherwise finishing a piece you set down would stop the piece in your hands.
   it('leaves the green piece running when another piece is finished', async () => {
-    const setDownPieceId = await startPiece('Blue vase');
-    const greenPieceId = await startPiece('Green bowl');
+    const setDownPieceId = await startPiece('Blue vase', 'piece');
+    const greenPieceId = await startPiece('Green bowl', 'piece');
 
     await finishPiece(setDownPieceId, { endedAt, notes: 'Cobalt glaze', photoFileName: null });
 
@@ -235,7 +259,7 @@ describe('finishPiece', () => {
 
   // Otherwise skipping the camera would make a piece impossible to finish.
   it('saves a piece with notes and no photo', async () => {
-    const pieceId = await startPiece('Blue vase');
+    const pieceId = await startPiece('Blue vase', 'piece');
 
     await finishPiece(pieceId, { endedAt, notes: 'Cobalt glaze', photoFileName: null });
 
@@ -248,7 +272,7 @@ describe('finishPiece', () => {
 
   // Otherwise a finished piece could have nothing to identify it, and its clock would stop anyway.
   it('rejects a finish with neither a photo nor notes and keeps the clock running', async () => {
-    const pieceId = await startPiece('Blue vase');
+    const pieceId = await startPiece('Blue vase', 'piece');
 
     await expect(
       finishPiece(pieceId, { endedAt, notes: null, photoFileName: null }),
@@ -266,7 +290,7 @@ describe('finishPiece', () => {
 
   // Otherwise finishing twice would overwrite the first photo and finish time.
   it('fails for a piece that is already finished', async () => {
-    const pieceId = await startPiece('Blue vase');
+    const pieceId = await startPiece('Blue vase', 'piece');
     await finishPiece(pieceId, { endedAt, notes: null, photoFileName: 'vase.jpg' });
 
     await expect(
@@ -288,10 +312,10 @@ describe('getPieces', () => {
   // Otherwise the Pieces tab would bury unfinished work or show finished pieces out of order.
   it('lists unfinished pieces first, then finished ones newest first, with their worked time', async () => {
     await database.execAsync(`
-      INSERT INTO pieces (id, name, notes, finished_at) VALUES
-        (1, 'Blue vase', 'Cobalt', '2026-10-30T17:00:00.000Z'),
-        (2, 'Green bowl', 'Lime', '2026-10-31T17:00:00.000Z'),
-        (3, 'Red cup', NULL, NULL);
+      INSERT INTO pieces (id, name, category, notes, finished_at) VALUES
+        (1, 'Blue vase', 'piece', 'Cobalt', '2026-10-30T17:00:00.000Z'),
+        (2, 'Green bowl', 'piece', 'Lime', '2026-10-31T17:00:00.000Z'),
+        (3, 'Red cup', 'prep', NULL, NULL);
       INSERT INTO work_segments (piece_id, started_at, ended_at) VALUES
         (1, '2026-10-30T09:00:00.000Z', '2026-10-30T10:00:00.000Z'),
         (2, '2026-10-31T09:00:00.000Z', '2026-10-31T11:00:00.000Z'),
@@ -302,6 +326,7 @@ describe('getPieces', () => {
       {
         id: 3,
         name: 'Red cup',
+        category: 'prep',
         photo_file_name: null,
         finished_at: null,
         worked_milliseconds: 30 * 60 * 1000,
@@ -309,6 +334,7 @@ describe('getPieces', () => {
       {
         id: 2,
         name: 'Green bowl',
+        category: 'piece',
         photo_file_name: null,
         finished_at: '2026-10-31T17:00:00.000Z',
         worked_milliseconds: 2 * 60 * 60 * 1000,
@@ -316,6 +342,7 @@ describe('getPieces', () => {
       {
         id: 1,
         name: 'Blue vase',
+        category: 'piece',
         photo_file_name: null,
         finished_at: '2026-10-30T17:00:00.000Z',
         worked_milliseconds: 60 * 60 * 1000,
@@ -327,7 +354,7 @@ describe('getPieces', () => {
   it('counts a running piece up to now', async () => {
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
     await database.execAsync(`
-      INSERT INTO pieces (id, name) VALUES (1, 'Blue vase');
+      INSERT INTO pieces (id, name, category) VALUES (1, 'Blue vase', 'piece');
       INSERT INTO work_segments (piece_id, started_at) VALUES (1, '${oneHourAgo}');
     `);
 
@@ -341,7 +368,7 @@ describe('getPieceDetail', () => {
   // Otherwise the piece page would be missing the other pieces and breaks its day lines are split from.
   it('returns the piece, its segments, and other segments and breaks since its first start', async () => {
     await database.execAsync(`
-      INSERT INTO pieces (id, name, notes) VALUES (1, 'Blue vase', NULL), (2, 'Green bowl', NULL);
+      INSERT INTO pieces (id, name, category) VALUES (1, 'Blue vase', 'piece'), (2, 'Green bowl', 'piece');
       INSERT INTO work_segments (piece_id, started_at, ended_at) VALUES
         (2, '2026-10-30T09:00:00.000Z', '2026-10-30T10:00:00.000Z'),
         (1, '2026-10-31T11:00:00.000Z', '2026-10-31T12:00:00.000Z'),

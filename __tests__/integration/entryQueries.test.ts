@@ -21,7 +21,7 @@ beforeEach(async () => {
   database = createTestDb();
   (getDb as jest.Mock).mockResolvedValue(database);
   await database.execAsync(`
-    INSERT INTO pieces (id, name) VALUES (1, 'Blue vase'), (2, 'Green bowl');
+    INSERT INTO pieces (id, name, category) VALUES (1, 'Blue vase', 'piece'), (2, 'Green bowl', 'piece');
   `);
 });
 
@@ -213,14 +213,42 @@ describe('addPastWork', () => {
 
   // Otherwise a forgotten day's work could not be recorded at all.
   it('creates a new piece with its work on the chosen day', async () => {
-    await addPastWork({ piece: { name: 'Red cup' }, startedAt, endedAt, finish: null });
+    await addPastWork({
+      piece: { name: 'Red cup', category: 'piece' },
+      startedAt,
+      endedAt,
+      finish: null,
+    });
 
     expect(
       await database.getAllAsync(
-        `SELECT pieces.name, pieces.finished_at, work_segments.started_at, work_segments.ended_at
+        `SELECT pieces.name, pieces.category, pieces.finished_at,
+           work_segments.started_at, work_segments.ended_at
          FROM work_segments JOIN pieces ON pieces.id = work_segments.piece_id`,
       ),
-    ).toEqual([{ name: 'Red cup', finished_at: null, started_at: startedAt, ended_at: endedAt }]);
+    ).toEqual([
+      {
+        name: 'Red cup',
+        category: 'piece',
+        finished_at: null,
+        started_at: startedAt,
+        ended_at: endedAt,
+      },
+    ]);
+  });
+
+  // Otherwise prep made on a forgotten day would be saved as a piece and counted as output.
+  it('creates new prep with its category', async () => {
+    await addPastWork({
+      piece: { name: 'Dichroic cane', category: 'prep' },
+      startedAt,
+      endedAt,
+      finish: null,
+    });
+
+    expect(
+      await database.getAllAsync("SELECT category FROM pieces WHERE name = 'Dichroic cane'"),
+    ).toEqual([{ category: 'prep' }]);
   });
 
   // Otherwise a forgotten sitting on a piece already in the list would need a duplicate piece.
@@ -235,7 +263,7 @@ describe('addPastWork', () => {
   // Otherwise a piece made entirely on a forgotten day could never be finished.
   it('finishes the piece at the end of the work', async () => {
     await addPastWork({
-      piece: { name: 'Red cup' },
+      piece: { name: 'Red cup', category: 'piece' },
       startedAt,
       endedAt,
       finish: { notes: 'Copper red', photoFileName: null },
@@ -250,7 +278,7 @@ describe('addPastWork', () => {
   it('rejects finishing with neither a photo nor notes and saves nothing', async () => {
     await expect(
       addPastWork({
-        piece: { name: 'Red cup' },
+        piece: { name: 'Red cup', category: 'piece' },
         startedAt,
         endedAt,
         finish: { notes: null, photoFileName: null },
@@ -265,7 +293,7 @@ describe('addPastWork', () => {
   it('rejects an end before its start and saves nothing', async () => {
     await expect(
       addPastWork({
-        piece: { name: 'Red cup' },
+        piece: { name: 'Red cup', category: 'piece' },
         startedAt: endedAt,
         endedAt: startedAt,
         finish: null,

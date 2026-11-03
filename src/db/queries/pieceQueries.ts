@@ -3,9 +3,12 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import { getDb } from '@/db/database';
 import type { TimeRange } from '@/utils/workDays';
 
+export type PieceCategory = 'piece' | 'prep';
+
 export interface UnfinishedPiece {
   id: number;
   name: string;
+  category: PieceCategory;
   worked_milliseconds: number;
   running_since: string | null;
 }
@@ -13,6 +16,7 @@ export interface UnfinishedPiece {
 export interface PieceListItem {
   id: number;
   name: string;
+  category: PieceCategory;
   photo_file_name: string | null;
   finished_at: string | null;
   worked_milliseconds: number;
@@ -60,12 +64,16 @@ async function startSegment(database: SQLiteDatabase, pieceId: number, startedAt
   );
 }
 
-export async function startPiece(name: string): Promise<number> {
+export async function startPiece(name: string, category: PieceCategory): Promise<number> {
   const database = await getDb();
   const startedAt = new Date().toISOString();
   let pieceId = 0;
   await database.withTransactionAsync(async () => {
-    const result = await database.runAsync('INSERT INTO pieces (name) VALUES (?)', name);
+    const result = await database.runAsync(
+      'INSERT INTO pieces (name, category) VALUES (?, ?)',
+      name,
+      category,
+    );
     pieceId = result.lastInsertRowId;
     await startSegment(database, pieceId, startedAt);
   });
@@ -113,7 +121,7 @@ export async function finishPiece(
 export async function getUnfinishedPieces(): Promise<UnfinishedPiece[]> {
   const database = await getDb();
   return database.getAllAsync<UnfinishedPiece>(
-    `SELECT pieces.id, pieces.name,
+    `SELECT pieces.id, pieces.name, pieces.category,
        round(total(julianday(work_segments.ended_at) - julianday(work_segments.started_at))
          * 86400000) AS worked_milliseconds,
        max(CASE WHEN work_segments.ended_at IS NULL THEN work_segments.started_at END)
@@ -130,7 +138,7 @@ export async function getUnfinishedPieces(): Promise<UnfinishedPiece[]> {
 export async function getPieces(): Promise<PieceListItem[]> {
   const database = await getDb();
   return database.getAllAsync<PieceListItem>(
-    `SELECT pieces.id, pieces.name, pieces.photo_file_name, pieces.finished_at,
+    `SELECT pieces.id, pieces.name, pieces.category, pieces.photo_file_name, pieces.finished_at,
        round(total(julianday(coalesce(work_segments.ended_at, 'now'))
          - julianday(work_segments.started_at)) * 86400000) AS worked_milliseconds
      FROM pieces

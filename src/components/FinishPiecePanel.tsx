@@ -12,6 +12,8 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { colors } from '@/theme';
+
 interface FinishPiecePanelProps {
   pieceName: string;
   cameraPhotoUri: string | null;
@@ -52,6 +54,7 @@ export function FinishPiecePanel({
             value={notes}
             onChangeText={setNotes}
             placeholder={cameraPhotoUri ? 'Notes' : 'No photo: describe the piece.'}
+            placeholderTextColor={colors.secondaryText}
             multiline
             autoFocus={!cameraPhotoUri}
           />
@@ -77,17 +80,18 @@ const styles = StyleSheet.create({
   overlay: {
     flex: 1,
     justifyContent: 'flex-end',
-    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
   },
   panel: {
     padding: 16,
     gap: 12,
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
   },
   pieceName: {
     fontSize: 20,
+    color: colors.text,
   },
   photo: {
     width: '100%',
@@ -99,8 +103,10 @@ const styles = StyleSheet.create({
     padding: 12,
     height: 100,
     textAlignVertical: 'top',
+    color: colors.text,
+    backgroundColor: colors.background,
     borderWidth: 1,
-    borderColor: '#999',
+    borderColor: colors.separator,
     borderRadius: 8,
   },
   buttonRow: {
@@ -115,13 +121,13 @@ const styles = StyleSheet.create({
   cancelButtonText: {
     fontSize: 18,
     lineHeight: 20,
-    color: '#1a1a1a',
+    color: colors.text,
   },
   saveButton: {
     paddingVertical: 10,
     paddingHorizontal: 20,
     borderRadius: 8,
-    backgroundColor: '#1a1a1a',
+    backgroundColor: colors.primary,
   },
   buttonDisabled: {
     opacity: 0.4,
@@ -129,6 +135,6 @@ const styles = StyleSheet.create({
   saveButtonText: {
     fontSize: 18,
     lineHeight: 20,
-    color: '#fff',
+    color: colors.textOnFill,
   },
 });

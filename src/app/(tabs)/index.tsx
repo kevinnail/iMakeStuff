@@ -16,11 +16,14 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { FinishPiecePanel } from '@/components/FinishPiecePanel';
+import { JoinedButtons } from '@/components/JoinedButtons';
+import { PrepTag } from '@/components/PrepTag';
 import type { WorkRecords } from '@/db/queries/dayQueries';
-import type { UnfinishedPiece } from '@/db/queries/pieceQueries';
+import type { PieceCategory, UnfinishedPiece } from '@/db/queries/pieceQueries';
 import { useWorkStore } from '@/store/workStore';
 import { formatDuration } from '@/utils/formatTime';
 import { saveToCameraRoll } from '@/utils/photoStorage';
+import { colors } from '@/theme';
 import { getWorkDays, startOfDay } from '@/utils/workDays';
 
 interface Finishing {
@@ -33,6 +36,11 @@ interface RunningTimeProps {
   baseMilliseconds?: number;
   style?: StyleProp<TextStyle>;
 }
+
+const categoryOptions: { value: PieceCategory; label: string; placeholder: string }[] = [
+  { value: 'piece', label: 'Piece', placeholder: 'What are you making?' },
+  { value: 'prep', label: 'Prep', placeholder: 'What prep are you making?' },
+];
 
 function formatElapsed(milliseconds: number) {
   const totalSeconds = Math.floor(milliseconds / 1000);
@@ -69,6 +77,7 @@ function RunningTime({ startedAt, baseMilliseconds = 0, style }: RunningTimeProp
 }
 
 // "Today: 5h 20m worked, 30m break, 2 finished", counting the running piece up to now.
+// Prep counts as worked but not as finished, since it isn't output.
 // Everything is filtered to the current day here, not only when the store loads, so the
 // numbers reset at midnight even if nothing is tapped.
 function TodayTable({ today }: { today: WorkRecords }) {
@@ -83,7 +92,9 @@ function TodayTable({ today }: { today: WorkRecords }) {
     {
       label: 'Finished',
       value: String(
-        today.finishedPieces.filter((piece) => Date.parse(piece.finished_at) >= midnight).length,
+        today.finishedPieces.filter(
+          (piece) => piece.category === 'piece' && Date.parse(piece.finished_at) >= midnight,
+        ).length,
       ),
     },
   ];
@@ -114,9 +125,11 @@ export default function WorkScreen() {
     endDay,
   } = useWorkStore();
   const [name, setName] = useState('');
+  const [category, setCategory] = useState<PieceCategory>('piece');
   const [finishing, setFinishing] = useState<Finishing | null>(null);
   const [openingPieceId, setOpeningPieceId] = useState<number | null>(null);
   const trimmedName = name.trim();
+  const placeholder = categoryOptions.find(({ value }) => value === category)?.placeholder;
   const working = pieces.some((piece) => piece.running_since !== null);
 
   // Reloads whenever the tab is shown, so fixes made on a day's page show here.
@@ -127,7 +140,7 @@ export default function WorkScreen() {
   );
 
   function handleStart() {
-    start(trimmedName)
+    start(trimmedName, category)
       .then(() => setName(''))
       .catch(showError('Could not start'));
   }
@@ -166,12 +179,14 @@ export default function WorkScreen() {
   return (
     // The tab bar has no header, so the screen keeps itself clear of the status bar and tab bar.
     <SafeAreaView edges={['top', 'bottom']} style={styles.screen}>
+      <JoinedButtons options={categoryOptions} selected={category} onSelect={setCategory} />
       <View style={styles.startRow}>
         <TextInput
           style={styles.nameInput}
           value={name}
           onChangeText={setName}
-          placeholder="What are you making?"
+          placeholder={placeholder}
+          placeholderTextColor={colors.secondaryText}
           returnKeyType="go"
           onSubmitEditing={trimmedName ? handleStart : undefined}
         />
@@ -193,9 +208,14 @@ export default function WorkScreen() {
             disabled={piece.running_since !== null}
           >
             <View style={styles.pieceDetails}>
-              <Text style={[styles.pieceName, piece.running_since !== null && styles.currentText]}>
-                {piece.name}
-              </Text>
+              <View style={styles.nameRow}>
+                <Text
+                  style={[styles.pieceName, piece.running_since !== null && styles.currentText]}
+                >
+                  {piece.name}
+                </Text>
+                {piece.category === 'prep' && <PrepTag onFill={piece.running_since !== null} />}
+              </View>
               {piece.running_since ? (
                 <RunningTime
                   startedAt={piece.running_since}
@@ -207,17 +227,17 @@ export default function WorkScreen() {
               )}
             </View>
             <Pressable
-              style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
+              style={({ pressed }) => [styles.doneButton, pressed && styles.buttonPressed]}
               onPress={() => openFinish(piece).catch(showError('Could not open the camera'))}
               disabled={openingPieceId !== null}
             >
               <Text
-                style={[styles.buttonText, openingPieceId === piece.id && styles.buttonTextHidden]}
+                style={[styles.doneText, openingPieceId === piece.id && styles.buttonTextHidden]}
               >
                 Done
               </Text>
               {openingPieceId === piece.id && (
-                <ActivityIndicator color="#fff" style={StyleSheet.absoluteFill} />
+                <ActivityIndicator color={colors.text} style={StyleSheet.absoluteFill} />
               )}
             </Pressable>
           </Pressable>
@@ -276,15 +296,17 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 18,
     padding: 12,
+    color: colors.text,
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#999',
+    borderColor: colors.separator,
     borderRadius: 8,
   },
   button: {
     paddingVertical: 10,
     paddingHorizontal: 20,
     borderRadius: 8,
-    backgroundColor: '#1a1a1a',
+    backgroundColor: colors.primary,
   },
   buttonDisabled: {
     opacity: 0.4,
@@ -295,7 +317,19 @@ const styles = StyleSheet.create({
   buttonText: {
     fontSize: 18,
     lineHeight: 20,
-    color: '#fff',
+    color: colors.textOnFill,
+  },
+  // Dark so it shows on both a plain row and the running piece's row.
+  doneButton: {
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    backgroundColor: colors.background,
+  },
+  doneText: {
+    fontSize: 18,
+    lineHeight: 20,
+    color: colors.text,
   },
   buttonTextHidden: {
     opacity: 0,
@@ -313,32 +347,40 @@ const styles = StyleSheet.create({
     paddingVertical: 28,
     paddingHorizontal: 16,
     borderRadius: 12,
-    backgroundColor: '#eee',
+    backgroundColor: colors.surface,
   },
   pieceRowCurrent: {
-    backgroundColor: '#2e7d32',
+    backgroundColor: colors.primary,
   },
   pieceDetails: {
     flex: 1,
     gap: 6,
   },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   pieceName: {
+    flexShrink: 1,
     fontSize: 20,
+    color: colors.text,
   },
   currentText: {
-    color: '#fff',
+    color: colors.textOnFill,
   },
   breakRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    backgroundColor: '#f6ff00',
+    backgroundColor: colors.accent,
     height: 200,
     padding: 20,
   },
   breakLabel: {
     flex: 1,
     fontSize: 30,
+    color: colors.textOnFill,
   },
   controlRow: {
     flexDirection: 'row',
@@ -347,6 +389,7 @@ const styles = StyleSheet.create({
   time: {
     fontSize: 18,
     fontVariant: ['tabular-nums'],
+    color: colors.text,
   },
   todayTable: {
     flexDirection: 'row',
@@ -358,14 +401,16 @@ const styles = StyleSheet.create({
   },
   todayLabel: {
     fontSize: 16,
-    color: '#555',
+    color: colors.secondaryText,
   },
   todayValue: {
     fontSize: 18,
     fontVariant: ['tabular-nums'],
+    color: colors.text,
   },
   breakTime: {
     fontSize: 30,
     fontVariant: ['tabular-nums'],
+    color: colors.textOnFill,
   },
 });

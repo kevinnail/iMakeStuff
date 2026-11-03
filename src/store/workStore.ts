@@ -13,6 +13,7 @@ import {
   getUnfinishedPieces,
   startPiece,
   switchToPiece,
+  type PieceCategory,
   type UnfinishedPiece,
 } from '@/db/queries/pieceQueries';
 import { withSavedPhoto } from '@/utils/photoStorage';
@@ -29,7 +30,7 @@ interface WorkState {
   // Everything since midnight, for the line about today on the Work screen.
   today: WorkRecords;
   load: () => Promise<void>;
-  start: (name: string) => Promise<void>;
+  start: (name: string, category: PieceCategory) => Promise<void>;
   switchTo: (pieceId: number) => Promise<void>;
   finish: (pieceId: number, input: FinishInput) => Promise<void>;
   takeBreak: () => Promise<void>;
@@ -54,8 +55,8 @@ export const useWorkStore = create<WorkState>()((set) => ({
   load: async () => {
     set(await readWork());
   },
-  start: async (name) => {
-    await startPiece(name);
+  start: async (name, category) => {
+    await startPiece(name, category);
     set(await readWork());
   },
   switchTo: async (pieceId) => {
