@@ -16,11 +16,17 @@ import {
 } from 'react-native';
 
 import { addPastWork } from '@/db/queries/entryQueries';
-import { getPieces, type PieceListItem } from '@/db/queries/pieceQueries';
+import { getPieces, type PieceCategory, type PieceListItem } from '@/db/queries/pieceQueries';
 import { colors } from '@/theme';
 import { withSavedPhoto } from '@/utils/photoStorage';
 
-type PieceChoice = PieceListItem | 'new' | null;
+// A category on its own means a new piece or new prep.
+type PieceChoice = PieceListItem | PieceCategory | null;
+
+const newOptions: { category: PieceCategory; label: string; buttonText: string }[] = [
+  { category: 'piece', label: 'New piece…', buttonText: 'New piece' },
+  { category: 'prep', label: 'New prep…', buttonText: 'New prep' },
+];
 
 // Yesterday at the given hour, the most likely day to be catching up on.
 function yesterdayAt(hours: number) {
@@ -42,10 +48,15 @@ export default function AddWorkScreen() {
   const [saving, setSaving] = useState(false);
   const trimmedName = newName.trim();
   const trimmedNotes = notes.trim();
-  const canFinish = pieceChoice === 'new' || (pieceChoice !== null && !pieceChoice.finished_at);
+  const newCategory = typeof pieceChoice === 'string' ? pieceChoice : null;
+  const chosenPiece = typeof pieceChoice === 'string' ? null : pieceChoice;
+  const choiceText = newCategory
+    ? newOptions.find(({ category }) => category === newCategory)?.buttonText
+    : (chosenPiece?.name ?? 'Choose a piece');
+  const canFinish = newCategory !== null || (chosenPiece !== null && !chosenPiece.finished_at);
   const canSave =
     !saving &&
-    (pieceChoice === 'new' ? trimmedName !== '' : pieceChoice !== null) &&
+    (newCategory ? trimmedName !== '' : chosenPiece !== null) &&
     endedAt >= startedAt &&
     (!finishing || libraryPhotoUri !== null || trimmedNotes !== '');
 
@@ -57,15 +68,21 @@ export default function AddWorkScreen() {
 
   function choosePiece() {
     const options = [
-      ...pieces.map((piece) => (piece.finished_at ? `${piece.name} (finished)` : piece.name)),
-      'New piece…',
+      ...pieces.map((piece) => {
+        const marks = [piece.category === 'prep' && 'prep', piece.finished_at && 'finished'];
+        const markText = marks.filter(Boolean).join(', ');
+        return markText ? `${piece.name} (${markText})` : piece.name;
+      }),
+      ...newOptions.map(({ label }) => label),
       'Cancel',
     ];
     ActionSheetIOS.showActionSheetWithOptions(
       { options, cancelButtonIndex: options.length - 1 },
       (index) => {
-        if (index === pieces.length) setPieceChoice('new');
-        else if (index < pieces.length) setPieceChoice(pieces[index]);
+        if (index < pieces.length) setPieceChoice(pieces[index]);
+        else if (index < pieces.length + newOptions.length) {
+          setPieceChoice(newOptions[index - pieces.length].category);
+        }
         setFinishing(false);
       },
     );
@@ -81,10 +98,14 @@ export default function AddWorkScreen() {
 
   function handleSave() {
     if (pieceChoice === null) return;
+    const piece =
+      typeof pieceChoice === 'string'
+        ? { name: trimmedName, category: pieceChoice }
+        : { id: pieceChoice.id };
     setSaving(true);
     withSavedPhoto(finishing ? libraryPhotoUri : null, (photoFileName) =>
       addPastWork({
-        piece: pieceChoice === 'new' ? { name: trimmedName } : { id: pieceChoice.id },
+        piece,
         startedAt: new Date(startedAt).toISOString(),
         endedAt: new Date(endedAt).toISOString(),
         finish: finishing ? { notes: trimmedNotes || null, photoFileName } : null,
@@ -102,12 +123,10 @@ export default function AddWorkScreen() {
       <View style={styles.row}>
         <Text style={styles.label}>Piece</Text>
         <Pressable style={styles.choiceButton} onPress={choosePiece}>
-          <Text style={styles.choiceText}>
-            {pieceChoice === 'new' ? 'New piece' : (pieceChoice?.name ?? 'Choose a piece')}
-          </Text>
+          <Text style={styles.choiceText}>{choiceText}</Text>
         </Pressable>
       </View>
-      {pieceChoice === 'new' && (
+      {newCategory && (
         <TextInput
           style={styles.input}
           value={newName}
