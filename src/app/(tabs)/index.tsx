@@ -16,8 +16,10 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { FinishPiecePanel } from '@/components/FinishPiecePanel';
+import { JoinedButtons } from '@/components/JoinedButtons';
+import { PrepTag } from '@/components/PrepTag';
 import type { WorkRecords } from '@/db/queries/dayQueries';
-import type { UnfinishedPiece } from '@/db/queries/pieceQueries';
+import type { PieceCategory, UnfinishedPiece } from '@/db/queries/pieceQueries';
 import { useWorkStore } from '@/store/workStore';
 import { formatDuration } from '@/utils/formatTime';
 import { saveToCameraRoll } from '@/utils/photoStorage';
@@ -34,6 +36,11 @@ interface RunningTimeProps {
   baseMilliseconds?: number;
   style?: StyleProp<TextStyle>;
 }
+
+const categoryOptions: { value: PieceCategory; label: string; placeholder: string }[] = [
+  { value: 'piece', label: 'Piece', placeholder: 'What are you making?' },
+  { value: 'prep', label: 'Prep', placeholder: 'What prep are you making?' },
+];
 
 function formatElapsed(milliseconds: number) {
   const totalSeconds = Math.floor(milliseconds / 1000);
@@ -70,6 +77,7 @@ function RunningTime({ startedAt, baseMilliseconds = 0, style }: RunningTimeProp
 }
 
 // "Today: 5h 20m worked, 30m break, 2 finished", counting the running piece up to now.
+// Prep counts as worked but not as finished, since it isn't output.
 // Everything is filtered to the current day here, not only when the store loads, so the
 // numbers reset at midnight even if nothing is tapped.
 function TodayTable({ today }: { today: WorkRecords }) {
@@ -84,7 +92,9 @@ function TodayTable({ today }: { today: WorkRecords }) {
     {
       label: 'Finished',
       value: String(
-        today.finishedPieces.filter((piece) => Date.parse(piece.finished_at) >= midnight).length,
+        today.finishedPieces.filter(
+          (piece) => piece.category === 'piece' && Date.parse(piece.finished_at) >= midnight,
+        ).length,
       ),
     },
   ];
@@ -115,9 +125,11 @@ export default function WorkScreen() {
     endDay,
   } = useWorkStore();
   const [name, setName] = useState('');
+  const [category, setCategory] = useState<PieceCategory>('piece');
   const [finishing, setFinishing] = useState<Finishing | null>(null);
   const [openingPieceId, setOpeningPieceId] = useState<number | null>(null);
   const trimmedName = name.trim();
+  const placeholder = categoryOptions.find(({ value }) => value === category)?.placeholder;
   const working = pieces.some((piece) => piece.running_since !== null);
 
   // Reloads whenever the tab is shown, so fixes made on a day's page show here.
@@ -128,7 +140,7 @@ export default function WorkScreen() {
   );
 
   function handleStart() {
-    start(trimmedName)
+    start(trimmedName, category)
       .then(() => setName(''))
       .catch(showError('Could not start'));
   }
@@ -167,12 +179,13 @@ export default function WorkScreen() {
   return (
     // The tab bar has no header, so the screen keeps itself clear of the status bar and tab bar.
     <SafeAreaView edges={['top', 'bottom']} style={styles.screen}>
+      <JoinedButtons options={categoryOptions} selected={category} onSelect={setCategory} />
       <View style={styles.startRow}>
         <TextInput
           style={styles.nameInput}
           value={name}
           onChangeText={setName}
-          placeholder="What are you making?"
+          placeholder={placeholder}
           placeholderTextColor={colors.secondaryText}
           returnKeyType="go"
           onSubmitEditing={trimmedName ? handleStart : undefined}
@@ -195,9 +208,14 @@ export default function WorkScreen() {
             disabled={piece.running_since !== null}
           >
             <View style={styles.pieceDetails}>
-              <Text style={[styles.pieceName, piece.running_since !== null && styles.currentText]}>
-                {piece.name}
-              </Text>
+              <View style={styles.nameRow}>
+                <Text
+                  style={[styles.pieceName, piece.running_since !== null && styles.currentText]}
+                >
+                  {piece.name}
+                </Text>
+                {piece.category === 'prep' && <PrepTag onFill={piece.running_since !== null} />}
+              </View>
               {piece.running_since ? (
                 <RunningTime
                   startedAt={piece.running_since}
@@ -338,7 +356,13 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 6,
   },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   pieceName: {
+    flexShrink: 1,
     fontSize: 20,
     color: colors.text,
   },
