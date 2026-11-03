@@ -32,7 +32,7 @@ beforeEach(() => {
 describe('startBreak', () => {
   // Otherwise the piece keeps collecting time through the break.
   it('ends the running segment at the moment the break starts', async () => {
-    const pieceId = await startPiece('Blue vase');
+    const pieceId = await startPiece('Blue vase', 'piece');
 
     await startBreak();
 
@@ -57,7 +57,7 @@ describe('startBreak', () => {
 
   // Otherwise two overlapping breaks would count the same time twice.
   it('rejects a second break while on break', async () => {
-    await startPiece('Blue vase');
+    await startPiece('Blue vase', 'piece');
     await startBreak();
 
     await expect(startBreak()).rejects.toThrow(/UNIQUE constraint/);
@@ -68,7 +68,7 @@ describe('startBreak', () => {
 describe('endBreak', () => {
   // Otherwise Back to work leaves the piece stopped, or restarts it with a gap after the break.
   it('ends the break and restarts the paused piece from the same moment', async () => {
-    const pieceId = await startPiece('Blue vase');
+    const pieceId = await startPiece('Blue vase', 'piece');
     await startBreak();
 
     await endBreak();
@@ -85,8 +85,8 @@ describe('endBreak', () => {
 
   // Otherwise Back to work would resume a piece you had set down before the break.
   it('restarts only the piece that was green when the break started', async () => {
-    const setDownPieceId = await startPiece('Blue vase');
-    const greenPieceId = await startPiece('Green bowl');
+    const setDownPieceId = await startPiece('Blue vase', 'piece');
+    const greenPieceId = await startPiece('Green bowl', 'piece');
     await switchToPiece(setDownPieceId);
     await switchToPiece(greenPieceId);
     await startBreak();
@@ -98,7 +98,7 @@ describe('endBreak', () => {
 
   // Otherwise a piece finished during the break would start collecting time again.
   it('does not restart a piece finished during the break', async () => {
-    const pieceId = await startPiece('Blue vase');
+    const pieceId = await startPiece('Blue vase', 'piece');
     await startBreak();
     await finishPiece(pieceId, {
       endedAt: new Date().toISOString(),
@@ -114,7 +114,7 @@ describe('endBreak', () => {
 
   // Otherwise Back to work with no break would fail silently and the screen would show nothing changed.
   it('fails when not on a break', async () => {
-    await startPiece('Blue vase');
+    await startPiece('Blue vase', 'piece');
 
     await expect(endBreak()).rejects.toThrow('You are not on a break.');
     expect(await database.getAllAsync<SegmentRow>(segmentsSql)).toHaveLength(1);
