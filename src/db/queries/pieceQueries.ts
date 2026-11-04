@@ -1,6 +1,15 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { getDb } from '@/db/database';
+import {
+  getPiecesUsingPrep,
+  getUsedPrep,
+  insertPrepUse,
+  type NewPrepUse,
+  type PieceUsingPrep,
+  type UsedPrep,
+} from '@/db/queries/prepQueries';
+import { getPrepTime } from '@/utils/prepTime';
 import type { TimeRange } from '@/utils/workDays';
 
 export type PieceCategory = 'piece' | 'prep';
@@ -20,11 +29,14 @@ export interface PieceListItem {
   photo_file_name: string | null;
   finished_at: string | null;
   worked_milliseconds: number;
+  // null for a piece that used no prep.
+  prep_milliseconds: number | null;
 }
 
 export interface PieceRecord {
   id: number;
   name: string;
+  category: PieceCategory;
   notes: string | null;
   photo_file_name: string | null;
   finished_at: string | null;
@@ -35,12 +47,16 @@ export interface PieceDetail {
   segments: TimeRange[];
   otherSegments: TimeRange[];
   breaks: TimeRange[];
+  // For a piece, the prep it used. For prep, the pieces that used it.
+  usedPrep: UsedPrep[];
+  usedBy: PieceUsingPrep[];
 }
 
 export interface FinishDetails {
   endedAt: string;
   notes: string | null;
   photoFileName: string | null;
+  prepUses: NewPrepUse[];
 }
 
 async function stopRunning(database: SQLiteDatabase, endedAt: string): Promise<number> {
@@ -96,7 +112,7 @@ export async function endDay(): Promise<void> {
 
 export async function finishPiece(
   pieceId: number,
-  { endedAt, notes, photoFileName }: FinishDetails,
+  { endedAt, notes, photoFileName, prepUses }: FinishDetails,
 ): Promise<void> {
   const database = await getDb();
   await database.withTransactionAsync(async () => {
@@ -114,6 +130,7 @@ export async function finishPiece(
       pieceId,
     );
     if (result.changes === 0) throw new Error('That piece is already finished.');
+    for (const use of prepUses) await insertPrepUse(database, pieceId, use);
   });
 }
 
@@ -134,29 +151,40 @@ export async function getUnfinishedPieces(): Promise<UnfinishedPiece[]> {
   );
 }
 
-// Unfinished pieces first, then finished ones newest first.
+// Unfinished pieces first, then finished ones newest first. Prep time is worked out the same
+// way as on the piece's page, so the list and the page always match.
 export async function getPieces(): Promise<PieceListItem[]> {
   const database = await getDb();
-  return database.getAllAsync<PieceListItem>(
-    `SELECT pieces.id, pieces.name, pieces.category, pieces.photo_file_name, pieces.finished_at,
-       round(total(julianday(coalesce(work_segments.ended_at, 'now'))
-         - julianday(work_segments.started_at)) * 86400000) AS worked_milliseconds
-     FROM pieces
-     JOIN work_segments ON work_segments.piece_id = pieces.id
-     GROUP BY pieces.id
-     ORDER BY pieces.finished_at IS NOT NULL, pieces.finished_at DESC, pieces.id DESC`,
-  );
+  const [pieces, usedPrep] = await Promise.all([
+    database.getAllAsync<Omit<PieceListItem, 'prep_milliseconds'>>(
+      `SELECT pieces.id, pieces.name, pieces.category, pieces.photo_file_name, pieces.finished_at,
+         round(total(julianday(coalesce(work_segments.ended_at, 'now'))
+           - julianday(work_segments.started_at)) * 86400000) AS worked_milliseconds
+       FROM pieces
+       JOIN work_segments ON work_segments.piece_id = pieces.id
+       GROUP BY pieces.id
+       ORDER BY pieces.finished_at IS NOT NULL, pieces.finished_at DESC, pieces.id DESC`,
+    ),
+    getUsedPrep(database, null),
+  ]);
+  return pieces.map((piece) => {
+    const uses = usedPrep.filter((use) => use.piece_id === piece.id);
+    return {
+      ...piece,
+      prep_milliseconds: uses.length > 0 ? getPrepTime(piece.worked_milliseconds, uses).prep : null,
+    };
+  });
 }
 
 export async function getPieceDetail(pieceId: number): Promise<PieceDetail | null> {
   const database = await getDb();
   const piece = await database.getFirstAsync<PieceRecord>(
-    'SELECT id, name, notes, photo_file_name, finished_at FROM pieces WHERE id = ?',
+    'SELECT id, name, category, notes, photo_file_name, finished_at FROM pieces WHERE id = ?',
     pieceId,
   );
   if (!piece) return null;
   const firstStartSql = '(SELECT min(started_at) FROM work_segments WHERE piece_id = ?)';
-  const [segments, otherSegments, breaks] = await Promise.all([
+  const [segments, otherSegments, breaks, usedPrep, usedBy] = await Promise.all([
     database.getAllAsync<TimeRange>(
       'SELECT started_at, ended_at FROM work_segments WHERE piece_id = ? ORDER BY started_at',
       pieceId,
@@ -172,6 +200,8 @@ export async function getPieceDetail(pieceId: number): Promise<PieceDetail | nul
        WHERE ended_at IS NULL OR ended_at > ${firstStartSql}`,
       pieceId,
     ),
+    getUsedPrep(database, pieceId),
+    getPiecesUsingPrep(database, pieceId),
   ]);
-  return { piece, segments, otherSegments, breaks };
+  return { piece, segments, otherSegments, breaks, usedPrep, usedBy };
 }
