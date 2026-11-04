@@ -31,6 +31,8 @@ export interface PieceListItem {
   worked_milliseconds: number;
   // null for a piece that used no prep.
   prep_milliseconds: number | null;
+  // true while any of its prep isn't used up.
+  prep_estimated: boolean;
 }
 
 export interface PieceRecord {
@@ -40,6 +42,7 @@ export interface PieceRecord {
   notes: string | null;
   photo_file_name: string | null;
   finished_at: string | null;
+  used_up_at: string | null;
 }
 
 export interface PieceDetail {
@@ -156,7 +159,7 @@ export async function getUnfinishedPieces(): Promise<UnfinishedPiece[]> {
 export async function getPieces(): Promise<PieceListItem[]> {
   const database = await getDb();
   const [pieces, usedPrep] = await Promise.all([
-    database.getAllAsync<Omit<PieceListItem, 'prep_milliseconds'>>(
+    database.getAllAsync<Omit<PieceListItem, 'prep_milliseconds' | 'prep_estimated'>>(
       `SELECT pieces.id, pieces.name, pieces.category, pieces.photo_file_name, pieces.finished_at,
          round(total(julianday(coalesce(work_segments.ended_at, 'now'))
            - julianday(work_segments.started_at)) * 86400000) AS worked_milliseconds
@@ -169,9 +172,11 @@ export async function getPieces(): Promise<PieceListItem[]> {
   ]);
   return pieces.map((piece) => {
     const uses = usedPrep.filter((use) => use.piece_id === piece.id);
+    const prepTime = getPrepTime(piece.worked_milliseconds, uses);
     return {
       ...piece,
-      prep_milliseconds: uses.length > 0 ? getPrepTime(piece.worked_milliseconds, uses).prep : null,
+      prep_milliseconds: uses.length > 0 ? prepTime.prep : null,
+      prep_estimated: prepTime.estimated,
     };
   });
 }
@@ -179,7 +184,8 @@ export async function getPieces(): Promise<PieceListItem[]> {
 export async function getPieceDetail(pieceId: number): Promise<PieceDetail | null> {
   const database = await getDb();
   const piece = await database.getFirstAsync<PieceRecord>(
-    'SELECT id, name, category, notes, photo_file_name, finished_at FROM pieces WHERE id = ?',
+    `SELECT id, name, category, notes, photo_file_name, finished_at, used_up_at
+     FROM pieces WHERE id = ?`,
     pieceId,
   );
   if (!piece) return null;
