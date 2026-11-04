@@ -1,6 +1,7 @@
 import { getDb } from '@/db/database';
-import { getRunningBreak, startBreak } from '@/db/queries/breakQueries';
+import { endBreak, getRunningBreak, startBreak } from '@/db/queries/breakQueries';
 import {
+  deletePiece,
   endDay,
   finishPiece,
   getPieceDetail,
@@ -9,6 +10,7 @@ import {
   setPieceLost,
   startPiece,
   switchToPiece,
+  updatePiece,
 } from '@/db/queries/pieceQueries';
 import { createTestDb } from '../setup';
 
@@ -512,5 +514,149 @@ describe('getPieceDetail', () => {
   // Otherwise a link to a deleted or mistyped piece would crash the page instead of saying so.
   it('returns null for a piece that does not exist', async () => {
     expect(await getPieceDetail(999)).toBeNull();
+  });
+});
+
+// A finished vase with a photo, a finished bowl with notes that used a cane, the cane, and a
+// used-up frit mix.
+const editFixturesSql = `
+  INSERT INTO pieces (id, name, category, notes, photo_file_name, finished_at, used_up_at) VALUES
+    (1, 'Blue vase', 'piece', NULL, 'vase.jpg', '2026-10-30T17:00:00.000Z', NULL),
+    (2, 'Green bowl', 'piece', 'Lime', NULL, '2026-10-30T18:00:00.000Z', NULL),
+    (3, 'Dichroic cane', 'prep', 'Blue', NULL, '2026-10-28T17:00:00.000Z', NULL),
+    (4, 'Frit mix', 'prep', 'Green', NULL, '2026-10-29T17:00:00.000Z', '2026-10-31T10:00:00.000Z');
+  INSERT INTO work_segments (piece_id, started_at, ended_at) VALUES
+    (1, '2026-10-30T09:00:00.000Z', '2026-10-30T10:00:00.000Z'),
+    (2, '2026-10-30T10:00:00.000Z', '2026-10-30T11:00:00.000Z'),
+    (3, '2026-10-28T09:00:00.000Z', '2026-10-28T13:00:00.000Z'),
+    (4, '2026-10-29T09:00:00.000Z', '2026-10-29T11:00:00.000Z');
+  INSERT INTO prep_uses (piece_id, prep_id, estimated_percent) VALUES (2, 3, 25);
+`;
+
+const vaseChanges = {
+  name: 'Blue vase',
+  category: 'piece' as const,
+  notes: null,
+  photoFileName: 'vase.jpg',
+};
+
+const pieceRowSql = 'SELECT name, category, notes, photo_file_name FROM pieces WHERE id = ?';
+
+describe('updatePiece', () => {
+  beforeEach(() => database.execAsync(editFixturesSql));
+
+  // Otherwise a piece recorded under the wrong name would keep it.
+  it('saves the new name', async () => {
+    await updatePiece(1, { ...vaseChanges, name: 'Cobalt vase' });
+
+    expect(await database.getFirstAsync(pieceRowSql, 1)).toEqual({
+      name: 'Cobalt vase',
+      category: 'piece',
+      notes: null,
+      photo_file_name: 'vase.jpg',
+    });
+  });
+
+  // Otherwise a piece could be renamed to nothing and become unidentifiable.
+  it('rejects a blank name', async () => {
+    await expect(updatePiece(1, { ...vaseChanges, name: '   ' })).rejects.toThrow(
+      /CHECK constraint/,
+    );
+  });
+
+  // Otherwise editing could leave a finished piece with nothing to identify it.
+  it.each([
+    ['removing the photo from a piece with no notes', 1, { ...vaseChanges, photoFileName: null }],
+    [
+      'clearing the notes on a piece with no photo',
+      2,
+      { name: 'Green bowl', category: 'piece' as const, notes: null, photoFileName: null },
+    ],
+  ])('rejects %s', async (_change, pieceId, changes) => {
+    await expect(updatePiece(pieceId, changes)).rejects.toThrow(/CHECK constraint/);
+  });
+
+  // Otherwise prep recorded as a piece by mistake would stay counted as output.
+  it('changes a piece with no prep uses to prep', async () => {
+    await updatePiece(1, { ...vaseChanges, category: 'prep' });
+
+    expect(await database.getFirstAsync(pieceRowSql, 1)).toMatchObject({ category: 'prep' });
+  });
+
+  // Otherwise prep would end up made from other prep, which nothing in the app can show.
+  it('rejects changing a piece that uses prep to prep', async () => {
+    await expect(
+      updatePiece(2, { name: 'Green bowl', category: 'prep', notes: 'Lime', photoFileName: null }),
+    ).rejects.toThrow("A piece that uses prep can't become prep.");
+  });
+
+  // Otherwise pieces would keep shares of a prep that no longer exists as prep.
+  it.each([
+    ['a prep a piece used', 3, 'Dichroic cane', 'Blue'],
+    ['a used-up prep', 4, 'Frit mix', 'Green'],
+  ])('rejects changing %s to a piece', async (_kind, prepId, name, notes) => {
+    await expect(
+      updatePiece(prepId, { name, category: 'piece', notes, photoFileName: null }),
+    ).rejects.toThrow("Prep that pieces used, or that's used up, can't become a piece.");
+    expect(await database.getFirstAsync(pieceRowSql, prepId)).toMatchObject({ category: 'prep' });
+  });
+});
+
+describe('deletePiece', () => {
+  // Otherwise a deleted piece's time would stay on its days, or its prep would keep its share.
+  it('removes its segments and prep uses, returns its photo, and leaves other pieces alone', async () => {
+    await database.execAsync(editFixturesSql);
+
+    expect(await deletePiece(2)).toBeNull();
+    expect(await deletePiece(1)).toBe('vase.jpg');
+
+    expect(await database.getAllAsync('SELECT id FROM pieces ORDER BY id')).toEqual([
+      { id: 3 },
+      { id: 4 },
+    ]);
+    expect(await database.getAllAsync('SELECT piece_id FROM work_segments ORDER BY id')).toEqual([
+      { piece_id: 3 },
+      { piece_id: 4 },
+    ]);
+    expect(await database.getAllAsync('SELECT id FROM prep_uses')).toEqual([]);
+  });
+
+  // Otherwise a prep's deleted time would still show on the pieces that used it.
+  it('removes a deleted prep from the pieces that used it', async () => {
+    await database.execAsync(editFixturesSql);
+
+    await deletePiece(3);
+
+    expect((await getPieceDetail(2))?.usedPrep).toEqual([]);
+  });
+
+  // Otherwise the clock would keep counting on a piece that no longer exists.
+  it('leaves nothing running when the running piece is deleted', async () => {
+    const pieceId = await startPiece('Blue vase', 'piece');
+
+    await deletePiece(pieceId);
+
+    expect(await database.getAllAsync('SELECT id FROM work_segments')).toEqual([]);
+    expect(await getUnfinishedPieces()).toEqual([]);
+  });
+
+  // Otherwise Back to work would try to restart a piece that's gone.
+  it('lets Back to work restart only the pieces left after the paused one is deleted', async () => {
+    const setDownPieceId = await startPiece('Blue vase', 'piece');
+    const pausedPieceId = await startPiece('Green bowl', 'piece');
+    await startBreak();
+
+    await deletePiece(pausedPieceId);
+    await endBreak();
+
+    expect(await getRunningBreak()).toBeNull();
+    expect(await getUnfinishedPieces()).toEqual([
+      expect.objectContaining({ id: setDownPieceId, running_since: null }),
+    ]);
+  });
+
+  // Otherwise a stale page could report a piece as deleted when nothing was.
+  it('fails for a piece that does not exist', async () => {
+    await expect(deletePiece(999)).rejects.toThrow('That piece no longer exists.');
   });
 });
