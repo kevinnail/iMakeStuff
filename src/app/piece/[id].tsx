@@ -4,7 +4,8 @@ import { Alert, Image, Pressable, ScrollView, StyleSheet, Switch, Text, View } f
 
 import { Chevron } from '@/components/Chevron';
 import { PrepUsePanel, type PrepUseChoice } from '@/components/PrepUsePanel';
-import { getPieceDetail, type PieceRecord } from '@/db/queries/pieceQueries';
+import { Tag } from '@/components/Tag';
+import { getPieceDetail, setPieceLost, type PieceRecord } from '@/db/queries/pieceQueries';
 import {
   addPrepUse,
   changePrepUse,
@@ -305,6 +306,11 @@ export default function PieceScreen() {
 
   const { piece, days, usedPrep, usedBy } = page;
   const prepTime = getPrepTime(sumDays(days, 'worked'), usedPrep);
+
+  function toggleLost() {
+    setPieceLost(piece.id, !piece.lost).then(load).catch(showError('Could not save the piece'));
+  }
+
   return (
     // The iOS header is see-through, so the content has to be inset below it.
     <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={styles.page}>
@@ -319,6 +325,11 @@ export default function PieceScreen() {
         />
       )}
       {!piece.finished_at && <Text style={styles.text}>Unfinished</Text>}
+      {piece.lost === 1 && (
+        <View style={styles.startAligned}>
+          <Tag label="Lost" />
+        </View>
+      )}
       {piece.notes && <Text style={styles.text}>{piece.notes}</Text>}
       <Totals days={days} prepTime={prepTime} />
       {days.length > 1 && <DayTable days={days} />}
@@ -326,6 +337,18 @@ export default function PieceScreen() {
         <PrepUsed pieceId={piece.id} lines={prepTime.lines} onChange={load} />
       ) : (
         <UsedBy prep={piece} usedBy={usedBy} onChange={load} />
+      )}
+      {piece.finished_at && (
+        <Pressable
+          style={({ pressed }) => [
+            styles.addPrepButton,
+            styles.startAligned,
+            pressed && styles.buttonPressed,
+          ]}
+          onPress={toggleLost}
+        >
+          <Text style={styles.buttonText}>{piece.lost ? 'Mark as good' : 'Mark as lost'}</Text>
+        </Pressable>
       )}
     </ScrollView>
   );
@@ -376,6 +399,9 @@ const styles = StyleSheet.create({
   },
   chevronColumn: {
     width: 12,
+  },
+  startAligned: {
+    alignSelf: 'flex-start',
   },
   prepLine: {
     flexDirection: 'row',
