@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 
 import { Chevron } from '@/components/Chevron';
-import { PrepTag } from '@/components/PrepTag';
+import { Tag } from '@/components/Tag';
 import { getWorkRecords, type FinishedPiece } from '@/db/queries/dayQueries';
 import { formatClockTime, formatDay, formatDuration } from '@/utils/formatTime';
 import { getMonthWeeks } from '@/utils/monthGrid';
@@ -204,7 +204,8 @@ export default function DaysScreen() {
                 <View style={styles.photo} />
               )}
               <Text style={styles.pieceName}>{piece.name}</Text>
-              {piece.category === 'prep' && <PrepTag />}
+              {piece.category === 'prep' && <Tag label="Prep" />}
+              {piece.lost === 1 && <Tag label="Lost" />}
               <View style={styles.rowEnd}>
                 <Chevron />
               </View>
