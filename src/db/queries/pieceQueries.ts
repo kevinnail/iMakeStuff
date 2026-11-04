@@ -28,6 +28,7 @@ export interface PieceListItem {
   category: PieceCategory;
   photo_file_name: string | null;
   finished_at: string | null;
+  lost: number;
   worked_milliseconds: number;
   // null for a piece that used no prep.
   prep_milliseconds: number | null;
@@ -43,6 +44,7 @@ export interface PieceRecord {
   photo_file_name: string | null;
   finished_at: string | null;
   used_up_at: string | null;
+  lost: number;
 }
 
 export interface PieceDetail {
@@ -59,6 +61,7 @@ export interface FinishDetails {
   endedAt: string;
   notes: string | null;
   photoFileName: string | null;
+  lost: boolean;
   prepUses: NewPrepUse[];
 }
 
@@ -115,7 +118,7 @@ export async function endDay(): Promise<void> {
 
 export async function finishPiece(
   pieceId: number,
-  { endedAt, notes, photoFileName, prepUses }: FinishDetails,
+  { endedAt, notes, photoFileName, lost, prepUses }: FinishDetails,
 ): Promise<void> {
   const database = await getDb();
   await database.withTransactionAsync(async () => {
@@ -125,16 +128,28 @@ export async function finishPiece(
       pieceId,
     );
     const result = await database.runAsync(
-      `UPDATE pieces SET finished_at = ?, notes = ?, photo_file_name = ?
+      `UPDATE pieces SET finished_at = ?, notes = ?, photo_file_name = ?, lost = ?
        WHERE id = ? AND finished_at IS NULL`,
       endedAt,
       notes,
       photoFileName,
+      lost ? 1 : 0,
       pieceId,
     );
     if (result.changes === 0) throw new Error('That piece is already finished.');
     for (const use of prepUses) await insertPrepUse(database, pieceId, use);
   });
+}
+
+// For a crack found after Done, or a wrong tap. Only a finished piece can be lost.
+export async function setPieceLost(pieceId: number, lost: boolean): Promise<void> {
+  const database = await getDb();
+  const result = await database.runAsync(
+    'UPDATE pieces SET lost = ? WHERE id = ? AND finished_at IS NOT NULL',
+    lost ? 1 : 0,
+    pieceId,
+  );
+  if (result.changes === 0) throw new Error('Only a finished piece can be marked lost or good.');
 }
 
 // In the order the pieces were started, so rows don't move when you swap.
@@ -161,6 +176,7 @@ export async function getPieces(): Promise<PieceListItem[]> {
   const [pieces, usedPrep] = await Promise.all([
     database.getAllAsync<Omit<PieceListItem, 'prep_milliseconds' | 'prep_estimated'>>(
       `SELECT pieces.id, pieces.name, pieces.category, pieces.photo_file_name, pieces.finished_at,
+         pieces.lost,
          round(total(julianday(coalesce(work_segments.ended_at, 'now'))
            - julianday(work_segments.started_at)) * 86400000) AS worked_milliseconds
        FROM pieces
@@ -184,7 +200,7 @@ export async function getPieces(): Promise<PieceListItem[]> {
 export async function getPieceDetail(pieceId: number): Promise<PieceDetail | null> {
   const database = await getDb();
   const piece = await database.getFirstAsync<PieceRecord>(
-    `SELECT id, name, category, notes, photo_file_name, finished_at, used_up_at
+    `SELECT id, name, category, notes, photo_file_name, finished_at, used_up_at, lost
      FROM pieces WHERE id = ?`,
     pieceId,
   );
