@@ -12,15 +12,10 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { PrepPickerPanel } from '@/components/PrepPickerPanel';
-import { askPrepPercent } from '@/components/prepUsePrompts';
+import { Chevron } from '@/components/Chevron';
+import { PrepUsePanel, type PrepUseChoice } from '@/components/PrepUsePanel';
 import type { AvailablePrep, NewPrepUse } from '@/db/queries/prepQueries';
 import { colors } from '@/theme';
-
-interface ChosenPrep {
-  prep: AvailablePrep;
-  estimatedPercent: number;
-}
 
 interface FinishPiecePanelProps {
   pieceName: string;
@@ -42,8 +37,9 @@ export function FinishPiecePanel({
 }: FinishPiecePanelProps) {
   const insets = useSafeAreaInsets();
   const [notes, setNotes] = useState('');
-  const [chosenPrep, setChosenPrep] = useState<ChosenPrep[]>([]);
+  const [chosenPrep, setChosenPrep] = useState<PrepUseChoice[]>([]);
   const [pickingPrep, setPickingPrep] = useState(false);
+  const [changingPrep, setChangingPrep] = useState<PrepUseChoice | null>(null);
   const [saving, setSaving] = useState(false);
   const trimmedNotes = notes.trim();
   const canSave = !saving && (cameraPhotoUri !== null || trimmedNotes !== '');
@@ -51,24 +47,21 @@ export function FinishPiecePanel({
     (prep) => !chosenPrep.some((chosen) => chosen.prep.id === prep.id),
   );
 
-  function addPrep(prep: AvailablePrep, estimatedPercent: number) {
-    setChosenPrep((current) => [...current, { prep, estimatedPercent }]);
+  function addPrep(choice: PrepUseChoice) {
+    setChosenPrep((current) => [...current, choice]);
     setPickingPrep(false);
   }
 
-  function changePrep({ prep, estimatedPercent }: ChosenPrep) {
-    askPrepPercent({
-      prepName: prep.name,
-      currentPercent: estimatedPercent,
-      onSave: (newPercent) =>
-        setChosenPrep((current) =>
-          current.map((chosen) =>
-            chosen.prep.id === prep.id ? { prep, estimatedPercent: newPercent } : chosen,
-          ),
-        ),
-      onRemove: () =>
-        setChosenPrep((current) => current.filter((chosen) => chosen.prep.id !== prep.id)),
-    });
+  function changePrep(choice: PrepUseChoice) {
+    setChosenPrep((current) =>
+      current.map((chosen) => (chosen.prep.id === choice.prep.id ? choice : chosen)),
+    );
+    setChangingPrep(null);
+  }
+
+  function removePrep(prepId: number) {
+    setChosenPrep((current) => current.filter((chosen) => chosen.prep.id !== prepId));
+    setChangingPrep(null);
   }
 
   function handleSave() {
@@ -112,11 +105,12 @@ export function FinishPiecePanel({
               {chosenPrep.map((chosen) => (
                 <Pressable
                   key={chosen.prep.id}
-                  style={styles.prepRow}
-                  onPress={() => changePrep(chosen)}
+                  style={({ pressed }) => [styles.prepRow, pressed && styles.buttonPressed]}
+                  onPress={() => setChangingPrep(chosen)}
                 >
-                  <Text style={styles.prepText}>{chosen.prep.name}</Text>
+                  <Text style={[styles.prepText, styles.prepName]}>{chosen.prep.name}</Text>
                   <Text style={styles.prepText}>{chosen.estimatedPercent}%</Text>
+                  <Chevron />
                 </Pressable>
               ))}
             </View>
@@ -136,10 +130,20 @@ export function FinishPiecePanel({
         </View>
       </KeyboardAvoidingView>
       {pickingPrep && (
-        <PrepPickerPanel
+        <PrepUsePanel
           prepList={unchosenPrep}
+          initial={null}
           onCancel={() => setPickingPrep(false)}
-          onAdd={addPrep}
+          onSave={addPrep}
+        />
+      )}
+      {changingPrep && (
+        <PrepUsePanel
+          prepList={null}
+          initial={changingPrep}
+          onCancel={() => setChangingPrep(null)}
+          onSave={changePrep}
+          onRemove={() => removePrep(changingPrep.prep.id)}
         />
       )}
     </Modal>
@@ -191,6 +195,9 @@ const styles = StyleSheet.create({
   prepTitle: {
     fontSize: 18,
     color: colors.secondaryText,
+  },
+  prepName: {
+    flex: 1,
   },
   addPrepButton: {
     paddingVertical: 6,
