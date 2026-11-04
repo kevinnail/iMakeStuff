@@ -13,6 +13,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Chevron } from '@/components/Chevron';
+import { JoinedButtons } from '@/components/JoinedButtons';
 import { PrepUsePanel, type PrepUseChoice } from '@/components/PrepUsePanel';
 import type { AvailablePrep, NewPrepUse } from '@/db/queries/prepQueries';
 import { colors } from '@/theme';
@@ -23,7 +24,19 @@ interface FinishPiecePanelProps {
   // null when finishing prep, which doesn't use other prep.
   availablePrep: AvailablePrep[] | null;
   onCancel: () => void;
-  onSave: (notes: string | null, prepUses: NewPrepUse[]) => Promise<void>;
+  onSave: (notes: string | null, lost: boolean, prepUses: NewPrepUse[]) => Promise<void>;
+}
+
+export type Outcome = 'good' | 'lost';
+
+export const outcomeOptions: { value: Outcome; label: string }[] = [
+  { value: 'good', label: 'Good' },
+  { value: 'lost', label: 'Lost' },
+];
+
+export function getNotesPlaceholder(lost: boolean, hasPhoto: boolean) {
+  if (lost) return hasPhoto ? 'What happened?' : 'No photo: what happened?';
+  return hasPhoto ? 'Notes' : 'No photo: describe the piece.';
 }
 
 // Slides up after the camera. Without a photo the notes are required, so a finished
@@ -36,6 +49,7 @@ export function FinishPiecePanel({
   onSave,
 }: FinishPiecePanelProps) {
   const insets = useSafeAreaInsets();
+  const [outcome, setOutcome] = useState<Outcome>('good');
   const [notes, setNotes] = useState('');
   const [chosenPrep, setChosenPrep] = useState<PrepUseChoice[]>([]);
   const [pickingPrep, setPickingPrep] = useState(false);
@@ -70,7 +84,7 @@ export function FinishPiecePanel({
       prepId: prep.id,
       estimatedPercent,
     }));
-    onSave(trimmedNotes || null, prepUses).catch((error: Error) => {
+    onSave(trimmedNotes || null, outcome === 'lost', prepUses).catch((error: Error) => {
       setSaving(false);
       Alert.alert('Could not save', error.message);
     });
@@ -80,13 +94,14 @@ export function FinishPiecePanel({
     <Modal visible transparent animationType="slide" onRequestClose={onCancel}>
       <KeyboardAvoidingView style={styles.overlay} behavior="padding">
         <View style={[styles.panel, { paddingBottom: insets.bottom + 16 }]}>
+          <JoinedButtons options={outcomeOptions} selected={outcome} onSelect={setOutcome} />
           <Text style={styles.pieceName}>{pieceName}</Text>
           {cameraPhotoUri && <Image source={{ uri: cameraPhotoUri }} style={styles.photo} />}
           <TextInput
             style={styles.notesInput}
             value={notes}
             onChangeText={setNotes}
-            placeholder={cameraPhotoUri ? 'Notes' : 'No photo: describe the piece.'}
+            placeholder={getNotesPlaceholder(outcome === 'lost', cameraPhotoUri !== null)}
             placeholderTextColor={colors.secondaryText}
             multiline
             autoFocus={!cameraPhotoUri}
