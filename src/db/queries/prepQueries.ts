@@ -8,7 +8,7 @@ export interface NewPrepUse {
   estimatedPercent: number;
 }
 
-// Finished prep that isn't used up, with what's left after every piece's estimate.
+// Finished prep that isn't used up or lost, with what's left after every piece's estimate.
 export interface AvailablePrep {
   id: number;
   name: string;
@@ -38,8 +38,8 @@ const shareColumnsSql = `
   (SELECT total(estimated_percent) FROM prep_uses AS sibling
    WHERE sibling.prep_id = prep_uses.prep_id) AS estimates_total`;
 
-// The insert only matches finished prep that isn't used up, so a piece, unfinished prep, or
-// used-up prep can't be used. The percent's range and one use per prep per piece are table rules.
+// The insert only matches finished prep that isn't used up or lost, so a piece, unfinished
+// prep, or prep that's gone can't be used. The percent's range and one use per prep per piece are table rules.
 export async function insertPrepUse(
   database: SQLiteDatabase,
   pieceId: number,
@@ -48,12 +48,14 @@ export async function insertPrepUse(
   const result = await database.runAsync(
     `INSERT INTO prep_uses (piece_id, prep_id, estimated_percent)
      SELECT ?, id, ? FROM pieces
-     WHERE id = ? AND category = 'prep' AND finished_at IS NOT NULL AND used_up_at IS NULL`,
+     WHERE id = ? AND category = 'prep' AND finished_at IS NOT NULL AND used_up_at IS NULL
+       AND lost = 0`,
     pieceId,
     estimatedPercent,
     prepId,
   );
-  if (result.changes === 0) throw new Error("Only finished prep that isn't used up can be used.");
+  if (result.changes === 0)
+    throw new Error("Only finished prep that isn't used up or lost can be used.");
 }
 
 // The prep one piece used, or with no piece given, the prep every piece used.
@@ -95,7 +97,7 @@ export async function getAvailablePrep(pieceId: number): Promise<AvailablePrep[]
      FROM pieces
      LEFT JOIN prep_uses ON prep_uses.prep_id = pieces.id
      WHERE pieces.category = 'prep' AND pieces.finished_at IS NOT NULL
-       AND pieces.used_up_at IS NULL
+       AND pieces.used_up_at IS NULL AND pieces.lost = 0
        AND pieces.id NOT IN (SELECT prep_id FROM prep_uses WHERE piece_id = ?)
      GROUP BY pieces.id
      ORDER BY pieces.finished_at DESC`,

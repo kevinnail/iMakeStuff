@@ -23,6 +23,7 @@ import { startOfDay } from '@/utils/workDays';
 interface FinishInput {
   notes: string | null;
   cameraPhotoUri: string | null;
+  lost: boolean;
   prepUses: NewPrepUse[];
 }
 
@@ -65,10 +66,10 @@ export const useWorkStore = create<WorkState>()((set) => ({
     await switchToPiece(pieceId);
     set(await readWork());
   },
-  finish: async (pieceId, { notes, cameraPhotoUri, prepUses }) => {
+  finish: async (pieceId, { notes, cameraPhotoUri, lost, prepUses }) => {
     const endedAt = new Date().toISOString();
     await withSavedPhoto(cameraPhotoUri, (photoFileName) =>
-      finishPiece(pieceId, { endedAt, notes, photoFileName, prepUses }),
+      finishPiece(pieceId, { endedAt, notes, photoFileName, lost, prepUses }),
     );
     set(await readWork());
   },

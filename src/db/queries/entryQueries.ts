@@ -25,7 +25,7 @@ export interface PastWork {
   piece: { id: number } | { name: string; category: PieceCategory };
   startedAt: string;
   endedAt: string;
-  finish: { notes: string | null; photoFileName: string | null } | null;
+  finish: { notes: string | null; photoFileName: string | null; lost: boolean } | null;
 }
 
 const tableByKind = { segment: 'work_segments', break: 'breaks' } as const;
@@ -156,11 +156,12 @@ export async function addPastWork({ piece, startedAt, endedAt, finish }: PastWor
     );
     if (!finish) return;
     const finished = await database.runAsync(
-      `UPDATE pieces SET finished_at = ?, notes = ?, photo_file_name = ?
+      `UPDATE pieces SET finished_at = ?, notes = ?, photo_file_name = ?, lost = ?
        WHERE id = ? AND finished_at IS NULL`,
       endedAt,
       finish.notes,
       finish.photoFileName,
+      finish.lost ? 1 : 0,
       pieceId,
     );
     if (finished.changes === 0) throw new Error('That piece is already finished.');

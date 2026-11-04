@@ -18,7 +18,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { FinishPiecePanel } from '@/components/FinishPiecePanel';
 import { JoinedButtons } from '@/components/JoinedButtons';
-import { PrepTag } from '@/components/PrepTag';
+import { Tag } from '@/components/Tag';
 import type { WorkRecords } from '@/db/queries/dayQueries';
 import type { PieceCategory, UnfinishedPiece } from '@/db/queries/pieceQueries';
 import { getAvailablePrep, type AvailablePrep } from '@/db/queries/prepQueries';
@@ -85,7 +85,7 @@ function RunningTime({ startedAt, baseMilliseconds = 0, style }: RunningTimeProp
 }
 
 // "Today: 5h 20m worked, 30m break, 2 finished", counting the running piece up to now.
-// Prep counts as worked but not as finished, since it isn't output.
+// Prep and lost pieces count as worked but not as finished, since they aren't output.
 // Everything is filtered to the current day here, not only when the store loads, so the
 // numbers reset at midnight even if nothing is tapped.
 function TodayTable({ today }: { today: WorkRecords }) {
@@ -101,7 +101,8 @@ function TodayTable({ today }: { today: WorkRecords }) {
       label: 'Finished',
       value: String(
         today.finishedPieces.filter(
-          (piece) => piece.category === 'piece' && Date.parse(piece.finished_at) >= midnight,
+          (piece) =>
+            piece.category === 'piece' && !piece.lost && Date.parse(piece.finished_at) >= midnight,
         ).length,
       ),
     },
@@ -179,10 +180,11 @@ export default function WorkScreen() {
       cameraPhotoUri={finishing.cameraPhotoUri}
       availablePrep={finishing.availablePrep}
       onCancel={() => setFinishing(null)}
-      onSave={(notes, prepUses) =>
+      onSave={(notes, lost, prepUses) =>
         finish(finishing.piece.id, {
           notes,
           cameraPhotoUri: finishing.cameraPhotoUri,
+          lost,
           prepUses,
         }).then(() => setFinishing(null))
       }
@@ -231,7 +233,9 @@ export default function WorkScreen() {
                 >
                   {piece.name}
                 </Text>
-                {piece.category === 'prep' && <PrepTag onFill={piece.running_since !== null} />}
+                {piece.category === 'prep' && (
+                  <Tag label="Prep" onFill={piece.running_since !== null} />
+                )}
               </View>
               {piece.running_since ? (
                 <RunningTime

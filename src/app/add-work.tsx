@@ -15,6 +15,8 @@ import {
   View,
 } from 'react-native';
 
+import { getNotesPlaceholder, outcomeOptions, type Outcome } from '@/components/FinishPiecePanel';
+import { JoinedButtons } from '@/components/JoinedButtons';
 import { addPastWork } from '@/db/queries/entryQueries';
 import { getPieces, type PieceCategory, type PieceListItem } from '@/db/queries/pieceQueries';
 import { colors } from '@/theme';
@@ -43,6 +45,7 @@ export default function AddWorkScreen() {
   const [startedAt, setStartedAt] = useState(() => yesterdayAt(9));
   const [endedAt, setEndedAt] = useState(() => yesterdayAt(10));
   const [finishing, setFinishing] = useState(false);
+  const [outcome, setOutcome] = useState<Outcome>('good');
   const [libraryPhotoUri, setLibraryPhotoUri] = useState<string | null>(null);
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
@@ -69,7 +72,8 @@ export default function AddWorkScreen() {
   function choosePiece() {
     const options = [
       ...pieces.map((piece) => {
-        const marks = [piece.category === 'prep' && 'prep', piece.finished_at && 'finished'];
+        const finishedMark = piece.lost ? 'lost' : 'finished';
+        const marks = [piece.category === 'prep' && 'prep', piece.finished_at && finishedMark];
         const markText = marks.filter(Boolean).join(', ');
         return markText ? `${piece.name} (${markText})` : piece.name;
       }),
@@ -108,7 +112,9 @@ export default function AddWorkScreen() {
         piece,
         startedAt: new Date(startedAt).toISOString(),
         endedAt: new Date(endedAt).toISOString(),
-        finish: finishing ? { notes: trimmedNotes || null, photoFileName } : null,
+        finish: finishing
+          ? { notes: trimmedNotes || null, photoFileName, lost: outcome === 'lost' }
+          : null,
       }),
     )
       .then(() => router.back())
@@ -168,6 +174,7 @@ export default function AddWorkScreen() {
       )}
       {finishing && (
         <>
+          <JoinedButtons options={outcomeOptions} selected={outcome} onSelect={setOutcome} />
           {libraryPhotoUri && <Image source={{ uri: libraryPhotoUri }} style={styles.photo} />}
           <Pressable
             style={({ pressed }) => [styles.photoButton, pressed && styles.buttonPressed]}
@@ -185,7 +192,7 @@ export default function AddWorkScreen() {
             style={[styles.input, styles.notesInput]}
             value={notes}
             onChangeText={setNotes}
-            placeholder={libraryPhotoUri ? 'Notes' : 'No photo: describe the piece.'}
+            placeholder={getNotesPlaceholder(outcome === 'lost', libraryPhotoUri !== null)}
             placeholderTextColor={colors.secondaryText}
             multiline
           />

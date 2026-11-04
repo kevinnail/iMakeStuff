@@ -2,11 +2,17 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import { colors } from '@/theme';
 
-// Marks prep wherever it's listed alongside pieces. onFill is for a row with a primary fill.
-export function PrepTag({ onFill = false }: { onFill?: boolean }) {
+interface TagProps {
+  label: string;
+  // For a row with a colored fill.
+  onFill?: boolean;
+}
+
+// Marks prep or a lost piece wherever it's listed alongside pieces.
+export function Tag({ label, onFill = false }: TagProps) {
   return (
     <View style={[styles.tag, onFill && styles.tagOnFill]}>
-      <Text style={[styles.text, onFill && styles.textOnFill]}>Prep</Text>
+      <Text style={[styles.text, onFill && styles.textOnFill]}>{label}</Text>
     </View>
   );
 }

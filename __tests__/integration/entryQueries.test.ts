@@ -266,12 +266,26 @@ describe('addPastWork', () => {
       piece: { name: 'Red cup', category: 'piece' },
       startedAt,
       endedAt,
-      finish: { notes: 'Copper red', photoFileName: null },
+      finish: { notes: 'Copper red', photoFileName: null, lost: false },
     });
 
     expect(
       await database.getAllAsync("SELECT notes, finished_at FROM pieces WHERE name = 'Red cup'"),
     ).toEqual([{ notes: 'Copper red', finished_at: endedAt }]);
+  });
+
+  // Otherwise a piece that broke on a forgotten day would count as output once caught up.
+  it('saves a lost finish', async () => {
+    await addPastWork({
+      piece: { name: 'Red cup', category: 'piece' },
+      startedAt,
+      endedAt,
+      finish: { notes: 'Cracked in the kiln', photoFileName: null, lost: true },
+    });
+
+    expect(
+      await database.getAllAsync("SELECT lost, finished_at FROM pieces WHERE name = 'Red cup'"),
+    ).toEqual([{ lost: 1, finished_at: endedAt }]);
   });
 
   // Otherwise a finished piece could be saved with nothing to identify it.
@@ -281,7 +295,7 @@ describe('addPastWork', () => {
         piece: { name: 'Red cup', category: 'piece' },
         startedAt,
         endedAt,
-        finish: { notes: null, photoFileName: null },
+        finish: { notes: null, photoFileName: null, lost: false },
       }),
     ).rejects.toThrow(/CHECK constraint/);
 
