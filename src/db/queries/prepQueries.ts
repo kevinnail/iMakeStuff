@@ -1,6 +1,7 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { getDb } from '@/db/database';
+import type { PrepShare, PrepTimeShare } from '@/utils/prepTime';
 
 export interface NewPrepUse {
   prepId: number;
@@ -15,25 +16,30 @@ export interface AvailablePrep {
 }
 
 // A prep a piece used, with the prep's worked time for the piece's share of it.
-export interface UsedPrep {
+export interface UsedPrep extends PrepTimeShare {
   id: number;
   piece_id: number;
   prep_id: number;
   prep_name: string;
-  estimated_percent: number;
-  prep_worked_milliseconds: number;
 }
 
 // A piece that used a prep, for the prep's page.
-export interface PieceUsingPrep {
+export interface PieceUsingPrep extends PrepShare {
   id: number;
   piece_id: number;
   piece_name: string;
-  estimated_percent: number;
 }
 
-// The insert only matches finished prep that isn't used up, so a piece or unfinished prep
-// can't be used as prep. The percent's range and one use per prep per piece are table rules.
+// The columns getActualPercent needs: whether the prep is used up, and every estimate on it.
+const shareColumnsSql = `
+  prep_uses.estimated_percent,
+  (SELECT used_up_at IS NOT NULL FROM pieces AS prep WHERE prep.id = prep_uses.prep_id)
+    AS prep_used_up,
+  (SELECT total(estimated_percent) FROM prep_uses AS sibling
+   WHERE sibling.prep_id = prep_uses.prep_id) AS estimates_total`;
+
+// The insert only matches finished prep that isn't used up, so a piece, unfinished prep, or
+// used-up prep can't be used. The percent's range and one use per prep per piece are table rules.
 export async function insertPrepUse(
   database: SQLiteDatabase,
   pieceId: number,
@@ -54,7 +60,7 @@ export async function insertPrepUse(
 export function getUsedPrep(database: SQLiteDatabase, pieceId: number | null) {
   return database.getAllAsync<UsedPrep>(
     `SELECT prep_uses.id, prep_uses.piece_id, prep_uses.prep_id, pieces.name AS prep_name,
-       prep_uses.estimated_percent,
+       ${shareColumnsSql},
        round(total(julianday(work_segments.ended_at) - julianday(work_segments.started_at))
          * 86400000) AS prep_worked_milliseconds
      FROM prep_uses
@@ -70,8 +76,7 @@ export function getUsedPrep(database: SQLiteDatabase, pieceId: number | null) {
 
 export function getPiecesUsingPrep(database: SQLiteDatabase, prepId: number) {
   return database.getAllAsync<PieceUsingPrep>(
-    `SELECT prep_uses.id, prep_uses.piece_id, pieces.name AS piece_name,
-       prep_uses.estimated_percent
+    `SELECT prep_uses.id, prep_uses.piece_id, pieces.name AS piece_name, ${shareColumnsSql}
      FROM prep_uses
      JOIN pieces ON pieces.id = prep_uses.piece_id
      WHERE prep_uses.prep_id = ?
@@ -116,4 +121,24 @@ export async function removePrepUse(useId: number): Promise<void> {
   const database = await getDb();
   const result = await database.runAsync('DELETE FROM prep_uses WHERE id = ?', useId);
   if (result.changes === 0) throw new Error('That prep use no longer exists.');
+}
+
+// Used up takes the prep out of Add prep and scales its estimates to 100%; null puts it back.
+export async function setPrepUsedUp(prepId: number, usedUp: boolean): Promise<void> {
+  const database = await getDb();
+  const result = await database.runAsync(
+    `UPDATE pieces SET used_up_at = ?
+     WHERE id = ? AND category = 'prep' AND finished_at IS NOT NULL
+       AND (used_up_at IS NULL) = ?`,
+    usedUp ? new Date().toISOString() : null,
+    prepId,
+    usedUp ? 1 : 0,
+  );
+  if (result.changes === 0) {
+    throw new Error(
+      usedUp
+        ? "Only finished prep that isn't used up can be marked used up."
+        : "That prep isn't used up.",
+    );
+  }
 }
