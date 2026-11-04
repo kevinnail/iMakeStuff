@@ -8,6 +8,7 @@ export interface FinishedPiece {
   category: PieceCategory;
   photo_file_name: string | null;
   finished_at: string;
+  lost: number;
 }
 
 export interface WorkRecords {
@@ -30,7 +31,7 @@ export async function getWorkRecords(since: string): Promise<WorkRecords> {
       since,
     ),
     database.getAllAsync<FinishedPiece>(
-      `SELECT id, name, category, photo_file_name, finished_at FROM pieces
+      `SELECT id, name, category, photo_file_name, finished_at, lost FROM pieces
        WHERE finished_at > ? ORDER BY finished_at`,
       since,
     ),
