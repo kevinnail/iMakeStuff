@@ -3,6 +3,7 @@ import { useCallback, useState } from 'react';
 import { Alert, Image, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 
 import { Chevron } from '@/components/Chevron';
+import { PieceEditForm } from '@/components/PieceEditForm';
 import { PrepUsePanel, type PrepUseChoice } from '@/components/PrepUsePanel';
 import { Tag } from '@/components/Tag';
 import { getPieceDetail, setPieceLost, type PieceRecord } from '@/db/queries/pieceQueries';
@@ -278,6 +279,7 @@ export default function PieceScreen() {
   // undefined while loading, null when no piece has this id.
   const [page, setPage] = useState<PiecePage | null>();
   const [photoAspectRatio, setPhotoAspectRatio] = useState(3 / 4);
+  const [editing, setEditing] = useState(false);
 
   const load = useCallback(
     () =>
@@ -311,10 +313,39 @@ export default function PieceScreen() {
     setPieceLost(piece.id, !piece.lost).then(load).catch(showError('Could not save the piece'));
   }
 
+  if (editing) {
+    return (
+      <PieceEditForm
+        piece={piece}
+        worked={sumDays(days, 'worked')}
+        usedByCount={usedBy.length}
+        onCancel={() => setEditing(false)}
+        onSaved={() => {
+          setEditing(false);
+          load().catch(showError('Could not load the piece'));
+        }}
+        onDeleted={() => router.back()}
+      />
+    );
+  }
+
   return (
     // The iOS header is see-through, so the content has to be inset below it.
     <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={styles.page}>
-      <Stack.Screen options={{ title: piece.name }} />
+      <Stack.Screen
+        options={{
+          title: piece.name,
+          headerLeft: undefined,
+          headerRight: () => (
+            <Pressable
+              style={({ pressed }) => [styles.editButton, pressed && styles.buttonPressed]}
+              onPress={() => setEditing(true)}
+            >
+              <Text style={styles.editButtonText}>Edit</Text>
+            </Pressable>
+          ),
+        }}
+      />
       {piece.photo_file_name && (
         <Image
           source={{ uri: getPhotoUri(piece.photo_file_name) }}
@@ -402,6 +433,17 @@ const styles = StyleSheet.create({
   },
   startAligned: {
     alignSelf: 'flex-start',
+  },
+  editButton: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: colors.primary,
+  },
+  editButtonText: {
+    fontSize: 16,
+    lineHeight: 18,
+    color: colors.textOnFill,
   },
   prepLine: {
     flexDirection: 'row',

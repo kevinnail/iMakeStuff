@@ -14,7 +14,7 @@ async function savePhoto(temporaryUri: string): Promise<string> {
   return fileName;
 }
 
-function deletePhoto(fileName: string) {
+export function deletePhoto(fileName: string) {
   new File(getPhotoDirectory(), fileName).delete();
 }
 
