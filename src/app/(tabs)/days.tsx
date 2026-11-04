@@ -11,6 +11,7 @@ import {
   View,
 } from 'react-native';
 
+import { Chevron } from '@/components/Chevron';
 import { PrepTag } from '@/components/PrepTag';
 import { getWorkRecords, type FinishedPiece } from '@/db/queries/dayQueries';
 import { formatClockTime, formatDay, formatDuration } from '@/utils/formatTime';
@@ -173,22 +174,28 @@ export default function DaysScreen() {
       ListHeaderComponentStyle={styles.listHeader}
       renderItem={({ item: { day, finishedPieces } }) => (
         <View style={styles.day}>
-          <Pressable style={styles.day} onPress={() => openDay(day.dayStart)}>
-            <View style={styles.dayHeader}>
-              <Text style={styles.date}>{formatDay(day.dayStart)}</Text>
-              <Text style={styles.worked}>{formatDuration(day.worked)}</Text>
+          <Pressable
+            style={({ pressed }) => [styles.tappableRow, pressed && styles.buttonPressed]}
+            onPress={() => openDay(day.dayStart)}
+          >
+            <View style={[styles.day, styles.dayText]}>
+              <View style={styles.dayHeader}>
+                <Text style={styles.date}>{formatDay(day.dayStart)}</Text>
+                <Text style={styles.worked}>{formatDuration(day.worked)}</Text>
+              </View>
+              <View style={styles.dayHeader}>
+                <Text style={styles.secondaryText}>
+                  {formatClockTime(day.firstStart)} to {formatClockTime(day.lastStop)}
+                </Text>
+                <Text style={styles.secondaryText}>Break {formatDuration(day.onBreak)}</Text>
+              </View>
             </View>
-            <View style={styles.dayHeader}>
-              <Text style={styles.secondaryText}>
-                {formatClockTime(day.firstStart)} to {formatClockTime(day.lastStop)}
-              </Text>
-              <Text style={styles.secondaryText}>Break {formatDuration(day.onBreak)}</Text>
-            </View>
+            <Chevron />
           </Pressable>
           {finishedPieces.map((piece) => (
             <Pressable
               key={piece.id}
-              style={styles.pieceRow}
+              style={({ pressed }) => [styles.pieceRow, pressed && styles.buttonPressed]}
               onPress={() => router.push({ pathname: '/piece/[id]', params: { id: piece.id } })}
             >
               {piece.photo_file_name ? (
@@ -198,6 +205,9 @@ export default function DaysScreen() {
               )}
               <Text style={styles.pieceName}>{piece.name}</Text>
               {piece.category === 'prep' && <PrepTag />}
+              <View style={styles.rowEnd}>
+                <Chevron />
+              </View>
             </Pressable>
           ))}
         </View>
@@ -307,6 +317,17 @@ const styles = StyleSheet.create({
   },
   day: {
     gap: 6,
+  },
+  tappableRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  dayText: {
+    flex: 1,
+  },
+  rowEnd: {
+    marginLeft: 'auto',
   },
   dayHeader: {
     flexDirection: 'row',
