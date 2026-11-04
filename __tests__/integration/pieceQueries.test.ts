@@ -6,6 +6,7 @@ import {
   getPieceDetail,
   getPieces,
   getUnfinishedPieces,
+  setPieceLost,
   startPiece,
   switchToPiece,
 } from '@/db/queries/pieceQueries';
@@ -29,6 +30,7 @@ interface FinishedPieceRow {
 
 const segmentsSql = 'SELECT piece_id, started_at, ended_at FROM work_segments ORDER BY id';
 const finishedPieceSql = 'SELECT notes, photo_file_name, finished_at FROM pieces WHERE id = ?';
+const lostPieceSql = 'SELECT lost, photo_file_name, finished_at FROM pieces WHERE id = ?';
 
 let database: ReturnType<typeof createTestDb>;
 
@@ -232,7 +234,13 @@ describe('finishPiece', () => {
   it('saves the photo and ends the running segment at the Done time', async () => {
     const pieceId = await startPiece('Blue vase', 'piece');
 
-    await finishPiece(pieceId, { endedAt, notes: null, photoFileName: 'vase.jpg', prepUses: [] });
+    await finishPiece(pieceId, {
+      endedAt,
+      notes: null,
+      photoFileName: 'vase.jpg',
+      lost: false,
+      prepUses: [],
+    });
 
     expect(await database.getFirstAsync<FinishedPieceRow>(finishedPieceSql, pieceId)).toEqual({
       notes: null,
@@ -254,6 +262,7 @@ describe('finishPiece', () => {
       endedAt,
       notes: 'Cobalt glaze',
       photoFileName: null,
+      lost: false,
       prepUses: [],
     });
 
@@ -270,6 +279,7 @@ describe('finishPiece', () => {
       endedAt,
       notes: 'Cobalt glaze',
       photoFileName: null,
+      lost: false,
       prepUses: [],
     });
 
@@ -285,7 +295,13 @@ describe('finishPiece', () => {
     const pieceId = await startPiece('Blue vase', 'piece');
 
     await expect(
-      finishPiece(pieceId, { endedAt, notes: null, photoFileName: null, prepUses: [] }),
+      finishPiece(pieceId, {
+        endedAt,
+        notes: null,
+        photoFileName: null,
+        lost: false,
+        prepUses: [],
+      }),
     ).rejects.toThrow(/CHECK constraint/);
 
     expect(await database.getFirstAsync<FinishedPieceRow>(finishedPieceSql, pieceId)).toEqual({
@@ -301,13 +317,20 @@ describe('finishPiece', () => {
   // Otherwise finishing twice would overwrite the first photo and finish time.
   it('fails for a piece that is already finished', async () => {
     const pieceId = await startPiece('Blue vase', 'piece');
-    await finishPiece(pieceId, { endedAt, notes: null, photoFileName: 'vase.jpg', prepUses: [] });
+    await finishPiece(pieceId, {
+      endedAt,
+      notes: null,
+      photoFileName: 'vase.jpg',
+      lost: false,
+      prepUses: [],
+    });
 
     await expect(
       finishPiece(pieceId, {
         endedAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
         notes: null,
         photoFileName: 'other.jpg',
+        lost: false,
         prepUses: [],
       }),
     ).rejects.toThrow('That piece is already finished.');
@@ -316,6 +339,69 @@ describe('finishPiece', () => {
       photo_file_name: 'vase.jpg',
       finished_at: endedAt,
     });
+  });
+});
+
+describe('finishPiece as lost', () => {
+  const endedAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+
+  // Otherwise a piece that cracked at Done would count as output, or lose the photo of what broke.
+  it('saves the piece finished, lost, with its photo', async () => {
+    const pieceId = await startPiece('Blue vase', 'piece');
+
+    await finishPiece(pieceId, {
+      endedAt,
+      notes: null,
+      photoFileName: 'crack.jpg',
+      lost: true,
+      prepUses: [],
+    });
+
+    expect(await database.getFirstAsync(lostPieceSql, pieceId)).toEqual({
+      lost: 1,
+      photo_file_name: 'crack.jpg',
+      finished_at: endedAt,
+    });
+  });
+
+  // Otherwise a lost piece could be saved with nothing to show what it was.
+  it('rejects a lost finish with neither a photo nor notes', async () => {
+    const pieceId = await startPiece('Blue vase', 'piece');
+
+    await expect(
+      finishPiece(pieceId, { endedAt, notes: null, photoFileName: null, lost: true, prepUses: [] }),
+    ).rejects.toThrow(/CHECK constraint/);
+    expect(await getUnfinishedPieces()).toEqual([expect.objectContaining({ id: pieceId })]);
+  });
+});
+
+describe('setPieceLost', () => {
+  // Otherwise a crack found after Done, or a wrong tap, could never be recorded or undone.
+  it('marks a finished piece lost and back to good', async () => {
+    const pieceId = await startPiece('Blue vase', 'piece');
+    await finishPiece(pieceId, {
+      endedAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+      notes: 'Cobalt',
+      photoFileName: null,
+      lost: false,
+      prepUses: [],
+    });
+
+    await setPieceLost(pieceId, true);
+    expect(await database.getFirstAsync(lostPieceSql, pieceId)).toMatchObject({ lost: 1 });
+
+    await setPieceLost(pieceId, false);
+    expect(await database.getFirstAsync(lostPieceSql, pieceId)).toMatchObject({ lost: 0 });
+  });
+
+  // Otherwise a piece still being worked could be written off before it was finished.
+  it('rejects marking an unfinished piece lost', async () => {
+    const pieceId = await startPiece('Blue vase', 'piece');
+
+    await expect(setPieceLost(pieceId, true)).rejects.toThrow(
+      'Only a finished piece can be marked lost or good.',
+    );
+    expect(await database.getFirstAsync(lostPieceSql, pieceId)).toMatchObject({ lost: 0 });
   });
 });
 
@@ -340,6 +426,7 @@ describe('getPieces', () => {
         category: 'prep',
         photo_file_name: null,
         finished_at: null,
+        lost: 0,
         worked_milliseconds: 30 * 60 * 1000,
         prep_milliseconds: null,
         prep_estimated: false,
@@ -350,6 +437,7 @@ describe('getPieces', () => {
         category: 'piece',
         photo_file_name: null,
         finished_at: '2026-10-31T17:00:00.000Z',
+        lost: 0,
         worked_milliseconds: 2 * 60 * 60 * 1000,
         prep_milliseconds: null,
         prep_estimated: false,
@@ -360,6 +448,7 @@ describe('getPieces', () => {
         category: 'piece',
         photo_file_name: null,
         finished_at: '2026-10-30T17:00:00.000Z',
+        lost: 0,
         worked_milliseconds: 60 * 60 * 1000,
         prep_milliseconds: null,
         prep_estimated: false,
@@ -405,6 +494,7 @@ describe('getPieceDetail', () => {
         photo_file_name: null,
         finished_at: null,
         used_up_at: null,
+        lost: 0,
       },
       segments: [
         { started_at: '2026-10-31T09:00:00.000Z', ended_at: '2026-10-31T10:00:00.000Z' },
