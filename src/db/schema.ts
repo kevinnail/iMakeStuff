@@ -50,7 +50,6 @@ export const SCHEMA_SQL = `
     piece_id          INTEGER NOT NULL REFERENCES pieces(id),
     prep_id           INTEGER NOT NULL REFERENCES pieces(id),
     estimated_percent INTEGER NOT NULL CHECK (estimated_percent > 0 AND estimated_percent <= 100),
-    used_it_up        INTEGER NOT NULL DEFAULT 0 CHECK (used_it_up IN (0, 1)),
     UNIQUE (piece_id, prep_id)
   );
 `;
