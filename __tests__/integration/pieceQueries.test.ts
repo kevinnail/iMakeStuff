@@ -342,6 +342,7 @@ describe('getPieces', () => {
         finished_at: null,
         worked_milliseconds: 30 * 60 * 1000,
         prep_milliseconds: null,
+        prep_estimated: false,
       },
       {
         id: 2,
@@ -351,6 +352,7 @@ describe('getPieces', () => {
         finished_at: '2026-10-31T17:00:00.000Z',
         worked_milliseconds: 2 * 60 * 60 * 1000,
         prep_milliseconds: null,
+        prep_estimated: false,
       },
       {
         id: 1,
@@ -360,6 +362,7 @@ describe('getPieces', () => {
         finished_at: '2026-10-30T17:00:00.000Z',
         worked_milliseconds: 60 * 60 * 1000,
         prep_milliseconds: null,
+        prep_estimated: false,
       },
     ]);
   });
@@ -401,6 +404,7 @@ describe('getPieceDetail', () => {
         notes: null,
         photo_file_name: null,
         finished_at: null,
+        used_up_at: null,
       },
       segments: [
         { started_at: '2026-10-31T09:00:00.000Z', ended_at: '2026-10-31T10:00:00.000Z' },
