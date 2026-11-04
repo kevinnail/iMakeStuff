@@ -5,7 +5,9 @@ import {
   changePrepUse,
   getAvailablePrep,
   removePrepUse,
+  setPrepUsedUp,
 } from '@/db/queries/prepQueries';
+import { getActualPercent } from '@/utils/prepTime';
 import { createTestDb } from '../setup';
 
 jest.mock('@/db/database', () => ({
@@ -42,6 +44,32 @@ const finish = { endedAt: '2026-10-30T12:00:00.000Z', notes: 'Cobalt glaze', pho
 
 let database: ReturnType<typeof createTestDb>;
 
+function use(prepId: number, estimatedPercent: number) {
+  return { prepId, estimatedPercent };
+}
+
+async function getUsedUpAt(prepId: number) {
+  const prep = await database.getFirstAsync<{ used_up_at: string | null }>(
+    'SELECT used_up_at FROM pieces WHERE id = ?',
+    prepId,
+  );
+  return prep?.used_up_at;
+}
+
+async function getUseId(pieceId: number, prepId: number) {
+  const row = await database.getFirstAsync<{ id: number }>(
+    'SELECT id FROM prep_uses WHERE piece_id = ? AND prep_id = ?',
+    pieceId,
+    prepId,
+  );
+  return row?.id ?? 0;
+}
+
+async function getActualPercents(prepId: number) {
+  const usedBy = (await getPieceDetail(prepId))?.usedBy ?? [];
+  return usedBy.map((row) => getActualPercent(row));
+}
+
 beforeEach(async () => {
   database = createTestDb();
   (getDb as jest.Mock).mockResolvedValue(database);
@@ -51,13 +79,7 @@ beforeEach(async () => {
 describe('finishPiece with prep', () => {
   // Otherwise the prep picked in the panel after Done would be lost when the piece is saved.
   it('saves each prep used with its percent and the prep worked time', async () => {
-    await finishPiece(vaseId, {
-      ...finish,
-      prepUses: [
-        { prepId: caneId, estimatedPercent: 25 },
-        { prepId: fritId, estimatedPercent: 10 },
-      ],
-    });
+    await finishPiece(vaseId, { ...finish, prepUses: [use(caneId, 25), use(fritId, 10)] });
 
     const detail = await getPieceDetail(vaseId);
     expect(detail?.piece.finished_at).toBe(finish.endedAt);
@@ -68,6 +90,8 @@ describe('finishPiece with prep', () => {
         prep_id: caneId,
         prep_name: 'Dichroic cane',
         estimated_percent: 25,
+        prep_used_up: 0,
+        estimates_total: 25,
         prep_worked_milliseconds: 4 * hour + 40 * minute,
       },
       {
@@ -76,6 +100,8 @@ describe('finishPiece with prep', () => {
         prep_id: fritId,
         prep_name: 'Frit mix',
         estimated_percent: 10,
+        prep_used_up: 0,
+        estimates_total: 10,
         prep_worked_milliseconds: 2 * hour,
       },
     ]);
@@ -84,13 +110,7 @@ describe('finishPiece with prep', () => {
   // Otherwise a rejected prep would still leave the piece finished without the prep it used.
   it('leaves the piece unfinished when a prep use is rejected', async () => {
     await expect(
-      finishPiece(vaseId, {
-        ...finish,
-        prepUses: [
-          { prepId: caneId, estimatedPercent: 25 },
-          { prepId: unfinishedPrepId, estimatedPercent: 10 },
-        ],
-      }),
+      finishPiece(vaseId, { ...finish, prepUses: [use(caneId, 25), use(unfinishedPrepId, 10)] }),
     ).rejects.toThrow("Only finished prep that isn't used up can be used.");
 
     const detail = await getPieceDetail(vaseId);
@@ -102,18 +122,16 @@ describe('finishPiece with prep', () => {
 describe('addPrepUse', () => {
   // Otherwise a mistyped percent would put no share, or more than the whole prep, on a piece.
   it.each([0, 101])('rejects a percent of %i', async (estimatedPercent) => {
-    await expect(addPrepUse(vaseId, { prepId: caneId, estimatedPercent })).rejects.toThrow(
+    await expect(addPrepUse(vaseId, use(caneId, estimatedPercent))).rejects.toThrow(
       /CHECK constraint/,
     );
   });
 
   // Otherwise one piece could carry the same prep twice and count its share twice.
   it('rejects the same prep twice on one piece', async () => {
-    await addPrepUse(vaseId, { prepId: caneId, estimatedPercent: 25 });
+    await addPrepUse(vaseId, use(caneId, 25));
 
-    await expect(addPrepUse(vaseId, { prepId: caneId, estimatedPercent: 10 })).rejects.toThrow(
-      /UNIQUE constraint/,
-    );
+    await expect(addPrepUse(vaseId, use(caneId, 10))).rejects.toThrow(/UNIQUE constraint/);
   });
 
   // Otherwise a piece's time, or prep still being made, could be counted as prep on another piece.
@@ -121,25 +139,34 @@ describe('addPrepUse', () => {
     ['a piece', bowlId],
     ['unfinished prep', unfinishedPrepId],
   ])('rejects using %s as prep', async (_kind, prepId) => {
-    await expect(addPrepUse(vaseId, { prepId, estimatedPercent: 25 })).rejects.toThrow(
+    await expect(addPrepUse(vaseId, use(prepId, 25))).rejects.toThrow(
       "Only finished prep that isn't used up can be used.",
     );
     expect((await getPieceDetail(vaseId))?.usedPrep).toEqual([]);
+  });
+
+  // Otherwise a cane that's gone could keep collecting shares from new pieces.
+  it('rejects a new use on used-up prep', async () => {
+    await setPrepUsedUp(caneId, true);
+
+    await expect(addPrepUse(vaseId, use(caneId, 25))).rejects.toThrow(
+      "Only finished prep that isn't used up can be used.",
+    );
   });
 });
 
 describe('changePrepUse and removePrepUse', () => {
   // Otherwise a wrong guess on a piece's page could never be corrected.
   it('changes a use and then removes it', async () => {
-    await addPrepUse(vaseId, { prepId: caneId, estimatedPercent: 25 });
-    const [use] = (await getPieceDetail(vaseId))?.usedPrep ?? [];
+    await addPrepUse(vaseId, use(caneId, 25));
+    const useId = await getUseId(vaseId, caneId);
 
-    await changePrepUse(use.id, 40);
+    await changePrepUse(useId, 40);
     expect((await getPieceDetail(vaseId))?.usedPrep).toEqual([
-      expect.objectContaining({ id: use.id, estimated_percent: 40 }),
+      expect.objectContaining({ id: useId, estimated_percent: 40 }),
     ]);
 
-    await removePrepUse(use.id);
+    await removePrepUse(useId);
     expect((await getPieceDetail(vaseId))?.usedPrep).toEqual([]);
   });
 
@@ -150,11 +177,52 @@ describe('changePrepUse and removePrepUse', () => {
   });
 });
 
+describe('setPrepUsedUp', () => {
+  // Otherwise the cane's leftover time, waste included, would belong to no piece.
+  it('scales every estimate to fill 100% when the prep is used up', async () => {
+    await addPrepUse(vaseId, use(caneId, 25));
+    await addPrepUse(bowlId, use(caneId, 25));
+
+    await setPrepUsedUp(caneId, true);
+
+    expect(await getUsedUpAt(caneId)).toEqual(expect.any(String));
+    expect(await getActualPercents(caneId)).toEqual([50, 50]);
+  });
+
+  // Otherwise a mistaken Used up would hide the estimates and keep the prep out of Add prep.
+  it('puts the prep back in use and the estimates show again', async () => {
+    await addPrepUse(vaseId, use(caneId, 25));
+    await setPrepUsedUp(caneId, true);
+
+    await setPrepUsedUp(caneId, false);
+
+    expect(await getUsedUpAt(caneId)).toBeNull();
+    expect(await getActualPercents(caneId)).toEqual([25]);
+    expect(await getAvailablePrep(bowlId)).toEqual([
+      { id: fritId, name: 'Frit mix', percent_left: 100 },
+      { id: caneId, name: 'Dichroic cane', percent_left: 75 },
+    ]);
+  });
+
+  // Otherwise a second tap would move the used up date, or prep still being made could be used up.
+  it('fails for prep already in the state asked for, or unfinished prep', async () => {
+    await setPrepUsedUp(caneId, true);
+
+    await expect(setPrepUsedUp(caneId, true)).rejects.toThrow(
+      "Only finished prep that isn't used up can be marked used up.",
+    );
+    await expect(setPrepUsedUp(unfinishedPrepId, true)).rejects.toThrow(
+      "Only finished prep that isn't used up can be marked used up.",
+    );
+    await expect(setPrepUsedUp(fritId, false)).rejects.toThrow("That prep isn't used up.");
+  });
+});
+
 describe('getAvailablePrep', () => {
   // Otherwise Add prep would offer prep that can't be saved, or the percent left would be wrong.
   it('lists finished prep newest first with what is left, leaving out prep the piece uses', async () => {
-    await addPrepUse(bowlId, { prepId: caneId, estimatedPercent: 30 });
-    await addPrepUse(vaseId, { prepId: fritId, estimatedPercent: 10 });
+    await addPrepUse(bowlId, use(caneId, 30));
+    await addPrepUse(vaseId, use(fritId, 10));
 
     expect(await getAvailablePrep(vaseId)).toEqual([
       { id: caneId, name: 'Dichroic cane', percent_left: 70 },
@@ -166,8 +234,8 @@ describe('getAvailablePrep', () => {
 
   // Otherwise estimates past 100% would block the next use or show a negative amount left.
   it('allows estimates past 100% and shows 0% left', async () => {
-    await addPrepUse(vaseId, { prepId: caneId, estimatedPercent: 70 });
-    await addPrepUse(bowlId, { prepId: caneId, estimatedPercent: 60 });
+    await addPrepUse(vaseId, use(caneId, 70));
+    await addPrepUse(bowlId, use(caneId, 60));
 
     const otherPieceId = 6;
     await database.execAsync(
@@ -183,12 +251,26 @@ describe('getAvailablePrep', () => {
 describe('getPieceDetail for prep', () => {
   // Otherwise the prep's page couldn't show which pieces used it or how much is gone.
   it('lists the pieces that used the prep with their percents', async () => {
-    await addPrepUse(vaseId, { prepId: caneId, estimatedPercent: 25 });
-    await addPrepUse(bowlId, { prepId: caneId, estimatedPercent: 35 });
+    await addPrepUse(vaseId, use(caneId, 25));
+    await addPrepUse(bowlId, use(caneId, 35));
 
     expect((await getPieceDetail(caneId))?.usedBy).toEqual([
-      { id: expect.any(Number), piece_id: vaseId, piece_name: 'Blue vase', estimated_percent: 25 },
-      { id: expect.any(Number), piece_id: bowlId, piece_name: 'Green bowl', estimated_percent: 35 },
+      {
+        id: expect.any(Number),
+        piece_id: vaseId,
+        piece_name: 'Blue vase',
+        estimated_percent: 25,
+        prep_used_up: 0,
+        estimates_total: 60,
+      },
+      {
+        id: expect.any(Number),
+        piece_id: bowlId,
+        piece_name: 'Green bowl',
+        estimated_percent: 35,
+        prep_used_up: 0,
+        estimates_total: 60,
+      },
     ]);
   });
 });
@@ -196,11 +278,25 @@ describe('getPieceDetail for prep', () => {
 describe('getPieces with prep', () => {
   // Otherwise the Pieces list would show a different prep time than the piece's own page.
   it('gives each piece its prep time rounded down per prep, and none for a piece without prep', async () => {
-    await addPrepUse(vaseId, { prepId: caneId, estimatedPercent: 25 });
-    await addPrepUse(vaseId, { prepId: fritId, estimatedPercent: 33 });
+    await addPrepUse(vaseId, use(caneId, 25));
+    await addPrepUse(vaseId, use(fritId, 33));
 
     const pieces = await getPieces();
-    expect(pieces.find((piece) => piece.id === vaseId)?.prep_milliseconds).toBe((70 + 39) * minute);
+    expect(pieces.find((piece) => piece.id === vaseId)).toMatchObject({
+      prep_milliseconds: (70 + 39) * minute,
+      prep_estimated: true,
+    });
     expect(pieces.find((piece) => piece.id === bowlId)?.prep_milliseconds).toBeNull();
+  });
+
+  // Otherwise the list would keep showing estimates after the prep's real shares are known.
+  it('switches a piece to actual prep time once its prep is used up', async () => {
+    await addPrepUse(vaseId, use(caneId, 25));
+    await setPrepUsedUp(caneId, true);
+
+    expect((await getPieces()).find((piece) => piece.id === vaseId)).toMatchObject({
+      prep_milliseconds: 4 * hour + 40 * minute,
+      prep_estimated: false,
+    });
   });
 });
