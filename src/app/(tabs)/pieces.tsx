@@ -4,30 +4,34 @@ import { Alert, FlatList, Image, Pressable, StyleSheet, Text, View } from 'react
 
 import { Chevron } from '@/components/Chevron';
 import { JoinedButtons } from '@/components/JoinedButtons';
+import { Tag } from '@/components/Tag';
 import { getPieces, type PieceListItem } from '@/db/queries/pieceQueries';
 import { formatDay, formatDuration } from '@/utils/formatTime';
 import { colors } from '@/theme';
 import { getPhotoUri } from '@/utils/photoStorage';
 
-type PieceFilter = 'all' | 'unfinished' | 'finished' | 'prep';
+type PieceFilter = 'all' | 'unfinished' | 'finished' | 'lost' | 'prep';
 
 const filters: { value: PieceFilter; label: string; emptyText: string }[] = [
   { value: 'all', label: 'All', emptyText: 'No pieces yet.' },
   { value: 'unfinished', label: 'Working', emptyText: 'No unfinished pieces.' },
   { value: 'finished', label: 'Finished', emptyText: 'No finished pieces.' },
+  { value: 'lost', label: 'Lost', emptyText: 'No lost pieces.' },
   { value: 'prep', label: 'Prep', emptyText: 'No prep yet.' },
 ];
 
 export default function PiecesScreen() {
   const [pieces, setPieces] = useState<PieceListItem[]>([]);
   const [filter, setFilter] = useState<PieceFilter>('all');
-  // Prep shows only under Prep; the other filters list pieces.
-  const shownPieces = pieces.filter((piece) =>
-    filter === 'prep'
-      ? piece.category === 'prep'
-      : piece.category === 'piece' &&
-        (filter === 'all' || (filter === 'finished') === (piece.finished_at !== null)),
-  );
+  // Prep shows only under Prep; the other filters list pieces. Finished means finished good.
+  const shownPieces = pieces.filter((piece) => {
+    if (filter === 'prep') return piece.category === 'prep';
+    if (piece.category !== 'piece') return false;
+    if (filter === 'unfinished') return piece.finished_at === null;
+    if (filter === 'finished') return piece.finished_at !== null && !piece.lost;
+    if (filter === 'lost') return piece.lost === 1;
+    return true;
+  });
   const emptyText = filters.find(({ value }) => value === filter)?.emptyText;
 
   // Reloads every time the tab is shown, so a piece finished on Work appears here.
@@ -61,11 +65,14 @@ export default function PiecesScreen() {
             <View style={styles.photo} />
           )}
           <View style={styles.details}>
-            <Text style={styles.name}>{piece.name}</Text>
+            <View style={styles.nameRow}>
+              <Text style={styles.name}>{piece.name}</Text>
+              {piece.lost === 1 && <Tag label="Lost" />}
+            </View>
             <View style={styles.bottomRow}>
               <Text style={[styles.detailText, styles.dateText]}>
                 {piece.finished_at
-                  ? `Finished ${formatDay(Date.parse(piece.finished_at))}`
+                  ? `${piece.lost ? 'Lost' : 'Finished'} ${formatDay(Date.parse(piece.finished_at))}`
                   : 'Unfinished'}
               </Text>
               <View style={styles.timeColumn}>
@@ -117,7 +124,13 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 2,
   },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   name: {
+    flexShrink: 1,
     fontSize: 20,
     color: colors.text,
   },
