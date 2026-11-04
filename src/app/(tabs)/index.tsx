@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Keyboard,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -20,6 +21,7 @@ import { JoinedButtons } from '@/components/JoinedButtons';
 import { PrepTag } from '@/components/PrepTag';
 import type { WorkRecords } from '@/db/queries/dayQueries';
 import type { PieceCategory, UnfinishedPiece } from '@/db/queries/pieceQueries';
+import { getAvailablePrep, type AvailablePrep } from '@/db/queries/prepQueries';
 import { useWorkStore } from '@/store/workStore';
 import { formatDuration } from '@/utils/formatTime';
 import { saveToCameraRoll } from '@/utils/photoStorage';
@@ -29,6 +31,7 @@ import { getWorkDays, startOfDay } from '@/utils/workDays';
 interface Finishing {
   piece: UnfinishedPiece;
   cameraPhotoUri: string | null;
+  availablePrep: AvailablePrep[] | null;
 }
 
 interface RunningTimeProps {
@@ -140,6 +143,7 @@ export default function WorkScreen() {
   );
 
   function handleStart() {
+    Keyboard.dismiss();
     start(trimmedName, category)
       .then(() => setName(''))
       .catch(showError('Could not start'));
@@ -157,7 +161,8 @@ export default function WorkScreen() {
           showError('Could not save the photo to your camera roll'),
         );
       }
-      setFinishing({ piece, cameraPhotoUri });
+      const availablePrep = piece.category === 'piece' ? await getAvailablePrep(piece.id) : null;
+      setFinishing({ piece, cameraPhotoUri, availablePrep });
     } finally {
       setOpeningPieceId(null);
     }
@@ -167,11 +172,14 @@ export default function WorkScreen() {
     <FinishPiecePanel
       pieceName={finishing.piece.name}
       cameraPhotoUri={finishing.cameraPhotoUri}
+      availablePrep={finishing.availablePrep}
       onCancel={() => setFinishing(null)}
-      onSave={(notes) =>
-        finish(finishing.piece.id, { notes, cameraPhotoUri: finishing.cameraPhotoUri }).then(() =>
-          setFinishing(null),
-        )
+      onSave={(notes, prepUses) =>
+        finish(finishing.piece.id, {
+          notes,
+          cameraPhotoUri: finishing.cameraPhotoUri,
+          prepUses,
+        }).then(() => setFinishing(null))
       }
     />
   );
