@@ -12,6 +12,8 @@ export const colors = {
   prep: '#5FC8A0',
   // Breaks, so they stand apart from work.
   accent: '#D18A6B',
+  // Delete, the one action that can't be undone.
+  danger: '#F06A6A',
   // Text on a primary or accent fill.
   textOnFill: '#1A2233',
 };
