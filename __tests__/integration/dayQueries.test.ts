@@ -1,5 +1,6 @@
 import { getDb } from '@/db/database';
 import { getWorkRecords } from '@/db/queries/dayQueries';
+import { getWorkDays } from '@/utils/workDays';
 import { createTestDb } from '../setup';
 
 jest.mock('@/db/database', () => ({
@@ -43,6 +44,7 @@ describe('getWorkRecords', () => {
           category: 'piece',
           photo_file_name: null,
           finished_at: '2026-10-31T10:00:00.000Z',
+          lost: 0,
         },
       ],
     });
@@ -69,6 +71,22 @@ describe('getWorkRecords', () => {
       { name: 'Blue vase', category: 'piece' },
       { name: 'Dichroic cane', category: 'prep' },
     ]);
+  });
+
+  // Otherwise a lost piece would add to the Finished count, or its hours would vanish from the day.
+  it('returns a lost piece marked lost, with its time in the day', async () => {
+    await database.execAsync(`
+      INSERT INTO pieces (id, name, category, notes, finished_at, lost) VALUES
+        (1, 'Blue vase', 'piece', 'Cracked', '2026-10-31T10:00:00.000Z', 1);
+      INSERT INTO work_segments (piece_id, started_at, ended_at) VALUES
+        (1, '2026-10-31T09:00:00.000Z', '2026-10-31T10:00:00.000Z');
+    `);
+
+    const { segments, breaks, finishedPieces } = await getWorkRecords('2026-10-31T00:00:00.000Z');
+
+    expect(finishedPieces).toEqual([expect.objectContaining({ name: 'Blue vase', lost: 1 })]);
+    const [day] = getWorkDays(segments, [], breaks, Date.now());
+    expect(day.worked).toBe(60 * 60 * 1000);
   });
 
   // Otherwise a fresh install with no work would break the Work screen and the Days tab.
