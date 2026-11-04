@@ -1,5 +1,5 @@
 import { getDb } from '@/db/database';
-import { finishPiece, getPieceDetail, getPieces } from '@/db/queries/pieceQueries';
+import { finishPiece, getPieceDetail, getPieces, setPieceLost } from '@/db/queries/pieceQueries';
 import {
   addPrepUse,
   changePrepUse,
@@ -40,7 +40,12 @@ const fixturesSql = `
     (${bowlId}, '2026-10-30T13:00:00.000Z', '2026-10-30T16:00:00.000Z');
 `;
 
-const finish = { endedAt: '2026-10-30T12:00:00.000Z', notes: 'Cobalt glaze', photoFileName: null };
+const finish = {
+  endedAt: '2026-10-30T12:00:00.000Z',
+  notes: 'Cobalt glaze',
+  photoFileName: null,
+  lost: false,
+};
 
 let database: ReturnType<typeof createTestDb>;
 
@@ -111,7 +116,7 @@ describe('finishPiece with prep', () => {
   it('leaves the piece unfinished when a prep use is rejected', async () => {
     await expect(
       finishPiece(vaseId, { ...finish, prepUses: [use(caneId, 25), use(unfinishedPrepId, 10)] }),
-    ).rejects.toThrow("Only finished prep that isn't used up can be used.");
+    ).rejects.toThrow("Only finished prep that isn't used up or lost can be used.");
 
     const detail = await getPieceDetail(vaseId);
     expect(detail?.piece.finished_at).toBeNull();
@@ -140,7 +145,7 @@ describe('addPrepUse', () => {
     ['unfinished prep', unfinishedPrepId],
   ])('rejects using %s as prep', async (_kind, prepId) => {
     await expect(addPrepUse(vaseId, use(prepId, 25))).rejects.toThrow(
-      "Only finished prep that isn't used up can be used.",
+      "Only finished prep that isn't used up or lost can be used.",
     );
     expect((await getPieceDetail(vaseId))?.usedPrep).toEqual([]);
   });
@@ -150,8 +155,33 @@ describe('addPrepUse', () => {
     await setPrepUsedUp(caneId, true);
 
     await expect(addPrepUse(vaseId, use(caneId, 25))).rejects.toThrow(
-      "Only finished prep that isn't used up can be used.",
+      "Only finished prep that isn't used up or lost can be used.",
     );
+  });
+});
+
+describe('lost prep and lost pieces', () => {
+  // Otherwise a cane that shattered while pulling could be picked for a piece.
+  it('rejects a use of lost prep and leaves it out of Add prep', async () => {
+    await setPieceLost(caneId, true);
+
+    await expect(addPrepUse(vaseId, use(caneId, 25))).rejects.toThrow(
+      "Only finished prep that isn't used up or lost can be used.",
+    );
+    expect(await getAvailablePrep(vaseId)).toEqual([
+      { id: fritId, name: 'Frit mix', percent_left: 100 },
+    ]);
+  });
+
+  // Otherwise the cane that went in the garbage with a broken piece would drop off its time.
+  it('keeps a lost piece its prep uses', async () => {
+    await addPrepUse(bowlId, use(caneId, 25));
+
+    await setPieceLost(bowlId, true);
+
+    expect((await getPieceDetail(bowlId))?.usedPrep).toEqual([
+      expect.objectContaining({ prep_id: caneId, estimated_percent: 25 }),
+    ]);
   });
 });
 
