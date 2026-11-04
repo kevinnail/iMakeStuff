@@ -44,6 +44,7 @@ export default function PiecesScreen() {
       keyExtractor={(piece) => String(piece.id)}
       contentInsetAdjustmentBehavior="automatic"
       contentContainerStyle={styles.list}
+      ItemSeparatorComponent={() => <View style={styles.separator} />}
       ListHeaderComponent={
         <JoinedButtons options={filters} selected={filter} onSelect={setFilter} />
       }
@@ -60,12 +61,23 @@ export default function PiecesScreen() {
           )}
           <View style={styles.details}>
             <Text style={styles.name}>{piece.name}</Text>
-            <Text style={styles.detailText}>
-              {piece.finished_at
-                ? `Finished ${formatDay(Date.parse(piece.finished_at))}`
-                : 'Unfinished'}
-            </Text>
-            <Text style={styles.detailText}>{formatDuration(piece.worked_milliseconds)}</Text>
+            <View style={styles.bottomRow}>
+              <Text style={[styles.detailText, styles.dateText]}>
+                {piece.finished_at
+                  ? `Finished ${formatDay(Date.parse(piece.finished_at))}`
+                  : 'Unfinished'}
+              </Text>
+              <View style={styles.timeColumn}>
+                <Text style={styles.detailText}>Worked</Text>
+                <Text style={styles.timeValue}>{formatDuration(piece.worked_milliseconds)}</Text>
+              </View>
+              {piece.prep_milliseconds !== null && (
+                <View style={styles.timeColumn}>
+                  <Text style={styles.detailText}>Prep, est.</Text>
+                  <Text style={styles.timeValue}>{formatDuration(piece.prep_milliseconds)}</Text>
+                </View>
+              )}
+            </View>
           </View>
         </Pressable>
       )}
@@ -77,6 +89,11 @@ const styles = StyleSheet.create({
   list: {
     padding: 16,
     gap: 12,
+  },
+  separator: {
+    height: StyleSheet.hairlineWidth,
+    marginTop: 12,
+    backgroundColor: colors.separator,
   },
   row: {
     flexDirection: 'row',
@@ -100,5 +117,24 @@ const styles = StyleSheet.create({
   detailText: {
     fontSize: 16,
     color: colors.secondaryText,
+  },
+  // Under the full-width name: the date on the left, the times on the right.
+  bottomRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 12,
+  },
+  dateText: {
+    flex: 1,
+  },
+  // A label over its time, right-aligned so the times line up from row to row.
+  timeColumn: {
+    alignItems: 'flex-end',
+    gap: 2,
+  },
+  timeValue: {
+    fontSize: 18,
+    fontVariant: ['tabular-nums'],
+    color: colors.text,
   },
 });

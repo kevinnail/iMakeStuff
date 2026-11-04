@@ -42,4 +42,15 @@ export const SCHEMA_SQL = `
   -- Only the piece in your hands collects time, so only one segment can be running.
   CREATE UNIQUE INDEX IF NOT EXISTS work_segments_one_running
     ON work_segments(ended_at IS NULL) WHERE ended_at IS NULL;
+
+  -- How much of a prep a piece took. Only the estimate is stored; a check can't look at
+  -- another table, so the insert itself only matches finished prep that isn't used up.
+  CREATE TABLE IF NOT EXISTS prep_uses (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    piece_id          INTEGER NOT NULL REFERENCES pieces(id),
+    prep_id           INTEGER NOT NULL REFERENCES pieces(id),
+    estimated_percent INTEGER NOT NULL CHECK (estimated_percent > 0 AND estimated_percent <= 100),
+    used_it_up        INTEGER NOT NULL DEFAULT 0 CHECK (used_it_up IN (0, 1)),
+    UNIQUE (piece_id, prep_id)
+  );
 `;

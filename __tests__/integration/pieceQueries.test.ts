@@ -232,7 +232,7 @@ describe('finishPiece', () => {
   it('saves the photo and ends the running segment at the Done time', async () => {
     const pieceId = await startPiece('Blue vase', 'piece');
 
-    await finishPiece(pieceId, { endedAt, notes: null, photoFileName: 'vase.jpg' });
+    await finishPiece(pieceId, { endedAt, notes: null, photoFileName: 'vase.jpg', prepUses: [] });
 
     expect(await database.getFirstAsync<FinishedPieceRow>(finishedPieceSql, pieceId)).toEqual({
       notes: null,
@@ -250,7 +250,12 @@ describe('finishPiece', () => {
     const setDownPieceId = await startPiece('Blue vase', 'piece');
     const greenPieceId = await startPiece('Green bowl', 'piece');
 
-    await finishPiece(setDownPieceId, { endedAt, notes: 'Cobalt glaze', photoFileName: null });
+    await finishPiece(setDownPieceId, {
+      endedAt,
+      notes: 'Cobalt glaze',
+      photoFileName: null,
+      prepUses: [],
+    });
 
     expect(await getUnfinishedPieces()).toEqual([
       expect.objectContaining({ id: greenPieceId, running_since: expect.any(String) }),
@@ -261,7 +266,12 @@ describe('finishPiece', () => {
   it('saves a piece with notes and no photo', async () => {
     const pieceId = await startPiece('Blue vase', 'piece');
 
-    await finishPiece(pieceId, { endedAt, notes: 'Cobalt glaze', photoFileName: null });
+    await finishPiece(pieceId, {
+      endedAt,
+      notes: 'Cobalt glaze',
+      photoFileName: null,
+      prepUses: [],
+    });
 
     expect(await database.getFirstAsync<FinishedPieceRow>(finishedPieceSql, pieceId)).toEqual({
       notes: 'Cobalt glaze',
@@ -275,7 +285,7 @@ describe('finishPiece', () => {
     const pieceId = await startPiece('Blue vase', 'piece');
 
     await expect(
-      finishPiece(pieceId, { endedAt, notes: null, photoFileName: null }),
+      finishPiece(pieceId, { endedAt, notes: null, photoFileName: null, prepUses: [] }),
     ).rejects.toThrow(/CHECK constraint/);
 
     expect(await database.getFirstAsync<FinishedPieceRow>(finishedPieceSql, pieceId)).toEqual({
@@ -291,13 +301,14 @@ describe('finishPiece', () => {
   // Otherwise finishing twice would overwrite the first photo and finish time.
   it('fails for a piece that is already finished', async () => {
     const pieceId = await startPiece('Blue vase', 'piece');
-    await finishPiece(pieceId, { endedAt, notes: null, photoFileName: 'vase.jpg' });
+    await finishPiece(pieceId, { endedAt, notes: null, photoFileName: 'vase.jpg', prepUses: [] });
 
     await expect(
       finishPiece(pieceId, {
         endedAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
         notes: null,
         photoFileName: 'other.jpg',
+        prepUses: [],
       }),
     ).rejects.toThrow('That piece is already finished.');
     expect(await database.getFirstAsync<FinishedPieceRow>(finishedPieceSql, pieceId)).toEqual({
@@ -330,6 +341,7 @@ describe('getPieces', () => {
         photo_file_name: null,
         finished_at: null,
         worked_milliseconds: 30 * 60 * 1000,
+        prep_milliseconds: null,
       },
       {
         id: 2,
@@ -338,6 +350,7 @@ describe('getPieces', () => {
         photo_file_name: null,
         finished_at: '2026-10-31T17:00:00.000Z',
         worked_milliseconds: 2 * 60 * 60 * 1000,
+        prep_milliseconds: null,
       },
       {
         id: 1,
@@ -346,6 +359,7 @@ describe('getPieces', () => {
         photo_file_name: null,
         finished_at: '2026-10-30T17:00:00.000Z',
         worked_milliseconds: 60 * 60 * 1000,
+        prep_milliseconds: null,
       },
     ]);
   });
@@ -380,7 +394,14 @@ describe('getPieceDetail', () => {
     `);
 
     expect(await getPieceDetail(1)).toEqual({
-      piece: { id: 1, name: 'Blue vase', notes: null, photo_file_name: null, finished_at: null },
+      piece: {
+        id: 1,
+        name: 'Blue vase',
+        category: 'piece',
+        notes: null,
+        photo_file_name: null,
+        finished_at: null,
+      },
       segments: [
         { started_at: '2026-10-31T09:00:00.000Z', ended_at: '2026-10-31T10:00:00.000Z' },
         { started_at: '2026-10-31T11:00:00.000Z', ended_at: '2026-10-31T12:00:00.000Z' },
@@ -389,6 +410,8 @@ describe('getPieceDetail', () => {
         { started_at: '2026-10-31T10:00:00.000Z', ended_at: '2026-10-31T10:30:00.000Z' },
       ],
       breaks: [{ started_at: '2026-10-31T10:30:00.000Z', ended_at: '2026-10-31T11:00:00.000Z' }],
+      usedPrep: [],
+      usedBy: [],
     });
   });
 

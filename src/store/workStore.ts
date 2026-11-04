@@ -16,12 +16,14 @@ import {
   type PieceCategory,
   type UnfinishedPiece,
 } from '@/db/queries/pieceQueries';
+import type { NewPrepUse } from '@/db/queries/prepQueries';
 import { withSavedPhoto } from '@/utils/photoStorage';
 import { startOfDay } from '@/utils/workDays';
 
 interface FinishInput {
   notes: string | null;
   cameraPhotoUri: string | null;
+  prepUses: NewPrepUse[];
 }
 
 interface WorkState {
@@ -63,10 +65,10 @@ export const useWorkStore = create<WorkState>()((set) => ({
     await switchToPiece(pieceId);
     set(await readWork());
   },
-  finish: async (pieceId, { notes, cameraPhotoUri }) => {
+  finish: async (pieceId, { notes, cameraPhotoUri, prepUses }) => {
     const endedAt = new Date().toISOString();
     await withSavedPhoto(cameraPhotoUri, (photoFileName) =>
-      finishPiece(pieceId, { endedAt, notes, photoFileName }),
+      finishPiece(pieceId, { endedAt, notes, photoFileName, prepUses }),
     );
     set(await readWork());
   },
