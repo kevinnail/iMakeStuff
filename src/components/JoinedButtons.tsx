@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { colors } from '@/theme';
 
 interface JoinedButtonsProps<Value extends string> {
-  options: { value: Value; label: string }[];
+  options: { value: Value; label: string; color?: string }[];
   selected: Value;
   onSelect: (value: Value) => void;
 }
@@ -16,10 +16,14 @@ export function JoinedButtons<Value extends string>({
 }: JoinedButtonsProps<Value>) {
   return (
     <View style={styles.row}>
-      {options.map(({ value, label }) => (
+      {options.map(({ value, label, color }) => (
         <Pressable
           key={value}
-          style={[styles.button, selected === value && styles.buttonSelected]}
+          style={[
+            styles.button,
+            selected === value && styles.buttonSelected,
+            selected === value && color !== undefined && { backgroundColor: color },
+          ]}
           onPress={() => onSelect(value)}
         >
           <Text style={[styles.text, selected === value && styles.textSelected]}>{label}</Text>

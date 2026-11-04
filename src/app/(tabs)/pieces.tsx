@@ -2,6 +2,7 @@ import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Alert, FlatList, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { Chevron } from '@/components/Chevron';
 import { JoinedButtons } from '@/components/JoinedButtons';
 import { getPieces, type PieceListItem } from '@/db/queries/pieceQueries';
 import { formatDay, formatDuration } from '@/utils/formatTime';
@@ -51,7 +52,7 @@ export default function PiecesScreen() {
       ListEmptyComponent={<Text style={styles.detailText}>{emptyText}</Text>}
       renderItem={({ item: piece }) => (
         <Pressable
-          style={styles.row}
+          style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
           onPress={() => router.push({ pathname: '/piece/[id]', params: { id: piece.id } })}
         >
           {piece.photo_file_name ? (
@@ -73,12 +74,15 @@ export default function PiecesScreen() {
               </View>
               {piece.prep_milliseconds !== null && (
                 <View style={styles.timeColumn}>
-                  <Text style={styles.detailText}>Prep, est.</Text>
+                  <Text style={styles.detailText}>
+                    {piece.prep_estimated ? 'Prep, est.' : 'Prep'}
+                  </Text>
                   <Text style={styles.timeValue}>{formatDuration(piece.prep_milliseconds)}</Text>
                 </View>
               )}
             </View>
           </View>
+          <Chevron />
         </Pressable>
       )}
     />
@@ -99,6 +103,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+  },
+  rowPressed: {
+    opacity: 0.6,
   },
   photo: {
     width: 72,

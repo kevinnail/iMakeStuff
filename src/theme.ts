@@ -8,6 +8,8 @@ export const colors = {
   separator: '#3A4766',
   // Buttons, the running piece, and worked days on the calendar.
   primary: '#6AA6F2',
+  // Prep on the Work screen, so it never passes for a piece at a glance.
+  prep: '#5FC8A0',
   // Breaks, so they stand apart from work.
   accent: '#D18A6B',
   // Text on a primary or accent fill.

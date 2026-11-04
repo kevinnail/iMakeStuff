@@ -2,6 +2,7 @@ import { Stack, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { Chevron } from '@/components/Chevron';
 import { EntryTimesPanel } from '@/components/EntryTimesPanel';
 import {
   addBreak,
@@ -78,7 +79,7 @@ export default function DayScreen() {
       {entries.map((entry) => (
         <Pressable
           key={`${entry.kind}-${entry.id}`}
-          style={styles.entryRow}
+          style={({ pressed }) => [styles.entryRow, pressed && styles.buttonPressed]}
           onPress={() => editEntry(entry)}
         >
           <Text style={styles.time}>{formatClockTime(Date.parse(entry.started_at))}</Text>
@@ -88,6 +89,7 @@ export default function DayScreen() {
           <Text style={[styles.entryName, !entry.piece_name && styles.breakName]}>
             {entry.piece_name ?? 'Break'}
           </Text>
+          <Chevron />
         </Pressable>
       ))}
       <View style={styles.buttonRow}>

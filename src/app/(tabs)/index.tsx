@@ -40,9 +40,14 @@ interface RunningTimeProps {
   style?: StyleProp<TextStyle>;
 }
 
-const categoryOptions: { value: PieceCategory; label: string; placeholder: string }[] = [
+const categoryOptions: {
+  value: PieceCategory;
+  label: string;
+  placeholder: string;
+  color?: string;
+}[] = [
   { value: 'piece', label: 'Piece', placeholder: 'What are you making?' },
-  { value: 'prep', label: 'Prep', placeholder: 'What prep are you making?' },
+  { value: 'prep', label: 'Prep', placeholder: 'What prep are you making?', color: colors.prep },
 ];
 
 function formatElapsed(milliseconds: number) {
@@ -211,7 +216,11 @@ export default function WorkScreen() {
         {pieces.map((piece) => (
           <Pressable
             key={piece.id}
-            style={[styles.pieceRow, piece.running_since !== null && styles.pieceRowCurrent]}
+            style={[
+              styles.pieceRow,
+              piece.running_since !== null &&
+                (piece.category === 'prep' ? styles.prepRowCurrent : styles.pieceRowCurrent),
+            ]}
             onPress={() => switchTo(piece.id).catch(showError('Could not switch pieces'))}
             disabled={piece.running_since !== null}
           >
@@ -359,6 +368,9 @@ const styles = StyleSheet.create({
   },
   pieceRowCurrent: {
     backgroundColor: colors.primary,
+  },
+  prepRowCurrent: {
+    backgroundColor: colors.prep,
   },
   pieceDetails: {
     flex: 1,

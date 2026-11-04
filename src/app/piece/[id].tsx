@@ -1,21 +1,22 @@
 import { router, Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Image, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 
-import { PrepPickerPanel } from '@/components/PrepPickerPanel';
-import { askPrepPercent } from '@/components/prepUsePrompts';
+import { Chevron } from '@/components/Chevron';
+import { PrepUsePanel, type PrepUseChoice } from '@/components/PrepUsePanel';
 import { getPieceDetail, type PieceRecord } from '@/db/queries/pieceQueries';
 import {
   addPrepUse,
   changePrepUse,
   getAvailablePrep,
   removePrepUse,
+  setPrepUsedUp,
   type AvailablePrep,
   type PieceUsingPrep,
   type UsedPrep,
 } from '@/db/queries/prepQueries';
 import { formatClockTime, formatDay, formatDuration } from '@/utils/formatTime';
-import { getPrepTime } from '@/utils/prepTime';
+import { getActualPercent, getPrepTime } from '@/utils/prepTime';
 import { getWorkDays, type WorkDay } from '@/utils/workDays';
 import { getPhotoUri } from '@/utils/photoStorage';
 import { colors } from '@/theme';
@@ -29,6 +30,8 @@ interface PiecePage {
 
 type PrepTime = ReturnType<typeof getPrepTime<UsedPrep>>;
 
+type PrepLine = PrepTime['lines'][number];
+
 interface TotalsProps {
   days: WorkDay[];
   prepTime: PrepTime;
@@ -36,7 +39,13 @@ interface TotalsProps {
 
 interface PrepUsedProps {
   pieceId: number;
-  lines: PrepTime['lines'];
+  lines: PrepLine[];
+  onChange: () => Promise<void>;
+}
+
+interface UsedByProps {
+  prep: PieceRecord;
+  usedBy: PieceUsingPrep[];
   onChange: () => Promise<void>;
 }
 
@@ -68,7 +77,7 @@ function Totals({ days, prepTime }: TotalsProps) {
   const usedPrep = prepTime.lines.length > 0;
   const prepRows = [
     { label: 'On the piece', milliseconds: sumDays(days, 'worked') },
-    { label: 'Prep, estimated', milliseconds: prepTime.prep },
+    { label: prepTime.estimated ? 'Prep, estimated' : 'Prep', milliseconds: prepTime.prep },
   ];
   const rows = [
     ...(usedPrep ? prepRows : []),
@@ -80,7 +89,7 @@ function Totals({ days, prepTime }: TotalsProps) {
     <View style={styles.totals}>
       <Text style={styles.totalLine}>
         <Text style={styles.totalTime}>{formatDuration(prepTime.total)}</Text> total
-        {usedPrep && ', estimated'}
+        {prepTime.estimated && ', estimated'}
       </Text>
       <Text style={styles.secondaryText}>{when}</Text>
       {rows.map(({ label, milliseconds }) => (
@@ -121,8 +130,11 @@ function DayTable({ days }: { days: WorkDay[] }) {
 
 function PrepUsed({ pieceId, lines, onChange }: PrepUsedProps) {
   const [prepList, setPrepList] = useState<AvailablePrep[] | null>(null);
+  const [changingLine, setChangingLine] = useState<PrepLine | null>(null);
 
   function save(change: Promise<void>) {
+    setPrepList(null);
+    setChangingLine(null);
     change.then(onChange).catch(showError('Could not save the prep'));
   }
 
@@ -130,18 +142,8 @@ function PrepUsed({ pieceId, lines, onChange }: PrepUsedProps) {
     getAvailablePrep(pieceId).then(setPrepList).catch(showError('Could not load your prep'));
   }
 
-  function addPrep(chosenPrep: AvailablePrep, estimatedPercent: number) {
-    setPrepList(null);
-    save(addPrepUse(pieceId, { prepId: chosenPrep.id, estimatedPercent }));
-  }
-
-  function changeUse(use: UsedPrep) {
-    askPrepPercent({
-      prepName: use.prep_name,
-      currentPercent: use.estimated_percent,
-      onSave: (estimatedPercent) => save(changePrepUse(use.id, estimatedPercent)),
-      onRemove: () => save(removePrepUse(use.id)),
-    });
+  function addPrep({ prep, estimatedPercent }: PrepUseChoice) {
+    save(addPrepUse(pieceId, { prepId: prep.id, estimatedPercent }));
   }
 
   return (
@@ -156,41 +158,115 @@ function PrepUsed({ pieceId, lines, onChange }: PrepUsedProps) {
         </Pressable>
       </View>
       {prepList && (
-        <PrepPickerPanel prepList={prepList} onCancel={() => setPrepList(null)} onAdd={addPrep} />
+        <PrepUsePanel
+          prepList={prepList}
+          initial={null}
+          onCancel={() => setPrepList(null)}
+          onSave={addPrep}
+        />
+      )}
+      {changingLine && (
+        <PrepUsePanel
+          prepList={null}
+          initial={{
+            prep: { id: changingLine.prep_id, name: changingLine.prep_name },
+            estimatedPercent: changingLine.estimated_percent,
+          }}
+          onCancel={() => setChangingLine(null)}
+          onSave={({ estimatedPercent }) => save(changePrepUse(changingLine.id, estimatedPercent))}
+          onRemove={() => save(removePrepUse(changingLine.id))}
+        />
       )}
       {lines.map((line) => (
-        <Pressable key={line.id} style={styles.tableRow} onPress={() => changeUse(line)}>
-          <Text style={[styles.tableValue, styles.dayColumn]}>{line.prep_name}</Text>
-          <Text style={styles.tableValue}>{line.estimated_percent}%</Text>
+        <Pressable
+          key={line.id}
+          style={({ pressed }) => [styles.prepLine, pressed && styles.buttonPressed]}
+          onPress={() => setChangingLine(line)}
+        >
+          <View style={styles.dayColumn}>
+            <Text style={styles.tableValue}>{line.prep_name}</Text>
+            <Text style={styles.secondaryText}>{line.estimated ? 'Estimated' : 'Used up'}</Text>
+          </View>
+          <Text style={styles.tableValue}>{Math.round(line.percent)}%</Text>
           <Text style={[styles.tableValue, styles.numberColumn, styles.prepTimeColumn]}>
             {formatDuration(line.milliseconds)}
           </Text>
+          <Chevron />
         </Pressable>
       ))}
     </View>
   );
 }
 
-// A prep's uses: the total so far, then each piece that used it.
-function UsedBy({ usedBy }: { usedBy: PieceUsingPrep[] }) {
-  const usedSoFar = usedBy.reduce((total, use) => total + use.estimated_percent, 0);
+// A prep's uses: each piece's estimate, and once the prep is used up, what it really took.
+function UsedBy({ prep, usedBy, onChange }: UsedByProps) {
+  const usedUp = prep.used_up_at !== null;
+  const rows = usedBy.map((use) => ({ ...use, actual_percent: getActualPercent(use) }));
+  const estimatedTotal = rows.reduce((total, row) => total + row.estimated_percent, 0);
+  const actualTotal = rows.reduce((total, row) => total + row.actual_percent, 0);
+
+  function setUsedUp(value: boolean) {
+    setPrepUsedUp(prep.id, value).then(onChange).catch(showError('Could not save the prep'));
+  }
 
   return (
     <View style={styles.totals}>
-      <View style={styles.tableRow}>
-        <Text style={styles.cardTitle}>Used so far</Text>
-        <Text style={styles.tableValue}>{usedSoFar}%</Text>
-      </View>
-      {usedBy.map((use) => (
-        <Pressable
-          key={use.id}
-          style={styles.tableRow}
-          onPress={() => router.push({ pathname: '/piece/[id]', params: { id: use.piece_id } })}
-        >
-          <Text style={[styles.tableValue, styles.dayColumn]}>{use.piece_name}</Text>
-          <Text style={styles.tableValue}>{use.estimated_percent}%</Text>
-        </Pressable>
-      ))}
+      {prep.finished_at && (
+        <View style={styles.prepLine}>
+          <Text style={[styles.cardTitle, styles.dayColumn]}>Used up</Text>
+          <Switch value={usedUp} onValueChange={setUsedUp} trackColor={{ true: colors.primary }} />
+        </View>
+      )}
+      {rows.length === 0 ? (
+        <Text style={styles.secondaryText}>No pieces have used it yet.</Text>
+      ) : (
+        <>
+          <View style={styles.tableRow}>
+            <Text style={[styles.secondaryText, styles.dayColumn]}>Piece</Text>
+            <Text style={[styles.secondaryText, styles.numberColumn, styles.estimatedColumn]}>
+              Estimated
+            </Text>
+            {usedUp && (
+              <Text style={[styles.secondaryText, styles.numberColumn, styles.actualColumn]}>
+                Actual
+              </Text>
+            )}
+            <View style={styles.chevronColumn} />
+          </View>
+          {rows.map((row) => (
+            <Pressable
+              key={row.id}
+              style={({ pressed }) => [styles.prepLine, pressed && styles.buttonPressed]}
+              onPress={() => router.push({ pathname: '/piece/[id]', params: { id: row.piece_id } })}
+            >
+              <Text style={[styles.tableValue, styles.dayColumn]}>{row.piece_name}</Text>
+              <Text style={[styles.tableValue, styles.numberColumn, styles.estimatedColumn]}>
+                {row.estimated_percent}%
+              </Text>
+              {usedUp && (
+                <Text style={[styles.tableValue, styles.numberColumn, styles.actualColumn]}>
+                  {Math.round(row.actual_percent)}%
+                </Text>
+              )}
+              <View style={styles.chevronColumn}>
+                <Chevron />
+              </View>
+            </Pressable>
+          ))}
+          <View style={styles.tableRow}>
+            <Text style={[styles.secondaryText, styles.dayColumn]}>Total</Text>
+            <Text style={[styles.tableValue, styles.numberColumn, styles.estimatedColumn]}>
+              {estimatedTotal}%
+            </Text>
+            {usedUp && (
+              <Text style={[styles.tableValue, styles.numberColumn, styles.actualColumn]}>
+                {Math.round(actualTotal)}%
+              </Text>
+            )}
+            <View style={styles.chevronColumn} />
+          </View>
+        </>
+      )}
     </View>
   );
 }
@@ -249,7 +325,7 @@ export default function PieceScreen() {
       {piece.category === 'piece' ? (
         <PrepUsed pieceId={piece.id} lines={prepTime.lines} onChange={load} />
       ) : (
-        <UsedBy usedBy={usedBy} />
+        <UsedBy prep={piece} usedBy={usedBy} onChange={load} />
       )}
     </ScrollView>
   );
@@ -291,6 +367,20 @@ const styles = StyleSheet.create({
   },
   prepTimeColumn: {
     width: 76,
+  },
+  estimatedColumn: {
+    width: 90,
+  },
+  actualColumn: {
+    width: 70,
+  },
+  chevronColumn: {
+    width: 12,
+  },
+  prepLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   cardTitle: {
     fontSize: 18,
