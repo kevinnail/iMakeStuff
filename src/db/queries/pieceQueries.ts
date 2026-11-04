@@ -65,6 +65,13 @@ export interface FinishDetails {
   prepUses: NewPrepUse[];
 }
 
+export interface PieceChanges {
+  name: string;
+  category: PieceCategory;
+  notes: string | null;
+  photoFileName: string | null;
+}
+
 async function stopRunning(database: SQLiteDatabase, endedAt: string): Promise<number> {
   const endedBreaks = await database.runAsync(
     'UPDATE breaks SET ended_at = ? WHERE ended_at IS NULL',
@@ -139,6 +146,58 @@ export async function finishPiece(
     if (result.changes === 0) throw new Error('That piece is already finished.');
     for (const use of prepUses) await insertPrepUse(database, pieceId, use);
   });
+}
+
+export async function updatePiece(pieceId: number, changes: PieceChanges): Promise<void> {
+  const database = await getDb();
+  await database.withTransactionAsync(async () => {
+    const current = await database.getFirstAsync<{
+      used_up_at: string | null;
+      uses_prep: number;
+      used_by_pieces: number;
+    }>(
+      `SELECT used_up_at,
+         EXISTS (SELECT 1 FROM prep_uses WHERE piece_id = pieces.id) AS uses_prep,
+         EXISTS (SELECT 1 FROM prep_uses WHERE prep_id = pieces.id) AS used_by_pieces
+       FROM pieces WHERE id = ?`,
+      pieceId,
+    );
+    if (!current) throw new Error('That piece no longer exists.');
+    if (changes.category === 'prep' && current.uses_prep) {
+      throw new Error("A piece that uses prep can't become prep.");
+    }
+    if (changes.category === 'piece' && (current.used_by_pieces || current.used_up_at)) {
+      throw new Error("Prep that pieces used, or that's used up, can't become a piece.");
+    }
+    await database.runAsync(
+      'UPDATE pieces SET name = ?, category = ?, notes = ?, photo_file_name = ? WHERE id = ?',
+      changes.name,
+      changes.category,
+      changes.notes,
+      changes.photoFileName,
+      pieceId,
+    );
+  });
+}
+
+export async function deletePiece(pieceId: number): Promise<string | null> {
+  const database = await getDb();
+  let photoFileName: string | null = null;
+  await database.withTransactionAsync(async () => {
+    await database.runAsync(
+      'DELETE FROM prep_uses WHERE piece_id = ? OR prep_id = ?',
+      pieceId,
+      pieceId,
+    );
+    await database.runAsync('DELETE FROM work_segments WHERE piece_id = ?', pieceId);
+    const deleted = await database.getFirstAsync<{ photo_file_name: string | null }>(
+      'DELETE FROM pieces WHERE id = ? RETURNING photo_file_name',
+      pieceId,
+    );
+    if (!deleted) throw new Error('That piece no longer exists.');
+    photoFileName = deleted.photo_file_name;
+  });
+  return photoFileName;
 }
 
 // For a crack found after Done, or a wrong tap. Only a finished piece can be lost.
