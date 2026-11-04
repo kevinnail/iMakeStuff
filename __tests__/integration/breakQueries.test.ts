@@ -104,6 +104,7 @@ describe('endBreak', () => {
       endedAt: new Date().toISOString(),
       notes: 'Cobalt glaze',
       photoFileName: null,
+      lost: false,
       prepUses: [],
     });
 
