@@ -13,9 +13,12 @@ export const SCHEMA_SQL = `
     created_at      TEXT NOT NULL DEFAULT (${SQL_NOW}),
     finished_at     TEXT,
     used_up_at      TEXT,
+    -- Broke or cracked partway: still finished, with its time, but not output.
+    lost            INTEGER NOT NULL DEFAULT 0 CHECK (lost IN (0, 1)),
     -- A finished piece must be identifiable later: it needs a photo or a description.
     CHECK (finished_at IS NULL OR photo_file_name IS NOT NULL OR trim(coalesce(notes, '')) <> ''),
-    CHECK (used_up_at IS NULL OR category = 'prep')
+    CHECK (used_up_at IS NULL OR category = 'prep'),
+    CHECK (lost = 0 OR finished_at IS NOT NULL)
   );
 
   CREATE TABLE IF NOT EXISTS breaks (
