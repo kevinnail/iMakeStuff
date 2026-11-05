@@ -4,7 +4,6 @@ import {
   KeyboardAvoidingView,
   Modal,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -12,11 +11,13 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { Dropdown } from '@/components/Dropdown';
 import type { AvailablePrep } from '@/db/queries/prepQueries';
 import { colors } from '@/theme';
+import { parseAmount } from '@/utils/prepTime';
 
 export interface PrepUseChoice {
-  prep: { id: number; name: string };
+  prep: { id: number; name: string; otherPiecesPercent: number; usedUp: boolean };
   estimatedPercent: number;
 }
 
@@ -30,23 +31,41 @@ interface PrepUsePanelProps {
   onRemove?: () => void;
 }
 
-// A whole number from 1 to 100, or null for anything else.
-function parsePercent(text: string) {
-  const percent = Number(text);
-  return Number.isInteger(percent) && percent >= 1 && percent <= 100 ? percent : null;
-}
-
 export function PrepUsePanel({ prepList, initial, onCancel, onSave, onRemove }: PrepUsePanelProps) {
   const insets = useSafeAreaInsets();
   const [chosenPrep, setChosenPrep] = useState(initial?.prep ?? null);
-  const [percentText, setPercentText] = useState(initial ? String(initial.estimatedPercent) : '');
-  const canSave = chosenPrep !== null && percentText !== '';
+  const [amountText, setAmountText] = useState(initial ? String(initial.estimatedPercent) : '');
+  const typedPercent = parseAmount(amountText);
+  // A fraction shows the percent it saves as, so rounding down is never a surprise.
+  const unitText = !amountText.includes('/')
+    ? '%'
+    : typedPercent === null
+      ? ''
+      : `= ${typedPercent}%`;
+  const canSave = chosenPrep !== null && amountText !== '';
 
   function handleSave() {
-    const estimatedPercent = parsePercent(percentText);
     if (chosenPrep === null) return;
-    if (estimatedPercent === null) Alert.alert('Enter a percent from 1 to 100.');
-    else onSave({ prep: chosenPrep, estimatedPercent });
+    if (typedPercent === null) {
+      Alert.alert('Enter a percent from 1 to 100, or a fraction like 1/8.');
+      return;
+    }
+    const choice = { prep: chosenPrep, estimatedPercent: typedPercent };
+    const total = chosenPrep.otherPiecesPercent + typedPercent;
+    if (chosenPrep.usedUp || total < 100) {
+      onSave(choice);
+      return;
+    }
+    Alert.alert(
+      `Use up ${chosenPrep.name}?`,
+      total === 100
+        ? 'This brings it to 100%, so saving marks it used up.'
+        : `This brings it to ${total}%. Saving marks it used up and scales every piece's share to add up to 100%.`,
+      [
+        { text: 'Change amount', style: 'cancel' },
+        { text: 'Mark used up', onPress: () => onSave(choice) },
+      ],
+    );
   }
 
   return (
@@ -57,36 +76,39 @@ export function PrepUsePanel({ prepList, initial, onCancel, onSave, onRemove }: 
           {prepList && prepList.length === 0 && (
             <Text style={styles.secondaryText}>No finished prep to use.</Text>
           )}
-          {prepList && (
-            <ScrollView style={styles.prepList} contentContainerStyle={styles.prepListContent}>
-              {prepList.map((prep) => {
-                const chosen = chosenPrep?.id === prep.id;
-                return (
-                  <Pressable
-                    key={prep.id}
-                    style={[styles.prepRow, chosen && styles.prepRowChosen]}
-                    onPress={() => setChosenPrep(prep)}
-                  >
-                    <Text style={[styles.prepName, chosen && styles.chosenText]}>{prep.name}</Text>
-                    <Text style={[styles.percentLeft, chosen && styles.chosenText]}>
-                      {prep.percent_left}% left
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
+          {prepList && prepList.length > 0 && (
+            <Dropdown
+              options={prepList.map((prep) => ({
+                key: prep.id,
+                label: prep.name,
+                detail: `${Math.max(0, 100 - prep.used_percent)}% left`,
+                prep,
+              }))}
+              selectedKey={chosenPrep?.id ?? null}
+              placeholder="Choose prep"
+              onSelect={({ prep }) =>
+                setChosenPrep({
+                  id: prep.id,
+                  name: prep.name,
+                  otherPiecesPercent: prep.used_percent,
+                  usedUp: false,
+                })
+              }
+            />
           )}
           {chosenPrep && (
             <View style={styles.fieldRow}>
-              <Text style={styles.label}>Percent this piece took</Text>
+              <Text style={styles.label}>How much this piece took</Text>
               <TextInput
-                style={styles.percentInput}
-                value={percentText}
-                onChangeText={setPercentText}
-                keyboardType="number-pad"
+                style={styles.amountInput}
+                value={amountText}
+                onChangeText={setAmountText}
+                placeholder="1/8"
+                placeholderTextColor={colors.secondaryText}
+                keyboardType="numbers-and-punctuation"
                 autoFocus={!initial}
               />
-              <Text style={styles.label}>%</Text>
+              <Text style={[styles.label, styles.unitText]}>{unitText}</Text>
             </View>
           )}
           <View style={styles.buttonRow}>
@@ -134,38 +156,6 @@ const styles = StyleSheet.create({
     fontSize: 18,
     color: colors.secondaryText,
   },
-  prepList: {
-    flexGrow: 0,
-  },
-  prepListContent: {
-    gap: 8,
-  },
-  prepRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    backgroundColor: colors.background,
-  },
-  prepRowChosen: {
-    backgroundColor: colors.primary,
-  },
-  prepName: {
-    flexShrink: 1,
-    fontSize: 18,
-    color: colors.text,
-  },
-  percentLeft: {
-    fontSize: 18,
-    fontVariant: ['tabular-nums'],
-    color: colors.secondaryText,
-  },
-  chosenText: {
-    color: colors.textOnFill,
-  },
   fieldRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -175,9 +165,9 @@ const styles = StyleSheet.create({
     fontSize: 18,
     color: colors.text,
   },
-  percentInput: {
+  amountInput: {
     marginLeft: 'auto',
-    width: 72,
+    width: 88,
     fontSize: 18,
     padding: 8,
     textAlign: 'right',
@@ -186,6 +176,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.separator,
     borderRadius: 8,
+  },
+  // Wide enough for "= 100%", so the box doesn't shift as a fraction is typed.
+  unitText: {
+    width: 72,
   },
   buttonRow: {
     flexDirection: 'row',
