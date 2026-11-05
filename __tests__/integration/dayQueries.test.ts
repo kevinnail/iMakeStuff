@@ -1,6 +1,6 @@
 import { getDb } from '@/db/database';
 import { getWorkRecords } from '@/db/queries/dayQueries';
-import { getWorkDays } from '@/utils/workDays';
+import { getWholeDays } from '@/utils/workDays';
 import { createTestDb } from '../setup';
 
 jest.mock('@/db/database', () => ({
@@ -85,7 +85,7 @@ describe('getWorkRecords', () => {
     const { segments, breaks, finishedPieces } = await getWorkRecords('2026-10-31T00:00:00.000Z');
 
     expect(finishedPieces).toEqual([expect.objectContaining({ name: 'Blue vase', lost: 1 })]);
-    const [day] = getWorkDays(segments, [], breaks, Date.now());
+    const [day] = getWholeDays(segments, breaks, Date.now());
     expect(day.worked).toBe(60 * 60 * 1000);
   });
 
