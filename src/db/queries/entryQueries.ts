@@ -25,7 +25,9 @@ export interface PastWork {
   piece: { id: number } | { name: string; category: PieceCategory };
   startedAt: string;
   endedAt: string;
-  finish: { notes: string | null; photoFileName: string | null; lost: boolean } | null;
+
+  photoFileName: string | null;
+  finish: { notes: string | null; lost: boolean } | null;
 }
 
 const tableByKind = { segment: 'work_segments', break: 'breaks' } as const;
@@ -131,7 +133,13 @@ export async function addBreak(startedAt: string, endedAt: string): Promise<void
   });
 }
 
-export async function addPastWork({ piece, startedAt, endedAt, finish }: PastWork): Promise<void> {
+export async function addPastWork({
+  piece,
+  startedAt,
+  endedAt,
+  photoFileName,
+  finish,
+}: PastWork): Promise<void> {
   const database = await getDb();
   const now = new Date().toISOString();
   await database.withTransactionAsync(async () => {
@@ -142,9 +150,10 @@ export async function addPastWork({ piece, startedAt, endedAt, finish }: PastWor
         ? piece.id
         : (
             await database.runAsync(
-              'INSERT INTO pieces (name, category, created_at) VALUES (?, ?, ?)',
+              'INSERT INTO pieces (name, category, photo_file_name, created_at) VALUES (?, ?, ?, ?)',
               piece.name,
               piece.category,
+              photoFileName,
               startedAt,
             )
           ).lastInsertRowId;
@@ -156,14 +165,41 @@ export async function addPastWork({ piece, startedAt, endedAt, finish }: PastWor
     );
     if (!finish) return;
     const finished = await database.runAsync(
-      `UPDATE pieces SET finished_at = ?, notes = ?, photo_file_name = ?, lost = ?
+      `UPDATE pieces SET finished_at = ?, notes = ?,
+         photo_file_name = coalesce(?, photo_file_name), lost = ?
        WHERE id = ? AND finished_at IS NULL`,
       endedAt,
       finish.notes,
-      finish.photoFileName,
+      photoFileName,
       finish.lost ? 1 : 0,
       pieceId,
     );
     if (finished.changes === 0) throw new Error('That piece is already finished.');
+  });
+}
+
+export async function addPieceTime(
+  pieceId: number,
+  startedAt: string,
+  endedAt: string,
+): Promise<void> {
+  const database = await getDb();
+  const now = new Date().toISOString();
+  await database.withTransactionAsync(async () => {
+    const overlapping = await getOverlappingEntries(database, startedAt, endedAt, now);
+    if (overlapping.length > 0) throw new Error('That overlaps another entry.');
+    const added = await database.runAsync(
+      `INSERT INTO work_segments (piece_id, started_at, ended_at)
+       SELECT id, ?, ? FROM pieces WHERE id = ? AND (finished_at IS NULL OR finished_at >= ?)`,
+      startedAt,
+      endedAt,
+      pieceId,
+      endedAt,
+    );
+    if (added.changes > 0) return;
+    // The failure needs its reason: no piece, or time past its finish.
+    const piece = await database.getFirstAsync('SELECT 1 FROM pieces WHERE id = ?', pieceId);
+    if (!piece) throw new Error('That piece no longer exists.');
+    throw new Error('Time on a finished piece has to end by when it was finished.');
   });
 }
