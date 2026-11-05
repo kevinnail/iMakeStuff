@@ -3,7 +3,10 @@ import {
   addBreak,
   addPastWork,
   addPieceTime,
+  confirmRunningEntry,
   getDayEntries,
+  getRunningEntry,
+  stopRunningEntry,
   updateEntryTimes,
 } from '@/db/queries/entryQueries';
 import { createTestDb } from '../setup';
@@ -432,5 +435,152 @@ describe('addPieceTime', () => {
       'That piece no longer exists.',
     );
     expect(await database.getAllAsync(segmentsSql)).toEqual([]);
+  });
+});
+
+describe('getRunningEntry', () => {
+  // Otherwise the Still working question couldn't name the piece or tell a piece from a break.
+  it('returns the running segment with its piece name, then the running break', async () => {
+    await database.execAsync(`
+      INSERT INTO work_segments (id, piece_id, started_at) VALUES (1, 1, '2026-10-31T09:00:00.000Z');
+    `);
+
+    expect(await getRunningEntry()).toEqual({
+      kind: 'segment',
+      id: 1,
+      piece_name: 'Blue vase',
+      started_at: '2026-10-31T09:00:00.000Z',
+      confirmed_at: null,
+    });
+
+    await database.execAsync(`
+      UPDATE work_segments SET ended_at = '2026-10-31T10:00:00.000Z';
+      INSERT INTO breaks (id, started_at) VALUES (1, '2026-10-31T10:00:00.000Z');
+    `);
+
+    expect(await getRunningEntry()).toEqual({
+      kind: 'break',
+      id: 1,
+      piece_name: null,
+      started_at: '2026-10-31T10:00:00.000Z',
+      confirmed_at: null,
+    });
+  });
+});
+
+describe('confirmRunningEntry', () => {
+  // Otherwise Still working would stop the clock, or the question would come straight back.
+  it('saves confirmed_at and leaves the piece running', async () => {
+    await database.execAsync(`
+      INSERT INTO work_segments (id, piece_id, started_at) VALUES (1, 1, '2026-10-31T09:00:00.000Z');
+    `);
+    const tappedAfter = Date.now();
+
+    await confirmRunningEntry('segment', 1);
+
+    const [segment] = await database.getAllAsync<{ ended_at: string | null; confirmed_at: string }>(
+      'SELECT ended_at, confirmed_at FROM work_segments',
+    );
+    expect(segment.ended_at).toBeNull();
+    expect(Date.parse(segment.confirmed_at)).toBeGreaterThanOrEqual(tappedAfter);
+  });
+
+  // Otherwise an old question answered late would mark a clock that already stopped.
+  it('fails when the entry was already ended somewhere else', async () => {
+    await database.execAsync(`
+      INSERT INTO work_segments (id, piece_id, started_at, ended_at) VALUES
+        (1, 1, '2026-10-31T09:00:00.000Z', '2026-10-31T17:00:00.000Z');
+    `);
+
+    await expect(confirmRunningEntry('segment', 1)).rejects.toThrow("That's already stopped.");
+  });
+});
+
+describe('stopRunningEntry', () => {
+  // Otherwise I stopped at would keep the forgotten hours on the piece, or leave it running.
+  it('ends a never confirmed segment at its start, leaving nothing running', async () => {
+    await database.execAsync(`
+      INSERT INTO work_segments (id, piece_id, started_at) VALUES (1, 1, '2026-10-31T09:00:00.000Z');
+    `);
+
+    await stopRunningEntry('segment', 1, null);
+
+    expect(await database.getAllAsync<SegmentRow>(segmentsSql)).toEqual([
+      { piece_id: 1, started_at: '2026-10-31T09:00:00.000Z', ended_at: '2026-10-31T09:00:00.000Z' },
+    ]);
+    expect(await getRunningEntry()).toBeNull();
+  });
+
+  // Otherwise the time worked up to the last Still working tap would be thrown away.
+  it('ends a confirmed segment at confirmed_at', async () => {
+    await database.execAsync(`
+      INSERT INTO work_segments (id, piece_id, started_at, confirmed_at) VALUES
+        (1, 1, '2026-10-31T09:00:00.000Z', '2026-10-31T15:00:00.000Z');
+    `);
+
+    await stopRunningEntry('segment', 1, null);
+
+    expect(await database.getAllAsync<SegmentRow>(segmentsSql)).toEqual([
+      { piece_id: 1, started_at: '2026-10-31T09:00:00.000Z', ended_at: '2026-10-31T15:00:00.000Z' },
+    ]);
+  });
+
+  // Otherwise a break that never happened would stay on the day, or restart the piece it paused.
+  it('removes a never confirmed break and leaves the pieces it paused stopped', async () => {
+    await database.execAsync(`
+      INSERT INTO breaks (id, started_at) VALUES (1, '2026-10-31T10:00:00.000Z');
+      INSERT INTO work_segments (id, piece_id, started_at, ended_at, paused_by_break_id) VALUES
+        (1, 1, '2026-10-31T09:00:00.000Z', '2026-10-31T10:00:00.000Z', 1);
+    `);
+
+    await stopRunningEntry('break', 1, null);
+
+    expect(await database.getAllAsync(breaksSql)).toEqual([]);
+    expect(await database.getAllAsync<SegmentRow>(segmentsSql)).toEqual([
+      { piece_id: 1, started_at: '2026-10-31T09:00:00.000Z', ended_at: '2026-10-31T10:00:00.000Z' },
+    ]);
+    expect(await getRunningEntry()).toBeNull();
+  });
+
+  // Otherwise Pick a time would save some other end than the one picked.
+  it('ends the entry at the picked time', async () => {
+    await database.execAsync(`
+      INSERT INTO breaks (id, started_at) VALUES (1, '2026-10-31T10:00:00.000Z');
+    `);
+
+    await stopRunningEntry('break', 1, '2026-10-31T10:45:00.000Z');
+
+    expect(await database.getAllAsync(breaksSql)).toEqual([
+      { started_at: '2026-10-31T10:00:00.000Z', ended_at: '2026-10-31T10:45:00.000Z' },
+    ]);
+  });
+
+  // Otherwise a mistyped time would save a negative entry or one that ends in the future.
+  it('rejects a picked time before the start or after now', async () => {
+    await database.execAsync(`
+      INSERT INTO work_segments (id, piece_id, started_at) VALUES (1, 1, '2026-10-31T09:00:00.000Z');
+    `);
+    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
+    await expect(stopRunningEntry('segment', 1, '2026-10-31T08:00:00.000Z')).rejects.toThrow(
+      "The end can't be before it started.",
+    );
+    await expect(stopRunningEntry('segment', 1, tomorrow)).rejects.toThrow(
+      "The end can't be later than now.",
+    );
+    expect(await getRunningEntry()).toMatchObject({ kind: 'segment', id: 1 });
+  });
+
+  // Otherwise an old question answered late would move the end of a clock that already stopped.
+  it('fails when the entry was already ended somewhere else', async () => {
+    await database.execAsync(`
+      INSERT INTO breaks (id, started_at, ended_at) VALUES
+        (1, '2026-10-31T10:00:00.000Z', '2026-10-31T10:30:00.000Z');
+    `);
+
+    await expect(stopRunningEntry('break', 1, null)).rejects.toThrow("That's already stopped.");
+    expect(await database.getAllAsync(breaksSql)).toEqual([
+      { started_at: '2026-10-31T10:00:00.000Z', ended_at: '2026-10-31T10:30:00.000Z' },
+    ]);
   });
 });
