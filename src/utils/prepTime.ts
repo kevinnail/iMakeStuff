@@ -13,6 +13,17 @@ export interface PrepTimeShare extends PrepShare {
 
 const minute = 60 * 1000;
 
+// What a piece took of a prep, typed as a whole percent ("13") or a fraction ("1/8"), as a whole
+// percent from 1 to 100, or null for anything else. A fraction rounds down, so a prep split
+// evenly never reaches 100% before its last cut is used; Used up then fills in what's left.
+export function parseAmount(text: string) {
+  const fraction = /^(\d+)\s*\/\s*(\d+)$/.exec(text.trim());
+  const percent = fraction
+    ? Math.floor((Number(fraction[1]) * 100) / Number(fraction[2]))
+    : Number(text);
+  return Number.isInteger(percent) && percent >= 1 && percent <= 100 ? percent : null;
+}
+
 // Times show as whole minutes, rounded down.
 function wholeMinutes(milliseconds: number) {
   return Math.floor(milliseconds / minute) * minute;
