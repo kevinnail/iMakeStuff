@@ -1,16 +1,6 @@
-import * as ImagePicker from 'expo-image-picker';
 import { Stack } from 'expo-router';
 import { useState } from 'react';
-import {
-  ActionSheetIOS,
-  Alert,
-  Image,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-} from 'react-native';
+import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, TextInput } from 'react-native';
 
 import { getNotesPlaceholder } from '@/components/FinishPiecePanel';
 import { JoinedButtons } from '@/components/JoinedButtons';
@@ -22,7 +12,7 @@ import {
 } from '@/db/queries/pieceQueries';
 import { colors } from '@/theme';
 import { formatDuration } from '@/utils/formatTime';
-import { deletePhoto, getPhotoUri, saveToCameraRoll, withSavedPhoto } from '@/utils/photoStorage';
+import { deletePhoto, getPhotoUri, showPhotoChoices, withSavedPhoto } from '@/utils/photoStorage';
 
 // The saved photo, a new one to copy in, or none.
 type PhotoChoice = { kind: 'saved' } | { kind: 'new'; uri: string } | { kind: 'none' };
@@ -46,28 +36,11 @@ function showError(title: string) {
   return (error: Error) => Alert.alert(title, error.message);
 }
 
-function getDeleteMessage(worked: number, usedByCount: number) {
+export function getDeleteMessage(worked: number, usedByCount: number) {
   const workLine = `Its ${formatDuration(worked)} of work comes off the days it was worked.`;
   if (usedByCount === 0) return workLine;
   const pieces = usedByCount === 1 ? 'the piece' : `the ${usedByCount} pieces`;
   return `${workLine} It comes off ${pieces} that used it.`;
-}
-
-async function takePhoto() {
-  const { granted } = await ImagePicker.requestCameraPermissionsAsync();
-  const result = granted ? await ImagePicker.launchCameraAsync({ quality: 0.85 }) : null;
-  if (!result || result.canceled) return null;
-  const uri = result.assets[0].uri;
-  await saveToCameraRoll(uri).catch(showError('Could not save the photo to your camera roll'));
-  return uri;
-}
-
-async function choosePhoto() {
-  const result = await ImagePicker.launchImageLibraryAsync({
-    mediaTypes: ['images'],
-    quality: 0.85,
-  });
-  return result.canceled ? null : result.assets[0].uri;
 }
 
 // The piece's page as a form, the way iOS Contacts edits a contact: Cancel and Save in the
@@ -99,28 +72,11 @@ export function PieceEditForm({
   const canSave = !saving && trimmedName !== '' && identifiable;
 
   function changePhoto() {
-    const choices = [
-      { label: 'Take photo', pick: takePhoto },
-      { label: 'Choose from library', pick: choosePhoto },
-    ];
-    const options = choices.map(({ label }) => label);
-    if (shownPhotoUri) options.push('Remove photo');
-    options.push('Cancel');
-    ActionSheetIOS.showActionSheetWithOptions(
-      {
-        options,
-        cancelButtonIndex: options.length - 1,
-        destructiveButtonIndex: shownPhotoUri ? choices.length : undefined,
-      },
-      (index) => {
-        if (index < choices.length) {
-          choices[index]
-            .pick()
-            .then((uri) => uri && setPhoto({ kind: 'new', uri }))
-            .catch(showError('Could not get the photo'));
-        } else if (shownPhotoUri && index === choices.length) setPhoto({ kind: 'none' });
-      },
-    );
+    showPhotoChoices({
+      canRemove: shownPhotoUri !== null,
+      onPicked: (uri) => setPhoto({ kind: 'new', uri }),
+      onRemove: () => setPhoto({ kind: 'none' }),
+    });
   }
 
   async function save() {
