@@ -20,6 +20,9 @@ const filters: { value: PieceFilter; label: string; emptyText: string }[] = [
   { value: 'prep', label: 'Prep', emptyText: 'No prep yet.' },
 ];
 
+// All covers pieces only, so Prep sits apart from the joined buttons.
+const pieceFilters = filters.filter(({ value }) => value !== 'prep');
+
 export default function PiecesScreen() {
   const [pieces, setPieces] = useState<PieceListItem[]>([]);
   const [filter, setFilter] = useState<PieceFilter>('all');
@@ -51,7 +54,21 @@ export default function PiecesScreen() {
       contentContainerStyle={styles.list}
       ItemSeparatorComponent={() => <View style={styles.separator} />}
       ListHeaderComponent={
-        <JoinedButtons options={filters} selected={filter} onSelect={setFilter} />
+        <View style={styles.filterRow}>
+          <View style={styles.pieceFilters}>
+            <JoinedButtons options={pieceFilters} selected={filter} onSelect={setFilter} />
+          </View>
+          <Pressable
+            style={[styles.prepFilter, filter === 'prep' && styles.prepFilterSelected]}
+            onPress={() => setFilter('prep')}
+          >
+            <Text
+              style={[styles.prepFilterText, filter === 'prep' && styles.prepFilterTextSelected]}
+            >
+              Prep
+            </Text>
+          </Pressable>
+        </View>
       }
       ListEmptyComponent={<Text style={styles.detailText}>{emptyText}</Text>}
       renderItem={({ item: piece }) => (
@@ -100,6 +117,31 @@ const styles = StyleSheet.create({
   list: {
     padding: 16,
     gap: 12,
+  },
+  filterRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  pieceFilters: {
+    flex: 1,
+  },
+  // Sized to match a joined button: its 6 of padding plus the row's 2.
+  prepFilter: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    backgroundColor: colors.surface,
+  },
+  prepFilterSelected: {
+    backgroundColor: colors.prep,
+  },
+  prepFilterText: {
+    fontSize: 14,
+    lineHeight: 18,
+    color: colors.text,
+  },
+  prepFilterTextSelected: {
+    color: colors.textOnFill,
   },
   separator: {
     height: StyleSheet.hairlineWidth,
