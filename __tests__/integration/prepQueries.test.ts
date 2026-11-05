@@ -1,5 +1,11 @@
 import { getDb } from '@/db/database';
-import { finishPiece, getPieceDetail, getPieces, setPieceLost } from '@/db/queries/pieceQueries';
+import {
+  deletePiece,
+  finishPiece,
+  getPieceDetail,
+  getPieces,
+  setPieceLost,
+} from '@/db/queries/pieceQueries';
 import {
   addPrepUse,
   changePrepUse,
@@ -73,6 +79,12 @@ async function getUseId(pieceId: number, prepId: number) {
 async function getActualPercents(prepId: number) {
   const usedBy = (await getPieceDetail(prepId))?.usedBy ?? [];
   return usedBy.map((row) => getActualPercent(row));
+}
+
+// Used up as every screen sees it: Used up tapped on, or its estimates reaching 100%.
+async function isUsedUp(prepId: number) {
+  const usedBy = (await getPieceDetail(prepId))?.usedBy ?? [];
+  return usedBy.some((row) => row.prep_used_up === 1);
 }
 
 beforeEach(async () => {
@@ -169,7 +181,7 @@ describe('lost prep and lost pieces', () => {
       "Only finished prep that isn't used up or lost can be used.",
     );
     expect(await getAvailablePrep(vaseId)).toEqual([
-      { id: fritId, name: 'Frit mix', percent_left: 100 },
+      { id: fritId, name: 'Frit mix', used_percent: 0 },
     ]);
   });
 
@@ -229,8 +241,8 @@ describe('setPrepUsedUp', () => {
     expect(await getUsedUpAt(caneId)).toBeNull();
     expect(await getActualPercents(caneId)).toEqual([25]);
     expect(await getAvailablePrep(bowlId)).toEqual([
-      { id: fritId, name: 'Frit mix', percent_left: 100 },
-      { id: caneId, name: 'Dichroic cane', percent_left: 75 },
+      { id: fritId, name: 'Frit mix', used_percent: 0 },
+      { id: caneId, name: 'Dichroic cane', used_percent: 25 },
     ]);
   });
 
@@ -249,32 +261,140 @@ describe('setPrepUsedUp', () => {
 });
 
 describe('getAvailablePrep', () => {
-  // Otherwise Add prep would offer prep that can't be saved, or the percent left would be wrong.
-  it('lists finished prep newest first with what is left, leaving out prep the piece uses', async () => {
+  // Otherwise Add prep would offer prep that can't be saved, or show the wrong amount left.
+  it('lists finished prep newest first with what other pieces used, leaving out prep the piece uses', async () => {
     await addPrepUse(bowlId, use(caneId, 30));
     await addPrepUse(vaseId, use(fritId, 10));
 
     expect(await getAvailablePrep(vaseId)).toEqual([
-      { id: caneId, name: 'Dichroic cane', percent_left: 70 },
+      { id: caneId, name: 'Dichroic cane', used_percent: 30 },
     ]);
     expect(await getAvailablePrep(bowlId)).toEqual([
-      { id: fritId, name: 'Frit mix', percent_left: 90 },
+      { id: fritId, name: 'Frit mix', used_percent: 10 },
+    ]);
+  });
+});
+
+describe('estimates reaching 100%', () => {
+  const cupId = 6;
+
+  beforeEach(async () => {
+    await database.execAsync(
+      `INSERT INTO pieces (id, name, category) VALUES (${cupId}, 'Red cup', 'piece')`,
+    );
+  });
+
+  // Otherwise a cane split 25, 25, 50 would read 0% left but stay in Add prep, not used up.
+  it('makes the prep used up when a new use brings it to exactly 100%', async () => {
+    await addPrepUse(vaseId, use(caneId, 25));
+    await addPrepUse(bowlId, use(caneId, 25));
+    await addPrepUse(cupId, use(caneId, 50));
+
+    expect(await isUsedUp(caneId)).toBe(true);
+    expect(await getActualPercents(caneId)).toEqual([25, 25, 50]);
+    expect(await getAvailablePrep(cupId)).toEqual([
+      { id: fritId, name: 'Frit mix', used_percent: 0 },
     ]);
   });
 
-  // Otherwise estimates past 100% would block the next use or show a negative amount left.
-  it('allows estimates past 100% and shows 0% left', async () => {
-    await addPrepUse(vaseId, use(caneId, 70));
-    await addPrepUse(bowlId, use(caneId, 60));
+  // Otherwise a use confirmed past 100% would put more than the prep's time on its pieces.
+  it('makes the prep used up past 100% and scales the shares to 100%', async () => {
+    await addPrepUse(vaseId, use(caneId, 75));
+    await addPrepUse(bowlId, use(caneId, 50));
 
-    const otherPieceId = 6;
-    await database.execAsync(
-      `INSERT INTO pieces (id, name, category) VALUES (${otherPieceId}, 'Red cup', 'piece')`,
+    expect(await isUsedUp(caneId)).toBe(true);
+    expect(await getActualPercents(caneId)).toEqual([60, 40]);
+  });
+
+  // Otherwise a prep could be used up while part of it is still on the bench.
+  it('leaves the prep in use below 100%', async () => {
+    await addPrepUse(vaseId, use(caneId, 33));
+    await addPrepUse(bowlId, use(caneId, 33));
+    await addPrepUse(cupId, use(caneId, 33));
+
+    expect(await isUsedUp(caneId)).toBe(false);
+    expect(await getActualPercents(caneId)).toEqual([33, 33, 33]);
+  });
+
+  // Otherwise raising a piece's estimate on its page to finish the prep would leave it in use.
+  it('makes the prep used up when a changed use brings it to 100%', async () => {
+    await addPrepUse(vaseId, use(caneId, 50));
+    await addPrepUse(bowlId, use(caneId, 25));
+
+    await changePrepUse(await getUseId(bowlId, caneId), 50);
+
+    expect(await isUsedUp(caneId)).toBe(true);
+    expect(await getActualPercents(caneId)).toEqual([50, 50]);
+  });
+
+  // Otherwise finishing the piece that took the last of a prep, the usual way, would leave it in use.
+  it('makes the prep used up when finishing a piece brings it to 100%', async () => {
+    await addPrepUse(bowlId, use(caneId, 50));
+
+    await finishPiece(vaseId, { ...finish, prepUses: [use(caneId, 50), use(fritId, 10)] });
+
+    expect(await isUsedUp(caneId)).toBe(true);
+    expect(await isUsedUp(fritId)).toBe(false);
+  });
+
+  // Otherwise turning Used up off would look like it worked on a prep still at 100%.
+  it('refuses to turn Used up off while the uses add up to 100%', async () => {
+    await addPrepUse(vaseId, use(caneId, 50));
+    await addPrepUse(bowlId, use(caneId, 50));
+
+    await expect(setPrepUsedUp(caneId, false)).rejects.toThrow(
+      'Its uses add up to 100%. Lower one to put it back in use.',
     );
-    expect(await getAvailablePrep(otherPieceId)).toEqual([
-      { id: fritId, name: 'Frit mix', percent_left: 100 },
-      { id: caneId, name: 'Dichroic cane', percent_left: 0 },
+    expect(await isUsedUp(caneId)).toBe(true);
+  });
+
+  // Otherwise lowering a guess that reached 100% would leave the rest of the cane out of Add prep.
+  it('puts the prep back in use when a use is lowered below 100%', async () => {
+    await addPrepUse(vaseId, use(caneId, 50));
+    await addPrepUse(bowlId, use(caneId, 50));
+
+    await changePrepUse(await getUseId(bowlId, caneId), 25);
+
+    expect(await isUsedUp(caneId)).toBe(false);
+    expect(await getActualPercents(caneId)).toEqual([50, 25]);
+  });
+
+  // Otherwise the remaining piece would carry the whole cane's time after the other use was removed.
+  it('puts the prep back in use when a use is removed', async () => {
+    await addPrepUse(vaseId, use(caneId, 50));
+    await addPrepUse(bowlId, use(caneId, 50));
+
+    await removePrepUse(await getUseId(bowlId, caneId));
+
+    expect(await isUsedUp(caneId)).toBe(false);
+    expect(await getActualPercents(caneId)).toEqual([50]);
+    expect(await getAvailablePrep(cupId)).toEqual([
+      { id: fritId, name: 'Frit mix', used_percent: 0 },
+      { id: caneId, name: 'Dichroic cane', used_percent: 50 },
     ]);
+  });
+
+  // Otherwise deleting a piece that used half a cane would put all of it on the other piece.
+  it('puts the prep back in use when a piece that used it is deleted', async () => {
+    await addPrepUse(vaseId, use(caneId, 50));
+    await addPrepUse(bowlId, use(caneId, 50));
+
+    await deletePiece(bowlId);
+
+    expect(await isUsedUp(caneId)).toBe(false);
+    expect(await getActualPercents(caneId)).toEqual([50]);
+  });
+
+  // Otherwise removing a use would undo a Used up the maker tapped on for a cane that's gone.
+  it('keeps Used up tapped on when a use is removed', async () => {
+    await addPrepUse(vaseId, use(caneId, 25));
+    await addPrepUse(bowlId, use(caneId, 25));
+    await setPrepUsedUp(caneId, true);
+
+    await removePrepUse(await getUseId(bowlId, caneId));
+
+    expect(await getUsedUpAt(caneId)).toEqual(expect.any(String));
+    expect(await getActualPercents(caneId)).toEqual([100]);
   });
 });
 

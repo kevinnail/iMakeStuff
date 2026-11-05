@@ -13,12 +13,11 @@ export async function startBreak(): Promise<void> {
       'INSERT INTO breaks (started_at) VALUES (?)',
       startedAt,
     );
-    const paused = await database.runAsync(
+    await database.runAsync(
       'UPDATE work_segments SET ended_at = ?, paused_by_break_id = ? WHERE ended_at IS NULL',
       startedAt,
       startedBreak.lastInsertRowId,
     );
-    if (paused.changes === 0) throw new Error('Nothing is running.');
   });
 }
 

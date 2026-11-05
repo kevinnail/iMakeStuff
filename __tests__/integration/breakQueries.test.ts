@@ -48,11 +48,33 @@ describe('startBreak', () => {
     });
   });
 
-  // Otherwise a break with no work to pause would be recorded as break time.
-  it('rejects a break when nothing is running and records no break', async () => {
-    await expect(startBreak()).rejects.toThrow('Nothing is running.');
+  // Otherwise a break taken between pieces would go uncounted, neither work nor break.
+  it('records a break when nothing is running, and Back to work restarts nothing', async () => {
+    await startBreak();
 
-    expect(await database.getAllAsync(breaksSql)).toEqual([]);
+    expect(await getRunningBreak()).toEqual({
+      id: expect.any(Number),
+      started_at: expect.any(String),
+    });
+
+    await endBreak();
+
+    const [breakRow] = await database.getAllAsync<BreakRow>(breaksSql);
+    expect(breakRow.ended_at).toEqual(expect.any(String));
+    expect(await database.getAllAsync(segmentsSql)).toEqual([]);
+  });
+
+  // Otherwise starting the next piece during a between-pieces break would count break and work at once.
+  it('ends a between-pieces break when a piece starts', async () => {
+    await startBreak();
+
+    const pieceId = await startPiece('Blue vase', 'piece');
+
+    const [breakRow] = await database.getAllAsync<BreakRow>(breaksSql);
+    expect(await database.getAllAsync<SegmentRow>(segmentsSql)).toEqual([
+      { piece_id: pieceId, started_at: breakRow.ended_at, ended_at: null },
+    ]);
+    expect(await getRunningBreak()).toBeNull();
   });
 
   // Otherwise two overlapping breaks would count the same time twice.

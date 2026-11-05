@@ -8,6 +8,7 @@ import {
   getPieces,
   getUnfinishedPieces,
   setPieceLost,
+  setPiecePhoto,
   startPiece,
   switchToPiece,
   updatePiece,
@@ -55,6 +56,7 @@ describe('startPiece', () => {
         id: pieceId,
         name: 'Blue vase',
         category: 'piece',
+        photo_file_name: null,
         worked_milliseconds: 0,
         running_since: segments[0].started_at,
       },
@@ -178,6 +180,7 @@ describe('getUnfinishedPieces', () => {
         id: pieceId,
         name: 'Blue vase',
         category: 'piece',
+        photo_file_name: null,
         worked_milliseconds: 105 * 60 * 1000,
         running_since: null,
       },
@@ -197,6 +200,7 @@ describe('endDay', () => {
         id: pieceId,
         name: 'Blue vase',
         category: 'piece',
+        photo_file_name: null,
         worked_milliseconds: expect.any(Number),
         running_since: null,
       },
@@ -374,6 +378,43 @@ describe('finishPiece as lost', () => {
       finishPiece(pieceId, { endedAt, notes: null, photoFileName: null, lost: true, prepUses: [] }),
     ).rejects.toThrow(/CHECK constraint/);
     expect(await getUnfinishedPieces()).toEqual([expect.objectContaining({ id: pieceId })]);
+  });
+});
+
+describe('setPiecePhoto', () => {
+  // Otherwise a photo taken with the piece still on the pipe, before Done, would be lost.
+  it('saves a photo on a piece that is still unfinished', async () => {
+    const pieceId = await startPiece('Blue vase', 'piece');
+
+    await setPiecePhoto(pieceId, 'vase.jpg');
+
+    expect(await getUnfinishedPieces()).toEqual([
+      expect.objectContaining({ id: pieceId, photo_file_name: 'vase.jpg' }),
+    ]);
+  });
+
+  // Otherwise Done would finish the piece without the photo taken before it.
+  it('finishes a piece with the photo taken before Done', async () => {
+    const pieceId = await startPiece('Blue vase', 'piece');
+    await setPiecePhoto(pieceId, 'vase.jpg');
+
+    await finishPiece(pieceId, {
+      endedAt: new Date().toISOString(),
+      notes: null,
+      photoFileName: 'vase.jpg',
+      lost: false,
+      prepUses: [],
+    });
+
+    expect((await getPieceDetail(pieceId))?.piece).toMatchObject({
+      photo_file_name: 'vase.jpg',
+      finished_at: expect.any(String),
+    });
+  });
+
+  // Otherwise a photo could be reported as saved on a piece deleted from another screen.
+  it('fails for a piece that does not exist', async () => {
+    await expect(setPiecePhoto(999, 'vase.jpg')).rejects.toThrow('That piece no longer exists.');
   });
 });
 

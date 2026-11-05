@@ -1,5 +1,11 @@
 import { getDb } from '@/db/database';
-import { addBreak, addPastWork, getDayEntries, updateEntryTimes } from '@/db/queries/entryQueries';
+import {
+  addBreak,
+  addPastWork,
+  addPieceTime,
+  getDayEntries,
+  updateEntryTimes,
+} from '@/db/queries/entryQueries';
 import { createTestDb } from '../setup';
 
 jest.mock('@/db/database', () => ({
@@ -217,6 +223,7 @@ describe('addPastWork', () => {
       piece: { name: 'Red cup', category: 'piece' },
       startedAt,
       endedAt,
+      photoFileName: null,
       finish: null,
     });
 
@@ -243,6 +250,7 @@ describe('addPastWork', () => {
       piece: { name: 'Dichroic cane', category: 'prep' },
       startedAt,
       endedAt,
+      photoFileName: null,
       finish: null,
     });
 
@@ -253,7 +261,7 @@ describe('addPastWork', () => {
 
   // Otherwise a forgotten sitting on a piece already in the list would need a duplicate piece.
   it('adds the work to an existing piece', async () => {
-    await addPastWork({ piece: { id: 2 }, startedAt, endedAt, finish: null });
+    await addPastWork({ piece: { id: 2 }, startedAt, endedAt, photoFileName: null, finish: null });
 
     expect(await database.getAllAsync<SegmentRow>(segmentsSql)).toEqual([
       { piece_id: 2, started_at: startedAt, ended_at: endedAt },
@@ -266,7 +274,8 @@ describe('addPastWork', () => {
       piece: { name: 'Red cup', category: 'piece' },
       startedAt,
       endedAt,
-      finish: { notes: 'Copper red', photoFileName: null, lost: false },
+      photoFileName: null,
+      finish: { notes: 'Copper red', lost: false },
     });
 
     expect(
@@ -280,7 +289,8 @@ describe('addPastWork', () => {
       piece: { name: 'Red cup', category: 'piece' },
       startedAt,
       endedAt,
-      finish: { notes: 'Cracked in the kiln', photoFileName: null, lost: true },
+      photoFileName: null,
+      finish: { notes: 'Cracked in the kiln', lost: true },
     });
 
     expect(
@@ -295,7 +305,8 @@ describe('addPastWork', () => {
         piece: { name: 'Red cup', category: 'piece' },
         startedAt,
         endedAt,
-        finish: { notes: null, photoFileName: null, lost: false },
+        photoFileName: null,
+        finish: { notes: null, lost: false },
       }),
     ).rejects.toThrow(/CHECK constraint/);
 
@@ -310,6 +321,7 @@ describe('addPastWork', () => {
         piece: { name: 'Red cup', category: 'piece' },
         startedAt: endedAt,
         endedAt: startedAt,
+        photoFileName: null,
         finish: null,
       }),
     ).rejects.toThrow(/CHECK constraint/);
@@ -325,8 +337,100 @@ describe('addPastWork', () => {
     `);
 
     await expect(
-      addPastWork({ piece: { id: 2 }, startedAt, endedAt, finish: null }),
+      addPastWork({ piece: { id: 2 }, startedAt, endedAt, photoFileName: null, finish: null }),
     ).rejects.toThrow('That overlaps another entry.');
     expect(await database.getAllAsync(segmentsSql)).toHaveLength(1);
+  });
+
+  // Otherwise a photo added for a new piece that isn't finished yet would be thrown away.
+  it('keeps the photo on a new piece that is not finished', async () => {
+    await addPastWork({
+      piece: { name: 'Red cup', category: 'piece' },
+      startedAt,
+      endedAt,
+      photoFileName: 'cup.jpg',
+      finish: null,
+    });
+
+    expect(
+      await database.getAllAsync(
+        "SELECT photo_file_name, finished_at FROM pieces WHERE name = 'Red cup'",
+      ),
+    ).toEqual([{ photo_file_name: 'cup.jpg', finished_at: null }]);
+  });
+
+  // Otherwise finishing a piece here would wipe the photo taken on the Work screen before Done.
+  it('keeps the photo an existing piece has when finishing it without one', async () => {
+    await database.execAsync("UPDATE pieces SET photo_file_name = 'vase.jpg' WHERE id = 1");
+
+    await addPastWork({
+      piece: { id: 1 },
+      startedAt,
+      endedAt,
+      photoFileName: null,
+      finish: { notes: null, lost: false },
+    });
+
+    expect(
+      await database.getAllAsync('SELECT photo_file_name, finished_at FROM pieces WHERE id = 1'),
+    ).toEqual([{ photo_file_name: 'vase.jpg', finished_at: endedAt }]);
+  });
+});
+
+describe('addPieceTime', () => {
+  const startedAt = '2026-10-30T16:00:00.000Z';
+  const endedAt = '2026-10-30T19:00:00.000Z';
+
+  // Otherwise time worked with the timer forgotten could never be put on the piece.
+  it('adds a stretch of work to the piece', async () => {
+    await addPieceTime(1, startedAt, endedAt);
+
+    expect(await database.getAllAsync<SegmentRow>(segmentsSql)).toEqual([
+      { piece_id: 1, started_at: startedAt, ended_at: endedAt },
+    ]);
+  });
+
+  // Otherwise forgotten time from before a piece was finished couldn't be added to it.
+  it('adds time to a finished piece that ends by when it was finished', async () => {
+    await database.execAsync(
+      `UPDATE pieces SET finished_at = '${endedAt}', notes = 'Cobalt' WHERE id = 1`,
+    );
+
+    await addPieceTime(1, startedAt, endedAt);
+
+    expect(await database.getAllAsync(segmentsSql)).toHaveLength(1);
+  });
+
+  // Otherwise a finished piece could collect work dated after it was done.
+  it('rejects time on a finished piece that runs past when it was finished', async () => {
+    await database.execAsync(
+      `UPDATE pieces SET finished_at = '2026-10-30T18:00:00.000Z', notes = 'Cobalt' WHERE id = 1`,
+    );
+
+    await expect(addPieceTime(1, startedAt, endedAt)).rejects.toThrow(
+      'Time on a finished piece has to end by when it was finished.',
+    );
+    expect(await database.getAllAsync(segmentsSql)).toEqual([]);
+  });
+
+  // Otherwise the same minutes could count on two pieces.
+  it('rejects time that overlaps another entry', async () => {
+    await database.execAsync(`
+      INSERT INTO work_segments (piece_id, started_at, ended_at)
+        VALUES (2, '2026-10-30T18:00:00.000Z', '2026-10-30T20:00:00.000Z');
+    `);
+
+    await expect(addPieceTime(1, startedAt, endedAt)).rejects.toThrow(
+      'That overlaps another entry.',
+    );
+    expect(await database.getAllAsync(segmentsSql)).toHaveLength(1);
+  });
+
+  // Otherwise a page left open on a deleted piece would blame its finish time.
+  it('fails for a piece that no longer exists', async () => {
+    await expect(addPieceTime(999, startedAt, endedAt)).rejects.toThrow(
+      'That piece no longer exists.',
+    );
+    expect(await database.getAllAsync(segmentsSql)).toEqual([]);
   });
 });

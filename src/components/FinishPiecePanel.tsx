@@ -20,7 +20,7 @@ import { colors } from '@/theme';
 
 interface FinishPiecePanelProps {
   pieceName: string;
-  cameraPhotoUri: string | null;
+  photoUri: string | null;
   // null when finishing prep, which doesn't use other prep.
   availablePrep: AvailablePrep[] | null;
   onCancel: () => void;
@@ -43,7 +43,7 @@ export function getNotesPlaceholder(lost: boolean, hasPhoto: boolean) {
 // piece can always be identified later.
 export function FinishPiecePanel({
   pieceName,
-  cameraPhotoUri,
+  photoUri,
   availablePrep,
   onCancel,
   onSave,
@@ -56,7 +56,7 @@ export function FinishPiecePanel({
   const [changingPrep, setChangingPrep] = useState<PrepUseChoice | null>(null);
   const [saving, setSaving] = useState(false);
   const trimmedNotes = notes.trim();
-  const canSave = !saving && (cameraPhotoUri !== null || trimmedNotes !== '');
+  const canSave = !saving && (photoUri !== null || trimmedNotes !== '');
   const unchosenPrep = (availablePrep ?? []).filter(
     (prep) => !chosenPrep.some((chosen) => chosen.prep.id === prep.id),
   );
@@ -96,15 +96,15 @@ export function FinishPiecePanel({
         <View style={[styles.panel, { paddingBottom: insets.bottom + 16 }]}>
           <JoinedButtons options={outcomeOptions} selected={outcome} onSelect={setOutcome} />
           <Text style={styles.pieceName}>{pieceName}</Text>
-          {cameraPhotoUri && <Image source={{ uri: cameraPhotoUri }} style={styles.photo} />}
+          {photoUri && <Image source={{ uri: photoUri }} style={styles.photo} />}
           <TextInput
             style={styles.notesInput}
             value={notes}
             onChangeText={setNotes}
-            placeholder={getNotesPlaceholder(outcome === 'lost', cameraPhotoUri !== null)}
+            placeholder={getNotesPlaceholder(outcome === 'lost', photoUri !== null)}
             placeholderTextColor={colors.secondaryText}
             multiline
-            autoFocus={!cameraPhotoUri}
+            autoFocus={!photoUri}
           />
           {availablePrep && availablePrep.length > 0 && (
             <View style={styles.prepSection}>

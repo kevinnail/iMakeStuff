@@ -1,5 +1,4 @@
 import { useFocusEffect } from 'expo-router';
-import * as ImagePicker from 'expo-image-picker';
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -17,6 +16,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { FinishPiecePanel } from '@/components/FinishPiecePanel';
+import { getDeleteMessage } from '@/components/PieceEditForm';
 import { JoinedButtons } from '@/components/JoinedButtons';
 import { Tag } from '@/components/Tag';
 import type { WorkRecords } from '@/db/queries/dayQueries';
@@ -24,9 +24,9 @@ import type { PieceCategory, UnfinishedPiece } from '@/db/queries/pieceQueries';
 import { getAvailablePrep, type AvailablePrep } from '@/db/queries/prepQueries';
 import { useWorkStore } from '@/store/workStore';
 import { formatDuration } from '@/utils/formatTime';
-import { saveToCameraRoll } from '@/utils/photoStorage';
+import { getPhotoUri, takePhoto } from '@/utils/photoStorage';
 import { colors } from '@/theme';
-import { getWorkDays, startOfDay } from '@/utils/workDays';
+import { getWholeDays, startOfDay } from '@/utils/workDays';
 
 interface Finishing {
   piece: UnfinishedPiece;
@@ -62,6 +62,24 @@ function showError(title: string) {
   return (error: Error) => Alert.alert(title, error.message);
 }
 
+function confirmDelete(piece: UnfinishedPiece, remove: (pieceId: number) => Promise<void>) {
+  const runningMilliseconds = piece.running_since
+    ? Date.now() - Date.parse(piece.running_since)
+    : 0;
+  Alert.alert(
+    `Delete ${piece.name}?`,
+    getDeleteMessage(piece.worked_milliseconds + runningMilliseconds, 0),
+    [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: () => remove(piece.id).catch(showError('Could not delete the piece')),
+      },
+    ],
+  );
+}
+
 // The current time, updated every second.
 function useNow() {
   const [now, setNow] = useState(() => Date.now());
@@ -91,7 +109,7 @@ function RunningTime({ startedAt, baseMilliseconds = 0, style }: RunningTimeProp
 function TodayTable({ today }: { today: WorkRecords }) {
   const now = useNow();
   const midnight = startOfDay(now);
-  const day = getWorkDays(today.segments, [], today.breaks, now).find(
+  const day = getWholeDays(today.segments, today.breaks, now).find(
     (workDay) => workDay.dayStart === midnight,
   );
   const columns = [
@@ -128,7 +146,9 @@ export default function WorkScreen() {
     load,
     start,
     switchTo,
+    addPhoto,
     finish,
+    remove,
     takeBreak,
     backToWork,
     endDay,
@@ -137,6 +157,7 @@ export default function WorkScreen() {
   const [category, setCategory] = useState<PieceCategory>('piece');
   const [finishing, setFinishing] = useState<Finishing | null>(null);
   const [openingPieceId, setOpeningPieceId] = useState<number | null>(null);
+  const [photographingPieceId, setPhotographingPieceId] = useState<number | null>(null);
   const trimmedName = name.trim();
   const placeholder = categoryOptions.find(({ value }) => value === category)?.placeholder;
   const working = pieces.some((piece) => piece.running_since !== null);
@@ -155,18 +176,20 @@ export default function WorkScreen() {
       .catch(showError('Could not start'));
   }
 
+  function photograph(piece: UnfinishedPiece) {
+    setPhotographingPieceId(piece.id);
+    takePhoto()
+      .then((uri) => (uri ? addPhoto(piece, uri) : undefined))
+      .catch(showError('Could not save the photo'))
+      .finally(() => setPhotographingPieceId(null));
+  }
+
   // The piece's clock keeps running through the camera and notes; Save sets the finish time.
+  // A photo taken before Done is the piece's photo, so the camera only opens without one.
   async function openFinish(piece: UnfinishedPiece) {
     setOpeningPieceId(piece.id);
     try {
-      const { granted } = await ImagePicker.requestCameraPermissionsAsync();
-      const result = granted ? await ImagePicker.launchCameraAsync({ quality: 0.85 }) : null;
-      const cameraPhotoUri = result && !result.canceled ? result.assets[0].uri : null;
-      if (cameraPhotoUri) {
-        await saveToCameraRoll(cameraPhotoUri).catch(
-          showError('Could not save the photo to your camera roll'),
-        );
-      }
+      const cameraPhotoUri = piece.photo_file_name ? null : await takePhoto();
       const availablePrep = piece.category === 'piece' ? await getAvailablePrep(piece.id) : null;
       setFinishing({ piece, cameraPhotoUri, availablePrep });
     } finally {
@@ -177,13 +200,17 @@ export default function WorkScreen() {
   const finishPanel = finishing && (
     <FinishPiecePanel
       pieceName={finishing.piece.name}
-      cameraPhotoUri={finishing.cameraPhotoUri}
+      photoUri={
+        finishing.cameraPhotoUri ??
+        (finishing.piece.photo_file_name ? getPhotoUri(finishing.piece.photo_file_name) : null)
+      }
       availablePrep={finishing.availablePrep}
       onCancel={() => setFinishing(null)}
       onSave={(notes, lost, prepUses) =>
         finish(finishing.piece.id, {
           notes,
           cameraPhotoUri: finishing.cameraPhotoUri,
+          savedPhotoFileName: finishing.piece.photo_file_name,
           lost,
           prepUses,
         }).then(() => setFinishing(null))
@@ -223,44 +250,58 @@ export default function WorkScreen() {
               piece.running_since !== null &&
                 (piece.category === 'prep' ? styles.prepRowCurrent : styles.pieceRowCurrent),
             ]}
-            onPress={() => switchTo(piece.id).catch(showError('Could not switch pieces'))}
-            disabled={piece.running_since !== null}
+            onPress={
+              piece.running_since === null
+                ? () => switchTo(piece.id).catch(showError('Could not switch pieces'))
+                : undefined
+            }
+            onLongPress={() => confirmDelete(piece, remove)}
           >
-            <View style={styles.pieceDetails}>
-              <View style={styles.nameRow}>
-                <Text
-                  style={[styles.pieceName, piece.running_since !== null && styles.currentText]}
-                >
-                  {piece.name}
-                </Text>
-                {piece.category === 'prep' && (
-                  <Tag label="Prep" onFill={piece.running_since !== null} />
-                )}
-              </View>
-              {piece.running_since ? (
-                <RunningTime
-                  startedAt={piece.running_since}
-                  baseMilliseconds={piece.worked_milliseconds}
-                  style={styles.currentText}
-                />
-              ) : (
-                <Text style={styles.time}>{formatElapsed(piece.worked_milliseconds)}</Text>
+            <View style={styles.nameRow}>
+              <Text style={[styles.pieceName, piece.running_since !== null && styles.currentText]}>
+                {piece.name}
+              </Text>
+              {piece.category === 'prep' && (
+                <Tag label="Prep" onFill={piece.running_since !== null} />
               )}
             </View>
-            <Pressable
-              style={({ pressed }) => [styles.doneButton, pressed && styles.buttonPressed]}
-              onPress={() => openFinish(piece).catch(showError('Could not open the camera'))}
-              disabled={openingPieceId !== null}
-            >
-              <Text
-                style={[styles.doneText, openingPieceId === piece.id && styles.buttonTextHidden]}
-              >
-                Done
-              </Text>
-              {openingPieceId === piece.id && (
-                <ActivityIndicator color={colors.text} style={StyleSheet.absoluteFill} />
+            <View style={styles.pieceBottomRow}>
+              <View style={styles.timeArea}>
+                {piece.running_since ? (
+                  <RunningTime
+                    startedAt={piece.running_since}
+                    baseMilliseconds={piece.worked_milliseconds}
+                    style={styles.currentText}
+                  />
+                ) : (
+                  <Text style={styles.time}>{formatElapsed(piece.worked_milliseconds)}</Text>
+                )}
+              </View>
+              {piece.running_since !== null && (
+                <Pressable
+                  style={({ pressed }) => [styles.photoButton, pressed && styles.buttonPressed]}
+                  onPress={() => photograph(piece)}
+                  disabled={photographingPieceId !== null}
+                >
+                  <Text style={styles.photoText}>{piece.photo_file_name ? 'Retake' : 'Photo'}</Text>
+                </Pressable>
               )}
-            </Pressable>
+              <Pressable
+                style={({ pressed }) => [styles.doneButton, pressed && styles.buttonPressed]}
+                onPress={() => openFinish(piece).catch(showError('Could not open the camera'))}
+                // Done waits for a photo still saving, or it would finish with the old one.
+                disabled={openingPieceId !== null || photographingPieceId !== null}
+              >
+                <Text
+                  style={[styles.doneText, openingPieceId === piece.id && styles.buttonTextHidden]}
+                >
+                  Done
+                </Text>
+                {openingPieceId === piece.id && (
+                  <ActivityIndicator color={colors.text} style={StyleSheet.absoluteFill} />
+                )}
+              </Pressable>
+            </View>
           </Pressable>
         ))}
       </ScrollView>
@@ -271,31 +312,32 @@ export default function WorkScreen() {
           <RunningTime startedAt={runningBreak.started_at} style={styles.breakTime} />
         </View>
       )}
-      {(working || runningBreak) && (
-        <View style={styles.controlRow}>
-          {runningBreak ? (
-            <Pressable
-              style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
-              onPress={() => backToWork().catch(showError('Could not end the break'))}
-            >
-              <Text style={styles.buttonText}>Back to work</Text>
-            </Pressable>
-          ) : (
-            <Pressable
-              style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
-              onPress={() => takeBreak().catch(showError('Could not start the break'))}
-            >
-              <Text style={styles.buttonText}>Break</Text>
-            </Pressable>
-          )}
+      {/* Break shows even with nothing running, so time between pieces can be counted. */}
+      <View style={styles.controlRow}>
+        {runningBreak ? (
+          <Pressable
+            style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
+            onPress={() => backToWork().catch(showError('Could not end the break'))}
+          >
+            <Text style={styles.buttonText}>Back to work</Text>
+          </Pressable>
+        ) : (
+          <Pressable
+            style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
+            onPress={() => takeBreak().catch(showError('Could not start the break'))}
+          >
+            <Text style={styles.buttonText}>Break</Text>
+          </Pressable>
+        )}
+        {(working || runningBreak) && (
           <Pressable
             style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
             onPress={() => endDay().catch(showError('Could not end the day'))}
           >
             <Text style={styles.buttonText}>End day</Text>
           </Pressable>
-        </View>
-      )}
+        )}
+      </View>
       <TodayTable today={today} />
       {finishPanel}
     </SafeAreaView>
@@ -352,6 +394,19 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     color: colors.text,
   },
+
+  photoButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: colors.textOnFill,
+    borderRadius: 8,
+  },
+  photoText: {
+    fontSize: 16,
+    lineHeight: 18,
+    color: colors.textOnFill,
+  },
   buttonTextHidden: {
     opacity: 0,
   },
@@ -361,11 +416,10 @@ const styles = StyleSheet.create({
   pieceListContent: {
     gap: 12,
   },
+  // The name across the full width on top, then the time with the buttons at the bottom right.
   pieceRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
     gap: 12,
-    paddingVertical: 28,
+    paddingVertical: 20,
     paddingHorizontal: 16,
     borderRadius: 12,
     backgroundColor: colors.surface,
@@ -376,9 +430,13 @@ const styles = StyleSheet.create({
   prepRowCurrent: {
     backgroundColor: colors.prep,
   },
-  pieceDetails: {
+  pieceBottomRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  timeArea: {
     flex: 1,
-    gap: 6,
   },
   nameRow: {
     flexDirection: 'row',
@@ -387,7 +445,8 @@ const styles = StyleSheet.create({
   },
   pieceName: {
     flexShrink: 1,
-    fontSize: 20,
+    fontSize: 24,
+    fontWeight: '700',
     color: colors.text,
   },
   currentText: {
@@ -411,7 +470,8 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   time: {
-    fontSize: 18,
+    fontSize: 22,
+    fontWeight: '600',
     fontVariant: ['tabular-nums'],
     color: colors.text,
   },

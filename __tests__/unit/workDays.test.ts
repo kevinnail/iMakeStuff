@@ -1,4 +1,4 @@
-import { getWorkDays, type TimeRange } from '@/utils/workDays';
+import { getWholeDays, getWorkDays, type TimeRange } from '@/utils/workDays';
 
 // Times are built in local time, so day boundaries line up in any time zone.
 function at(day: number, hours: number, minutes = 0) {
@@ -93,11 +93,24 @@ describe('getWorkDays', () => {
     ]);
   });
 
+  // Otherwise a break taken after the piece was set down for the day would count against it.
+  it("does not count a break after the piece's last stop of the day", () => {
+    const [day] = getWorkDays(
+      [range(at(28, 9), at(28, 17))],
+      [],
+      [range(at(28, 17), at(28, 19))],
+      at(31, 12),
+    );
+
+    expect(day).toMatchObject({ lastStop: at(28, 17), onBreak: 0 });
+  });
+});
+
+describe('getWholeDays', () => {
   // Otherwise Days would show one piece's time instead of the whole day's work.
   it('combines every piece worked that day into one day', () => {
-    const [day] = getWorkDays(
+    const [day] = getWholeDays(
       [range(at(28, 9), at(28, 11)), range(at(28, 11), at(28, 12)), range(at(28, 13), at(28, 15))],
-      [],
       [range(at(28, 12), at(28, 13))],
       at(31, 12),
     );
@@ -112,15 +125,69 @@ describe('getWorkDays', () => {
     });
   });
 
-  // Otherwise a break left running when End day was tapped would count as break time.
-  it('does not count a break after the last stop of the day', () => {
-    const [day] = getWorkDays(
+  // Otherwise time in the shop on break before starting the first piece would go uncounted.
+  it('starts the day at a break taken before the first piece', () => {
+    const [day] = getWholeDays(
+      [range(at(28, 10), at(28, 12))],
+      [range(at(28, 9), at(28, 10))],
+      at(31, 12),
+    );
+
+    expect(day).toEqual({
+      dayStart: at(28, 0),
+      firstStart: at(28, 9),
+      lastStop: at(28, 12),
+      worked: 2 * hour,
+      otherPieces: 0,
+      onBreak: hour,
+    });
+  });
+
+  // Otherwise Today's Break would sit still during a break between pieces until the next one started.
+  it('counts a break running after the last piece up to now', () => {
+    const [day] = getWholeDays(
+      [range(at(31, 9), at(31, 10))],
+      [range(at(31, 10), null)],
+      at(31, 10, 45),
+    );
+
+    expect(day).toMatchObject({ lastStop: at(31, 10, 45), worked: hour, onBreak: 45 * minute });
+  });
+
+  // Otherwise a Break tapped after the last piece and ended by End day would add hours of break to the day.
+  it('does not count a break ended with no work after it', () => {
+    const [day] = getWholeDays(
       [range(at(28, 9), at(28, 17))],
-      [],
       [range(at(28, 17), at(28, 19))],
       at(31, 12),
     );
 
     expect(day).toMatchObject({ lastStop: at(28, 17), onBreak: 0 });
+  });
+
+  // Otherwise a break left running overnight would add a day of nothing but break before today.
+  it('counts a forgotten running break only on today', () => {
+    const days = getWholeDays([range(at(30, 9), at(30, 17))], [range(at(30, 17), null)], at(31, 8));
+
+    expect(days).toEqual([
+      expect.objectContaining({ dayStart: at(30, 0), lastStop: at(30, 17), onBreak: 0 }),
+      expect.objectContaining({ dayStart: at(31, 0), worked: 0, onBreak: 8 * hour }),
+    ]);
+  });
+
+  // Otherwise a day spent on break before any piece started wouldn't show up at all.
+  it('gives a day with only a break no worked time', () => {
+    const days = getWholeDays([], [range(at(31, 9), null)], at(31, 9, 30));
+
+    expect(days).toEqual([
+      {
+        dayStart: at(31, 0),
+        firstStart: at(31, 9),
+        lastStop: at(31, 9, 30),
+        worked: 0,
+        otherPieces: 0,
+        onBreak: 30 * minute,
+      },
+    ]);
   });
 });

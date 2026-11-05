@@ -1,4 +1,4 @@
-import { getActualPercent, getPrepTime, type PrepShare } from '@/utils/prepTime';
+import { getActualPercent, getPrepTime, parseAmount, type PrepShare } from '@/utils/prepTime';
 
 const hour = 60 * 60 * 1000;
 const minute = 60 * 1000;
@@ -95,4 +95,42 @@ describe('getPrepTime', () => {
   it('gives no prep time for a piece with no prep', () => {
     expect(getPrepTime(hour, [])).toEqual({ lines: [], prep: 0, total: hour, estimated: false });
   });
+});
+
+describe('parseAmount', () => {
+  // Otherwise a cane split into eighths or thirds couldn't be entered the way it was cut.
+  it.each([
+    ['1/2', 50],
+    ['1/4', 25],
+    ['1/8', 12],
+    ['1/3', 33],
+    ['2/3', 66],
+    ['7/100', 7],
+    [' 3 / 8 ', 37],
+  ])('turns the fraction %s into %i%%', (text, percent) => {
+    expect(parseAmount(text)).toBe(percent);
+  });
+
+  // Otherwise a cane cut into 16ths would reach 100% at the 15th piece and lock out the 16th.
+  it('keeps every cut but the last of a prep split evenly under 100%', () => {
+    for (let pieces = 2; pieces <= 100; pieces++) {
+      expect((pieces - 1) * (parseAmount(`1/${pieces}`) ?? 0)).toBeLessThan(100);
+    }
+  });
+
+  // Otherwise typing a plain percent would stop working.
+  it.each([
+    ['13', 13],
+    ['100', 100],
+  ])('keeps the whole percent %s', (text, percent) => {
+    expect(parseAmount(text)).toBe(percent);
+  });
+
+  // Otherwise a mistyped amount would save no share, more than the whole prep, or a fraction of a percent.
+  it.each(['', '0', '101', '12.5', '3/2', '1/0', '0/4', '1/200', 'abc', '1/'])(
+    'rejects %p',
+    (text) => {
+      expect(parseAmount(text)).toBeNull();
+    },
+  );
 });

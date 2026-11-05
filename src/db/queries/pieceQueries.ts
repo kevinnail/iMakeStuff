@@ -18,6 +18,8 @@ export interface UnfinishedPiece {
   id: number;
   name: string;
   category: PieceCategory;
+  // A photo taken before Done, which Done then uses instead of opening the camera.
+  photo_file_name: string | null;
   worked_milliseconds: number;
   running_since: string | null;
 }
@@ -200,6 +202,18 @@ export async function deletePiece(pieceId: number): Promise<string | null> {
   return photoFileName;
 }
 
+// A photo taken while the piece is still in hand, before Done. The caller removes the old
+// photo's file.
+export async function setPiecePhoto(pieceId: number, photoFileName: string | null): Promise<void> {
+  const database = await getDb();
+  const result = await database.runAsync(
+    'UPDATE pieces SET photo_file_name = ? WHERE id = ?',
+    photoFileName,
+    pieceId,
+  );
+  if (result.changes === 0) throw new Error('That piece no longer exists.');
+}
+
 // For a crack found after Done, or a wrong tap. Only a finished piece can be lost.
 export async function setPieceLost(pieceId: number, lost: boolean): Promise<void> {
   const database = await getDb();
@@ -215,7 +229,7 @@ export async function setPieceLost(pieceId: number, lost: boolean): Promise<void
 export async function getUnfinishedPieces(): Promise<UnfinishedPiece[]> {
   const database = await getDb();
   return database.getAllAsync<UnfinishedPiece>(
-    `SELECT pieces.id, pieces.name, pieces.category,
+    `SELECT pieces.id, pieces.name, pieces.category, pieces.photo_file_name,
        round(total(julianday(work_segments.ended_at) - julianday(work_segments.started_at))
          * 86400000) AS worked_milliseconds,
        max(CASE WHEN work_segments.ended_at IS NULL THEN work_segments.started_at END)

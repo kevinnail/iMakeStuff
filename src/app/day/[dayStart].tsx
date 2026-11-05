@@ -12,7 +12,7 @@ import {
 } from '@/db/queries/entryQueries';
 import { colors } from '@/theme';
 import { formatClockTime, formatDay, formatDuration } from '@/utils/formatTime';
-import { startOfNextDay } from '@/utils/workDays';
+import { getWholeDays, startOfNextDay, type WorkDay } from '@/utils/workDays';
 
 interface PanelSettings {
   title: string;
@@ -48,6 +48,41 @@ function getTimelinePoints(entries: DayEntry[], now: number): TimelinePoint[] {
     };
     return [start, stop];
   });
+}
+
+function DaySummary({ day }: { day: WorkDay }) {
+  const inShop = day.lastStop - day.firstStart;
+  const rows = [
+    { label: 'Worked', milliseconds: day.worked, dot: null, color: colors.primary },
+    { label: 'Break', milliseconds: day.onBreak, dot: styles.breakDot, color: colors.accent },
+    {
+      label: 'Other',
+      milliseconds: inShop - day.worked - day.onBreak,
+      dot: styles.stopDot,
+      color: colors.secondaryText,
+    },
+  ];
+
+  return (
+    <View style={styles.summary}>
+      <Text style={styles.hours}>
+        {formatClockTime(day.firstStart)} to {formatClockTime(day.lastStop)}
+      </Text>
+      <View style={styles.summaryRow}>
+        <Text style={styles.summaryLabel}>In the shop</Text>
+        <Text style={styles.summaryValue}>{formatDuration(inShop)}</Text>
+      </View>
+      {rows.map(({ label, milliseconds, dot, color }) => (
+        <View key={label} style={styles.summaryRow}>
+          <View style={styles.summaryKey}>
+            <View style={[styles.dot, styles.summaryDot, dot]} />
+            <Text style={[styles.summaryLabel, { color }]}>{label}</Text>
+          </View>
+          <Text style={[styles.summaryValue, { color }]}>{formatDuration(milliseconds)}</Text>
+        </View>
+      ))}
+    </View>
+  );
 }
 
 export default function DayScreen() {
@@ -104,15 +139,19 @@ export default function DayScreen() {
   }
 
   const points = getTimelinePoints(entries, loadedAt);
+  const day = getWholeDays(
+    entries.filter((entry) => entry.kind === 'segment'),
+    entries.filter((entry) => entry.kind === 'break'),
+    loadedAt,
+  ).find((workDay) => workDay.dayStart === dayStart);
 
   return (
-    // The title bar is the first child, so stickyHeaderIndices keeps Add break in reach however
-    // long the day's timeline runs.
     <ScrollView
       contentInsetAdjustmentBehavior="automatic"
       contentContainerStyle={styles.page}
-      stickyHeaderIndices={[0]}
+      stickyHeaderIndices={[day ? 1 : 0]}
     >
+      {day && <DaySummary day={day} />}
       <View style={styles.pinnedBar}>
         <View style={styles.titleRow}>
           <Stack.Screen options={{ title: formatDay(dayStart) }} />
@@ -191,6 +230,41 @@ const styles = StyleSheet.create({
   page: {
     padding: 16,
   },
+  summary: {
+    marginBottom: 16,
+    padding: 16,
+    gap: 8,
+    borderRadius: 12,
+    backgroundColor: colors.surface,
+  },
+  hours: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  summaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+  },
+  summaryKey: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  // The timeline's dot sits a little low to line up with its text; here the row centers it.
+  summaryDot: {
+    marginTop: 0,
+  },
+  summaryLabel: {
+    fontSize: 16,
+    color: colors.text,
+  },
+  summaryValue: {
+    fontSize: 18,
+    fontVariant: ['tabular-nums'],
+    color: colors.text,
+  },
   // The pinned header moves this style onto its own wrapper, so the row's layout sits on the
   // View inside. The background keeps the timeline from showing through as it scrolls under.
   pinnedBar: {
@@ -219,7 +293,6 @@ const styles = StyleSheet.create({
     fontVariant: ['tabular-nums'],
     color: colors.text,
   },
-  // The line down the left that joins each entry to the next.
   rail: {
     width: 14,
     alignItems: 'center',

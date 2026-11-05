@@ -14,11 +14,11 @@ import {
 import { Chevron } from '@/components/Chevron';
 import { Tag } from '@/components/Tag';
 import { getWorkRecords, type FinishedPiece } from '@/db/queries/dayQueries';
-import { formatClockTime, formatDay, formatDuration } from '@/utils/formatTime';
+import { formatDay, formatDuration } from '@/utils/formatTime';
 import { getMonthWeeks } from '@/utils/monthGrid';
 import { colors } from '@/theme';
 import { getPhotoUri } from '@/utils/photoStorage';
-import { getWorkDays, startOfDay, type WorkDay } from '@/utils/workDays';
+import { getWholeDays, startOfDay, type WorkDay } from '@/utils/workDays';
 
 interface DaySummary {
   day: WorkDay;
@@ -129,7 +129,8 @@ export default function DaysScreen() {
         .then(({ segments, breaks, finishedPieces }) => {
           setToday(startOfDay(Date.now()));
           setDays(
-            getWorkDays(segments, [], breaks, Date.now())
+            getWholeDays(segments, breaks, Date.now())
+              .filter((day) => day.worked > 0)
               .reverse()
               .map((day) => ({
                 day,
@@ -165,7 +166,7 @@ export default function DaysScreen() {
               style={({ pressed }) => [styles.addButton, pressed && styles.buttonPressed]}
               onPress={() => router.push('/add-work')}
             >
-              <Text style={styles.addButtonText}>Add past work</Text>
+              <Text style={styles.addButtonText}>Add Work</Text>
             </Pressable>
           </View>
         </>
@@ -184,8 +185,9 @@ export default function DaysScreen() {
                 <Text style={styles.worked}>{formatDuration(day.worked)}</Text>
               </View>
               <View style={styles.dayHeader}>
+                {/* From the day's first action to its last, piece or break. */}
                 <Text style={styles.secondaryText}>
-                  {formatClockTime(day.firstStart)} to {formatClockTime(day.lastStop)}
+                  In the shop {formatDuration(day.lastStop - day.firstStart)}
                 </Text>
                 <Text style={styles.secondaryText}>Break {formatDuration(day.onBreak)}</Text>
               </View>

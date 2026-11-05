@@ -3,9 +3,11 @@ import { useCallback, useState } from 'react';
 import { Alert, Image, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 
 import { Chevron } from '@/components/Chevron';
+import { EntryTimesPanel } from '@/components/EntryTimesPanel';
 import { PieceEditForm } from '@/components/PieceEditForm';
 import { PrepUsePanel, type PrepUseChoice } from '@/components/PrepUsePanel';
 import { Tag } from '@/components/Tag';
+import { addPieceTime } from '@/db/queries/entryQueries';
 import { getPieceDetail, setPieceLost, type PieceRecord } from '@/db/queries/pieceQueries';
 import {
   addPrepUse,
@@ -26,6 +28,8 @@ import { colors } from '@/theme';
 interface PiecePage {
   piece: PieceRecord;
   days: WorkDay[];
+  // When the running piece or break started, or null with nothing running.
+  runningSince: string | null;
   usedPrep: UsedPrep[];
   usedBy: PieceUsingPrep[];
 }
@@ -65,6 +69,13 @@ function sumDays(days: WorkDay[], field: DayField) {
 
 function showError(title: string) {
   return (error: Error) => Alert.alert(title, error.message);
+}
+
+// Add time starts on the hour just past, the likeliest stretch to have gone unrecorded. With
+// something running, the hour ends where it started, so it doesn't overlap it.
+function getLastHour(runningSince: string | null) {
+  const endedAt = runningSince ? Date.parse(runningSince) : Date.now();
+  return { startedAt: endedAt - 60 * 60 * 1000, endedAt };
 }
 
 // The whole piece: its total time large (its own time plus its share of prep), when it was
@@ -171,7 +182,12 @@ function PrepUsed({ pieceId, lines, onChange }: PrepUsedProps) {
         <PrepUsePanel
           prepList={null}
           initial={{
-            prep: { id: changingLine.prep_id, name: changingLine.prep_name },
+            prep: {
+              id: changingLine.prep_id,
+              name: changingLine.prep_name,
+              otherPiecesPercent: changingLine.estimates_total - changingLine.estimated_percent,
+              usedUp: changingLine.prep_used_up === 1,
+            },
             estimatedPercent: changingLine.estimated_percent,
           }}
           onCancel={() => setChangingLine(null)}
@@ -202,10 +218,10 @@ function PrepUsed({ pieceId, lines, onChange }: PrepUsedProps) {
 
 // A prep's uses: each piece's estimate, and once the prep is used up, what it really took.
 function UsedBy({ prep, usedBy, onChange }: UsedByProps) {
-  const usedUp = prep.used_up_at !== null;
   const rows = usedBy.map((use) => ({ ...use, actual_percent: getActualPercent(use) }));
   const estimatedTotal = rows.reduce((total, row) => total + row.estimated_percent, 0);
   const actualTotal = rows.reduce((total, row) => total + row.actual_percent, 0);
+  const usedUp = prep.used_up_at !== null || estimatedTotal >= 100;
 
   function setUsedUp(value: boolean) {
     setPrepUsedUp(prep.id, value).then(onChange).catch(showError('Could not save the prep'));
@@ -280,6 +296,7 @@ export default function PieceScreen() {
   const [page, setPage] = useState<PiecePage | null>();
   const [photoAspectRatio, setPhotoAspectRatio] = useState(3 / 4);
   const [editing, setEditing] = useState(false);
+  const [addingTime, setAddingTime] = useState<{ startedAt: number; endedAt: number } | null>(null);
 
   const load = useCallback(
     () =>
@@ -288,6 +305,10 @@ export default function PieceScreen() {
           detail && {
             piece: detail.piece,
             days: getWorkDays(detail.segments, detail.otherSegments, detail.breaks, Date.now()),
+            runningSince:
+              [...detail.segments, ...detail.otherSegments, ...detail.breaks].find(
+                (entry) => entry.ended_at === null,
+              )?.started_at ?? null,
             usedPrep: detail.usedPrep,
             usedBy: detail.usedBy,
           },
@@ -306,8 +327,18 @@ export default function PieceScreen() {
   if (page === undefined) return null;
   if (page === null) return <Text style={styles.text}>No piece with this id.</Text>;
 
-  const { piece, days, usedPrep, usedBy } = page;
+  const { piece, days, runningSince, usedPrep, usedBy } = page;
   const prepTime = getPrepTime(sumDays(days, 'worked'), usedPrep);
+
+  async function saveAddedTime(startedAt: number, endedAt: number | null) {
+    await addPieceTime(
+      piece.id,
+      new Date(startedAt).toISOString(),
+      new Date(endedAt!).toISOString(),
+    );
+    setAddingTime(null);
+    await load();
+  }
 
   function toggleLost() {
     setPieceLost(piece.id, !piece.lost).then(load).catch(showError('Could not save the piece'));
@@ -364,6 +395,25 @@ export default function PieceScreen() {
       {piece.notes && <Text style={styles.text}>{piece.notes}</Text>}
       <Totals days={days} prepTime={prepTime} />
       {days.length > 1 && <DayTable days={days} />}
+      <Pressable
+        style={({ pressed }) => [
+          styles.addPrepButton,
+          styles.startAligned,
+          pressed && styles.buttonPressed,
+        ]}
+        onPress={() => setAddingTime(getLastHour(runningSince))}
+      >
+        <Text style={styles.buttonText}>Add time</Text>
+      </Pressable>
+      {addingTime && (
+        <EntryTimesPanel
+          title={`Add time to ${piece.name}`}
+          initialStartedAt={addingTime.startedAt}
+          initialEndedAt={addingTime.endedAt}
+          onCancel={() => setAddingTime(null)}
+          onSave={saveAddedTime}
+        />
+      )}
       {piece.category === 'piece' ? (
         <PrepUsed pieceId={piece.id} lines={prepTime.lines} onChange={load} />
       ) : (
