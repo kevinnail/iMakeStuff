@@ -8,6 +8,12 @@ import {
 } from '@/db/queries/breakQueries';
 import { getWorkRecords, type WorkRecords } from '@/db/queries/dayQueries';
 import {
+  confirmRunningEntry,
+  getRunningEntry,
+  stopRunningEntry,
+  type RunningEntry,
+} from '@/db/queries/entryQueries';
+import {
   deletePiece,
   endDay,
   finishPiece,
@@ -34,6 +40,8 @@ interface FinishInput {
 interface WorkState {
   pieces: UnfinishedPiece[];
   runningBreak: RunningBreak | null;
+  // The running piece's segment or the running break, for the Still working question.
+  runningEntry: RunningEntry | null;
   // Everything since midnight, for the line about today on the Work screen.
   today: WorkRecords;
   load: () => Promise<void>;
@@ -45,21 +53,25 @@ interface WorkState {
   takeBreak: () => Promise<void>;
   backToWork: () => Promise<void>;
   endDay: () => Promise<void>;
+  confirmRunning: (entry: RunningEntry) => Promise<void>;
+  stopRunning: (entry: RunningEntry, endedAt: string | null) => Promise<void>;
 }
 
 async function readWork() {
   const midnight = new Date(startOfDay(Date.now())).toISOString();
-  const [pieces, runningBreak, today] = await Promise.all([
+  const [pieces, runningBreak, runningEntry, today] = await Promise.all([
     getUnfinishedPieces(),
     getRunningBreak(),
+    getRunningEntry(),
     getWorkRecords(midnight),
   ]);
-  return { pieces, runningBreak, today };
+  return { pieces, runningBreak, runningEntry, today };
 }
 
 export const useWorkStore = create<WorkState>()((set) => ({
   pieces: [],
   runningBreak: null,
+  runningEntry: null,
   today: { segments: [], breaks: [], finishedPieces: [] },
   load: async () => {
     set(await readWork());
@@ -105,6 +117,14 @@ export const useWorkStore = create<WorkState>()((set) => ({
   },
   endDay: async () => {
     await endDay();
+    set(await readWork());
+  },
+  confirmRunning: async (entry) => {
+    await confirmRunningEntry(entry.kind, entry.id);
+    set(await readWork());
+  },
+  stopRunning: async (entry, endedAt) => {
+    await stopRunningEntry(entry.kind, entry.id, endedAt);
     set(await readWork());
   },
 }));

@@ -2,6 +2,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { getDb } from '@/db/database';
 import type { PieceCategory } from '@/db/queries/pieceQueries';
+import { getLastTouch } from '@/utils/stillWorking';
 
 export type EntryKind = 'segment' | 'break';
 
@@ -11,6 +12,16 @@ export interface DayEntry {
   piece_name: string | null;
   started_at: string;
   ended_at: string | null;
+}
+
+export interface RunningEntry {
+  kind: EntryKind;
+  id: number;
+  // null for a break.
+  piece_name: string | null;
+  started_at: string;
+  // When Still working was last tapped.
+  confirmed_at: string | null;
 }
 
 interface TimelineEntry {
@@ -201,5 +212,68 @@ export async function addPieceTime(
     const piece = await database.getFirstAsync('SELECT 1 FROM pieces WHERE id = ?', pieceId);
     if (!piece) throw new Error('That piece no longer exists.');
     throw new Error('Time on a finished piece has to end by when it was finished.');
+  });
+}
+
+const alreadyStoppedMessage = "That's already stopped.";
+
+// The piece or break that's running, for the Still working question. Only one runs at a time.
+export async function getRunningEntry(): Promise<RunningEntry | null> {
+  const database = await getDb();
+  return database.getFirstAsync<RunningEntry>(
+    `SELECT 'segment' AS kind, work_segments.id, pieces.name AS piece_name,
+       work_segments.started_at, work_segments.confirmed_at
+     FROM work_segments
+     JOIN pieces ON pieces.id = work_segments.piece_id
+     WHERE work_segments.ended_at IS NULL
+     UNION ALL
+     SELECT 'break' AS kind, id, NULL AS piece_name, started_at, confirmed_at FROM breaks
+     WHERE ended_at IS NULL`,
+  );
+}
+
+// Still working or Still on break: it keeps running, and the question waits from now.
+export async function confirmRunningEntry(kind: EntryKind, id: number): Promise<void> {
+  const database = await getDb();
+  const confirmed = await database.runAsync(
+    `UPDATE ${tableByKind[kind]} SET confirmed_at = ? WHERE id = ? AND ended_at IS NULL`,
+    new Date().toISOString(),
+    id,
+  );
+  if (confirmed.changes === 0) throw new Error(alreadyStoppedMessage);
+}
+
+export async function stopRunningEntry(
+  kind: EntryKind,
+  id: number,
+  endedAt: string | null,
+): Promise<void> {
+  if (endedAt && Date.parse(endedAt) > Date.now()) {
+    throw new Error("The end can't be later than now.");
+  }
+  const database = await getDb();
+  const table = tableByKind[kind];
+  await database.withTransactionAsync(async () => {
+    const entry = await database.getFirstAsync<{ started_at: string; confirmed_at: string | null }>(
+      `SELECT started_at, confirmed_at FROM ${table} WHERE id = ? AND ended_at IS NULL`,
+      id,
+    );
+    if (!entry) throw new Error(alreadyStoppedMessage);
+    const startedAt = Date.parse(entry.started_at);
+    const end = endedAt ? Date.parse(endedAt) : getLastTouch(entry);
+    if (end < startedAt) throw new Error("The end can't be before it started.");
+    if (kind === 'break' && end === startedAt) {
+      await database.runAsync(
+        'UPDATE work_segments SET paused_by_break_id = NULL WHERE paused_by_break_id = ?',
+        id,
+      );
+      await database.runAsync('DELETE FROM breaks WHERE id = ?', id);
+      return;
+    }
+    await database.runAsync(
+      `UPDATE ${table} SET ended_at = ? WHERE id = ?`,
+      new Date(end).toISOString(),
+      id,
+    );
   });
 }

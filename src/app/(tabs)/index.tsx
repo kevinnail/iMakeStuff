@@ -18,13 +18,16 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { FinishPiecePanel } from '@/components/FinishPiecePanel';
 import { getDeleteMessage } from '@/components/PieceEditForm';
 import { JoinedButtons } from '@/components/JoinedButtons';
+import { StopTimePanel } from '@/components/StopTimePanel';
 import { Tag } from '@/components/Tag';
 import type { WorkRecords } from '@/db/queries/dayQueries';
+import type { RunningEntry } from '@/db/queries/entryQueries';
 import type { PieceCategory, UnfinishedPiece } from '@/db/queries/pieceQueries';
 import { getAvailablePrep, type AvailablePrep } from '@/db/queries/prepQueries';
 import { useWorkStore } from '@/store/workStore';
-import { formatDuration } from '@/utils/formatTime';
+import { formatClockTime, formatDuration } from '@/utils/formatTime';
 import { getPhotoUri, takePhoto } from '@/utils/photoStorage';
+import { getLastTouch, isQuestionDue } from '@/utils/stillWorking';
 import { colors } from '@/theme';
 import { getWholeDays, startOfDay } from '@/utils/workDays';
 
@@ -138,10 +141,54 @@ function TodayTable({ today }: { today: WorkRecords }) {
   );
 }
 
+function StillWorkingQuestion({
+  entry,
+  onPickTime,
+}: {
+  entry: RunningEntry;
+  onPickTime: () => void;
+}) {
+  const now = useNow();
+  const { confirmRunning, stopRunning } = useWorkStore();
+  if (!isQuestionDue(entry, now)) return null;
+  const lastTouch = getLastTouch(entry);
+  const onBreak = entry.kind === 'break';
+  const question = onBreak
+    ? `On break for ${formatDuration(now - Date.parse(entry.started_at))}. Still on break?`
+    : `${entry.piece_name} has run ${formatDuration(now - lastTouch)} since your last tap. Still working?`;
+
+  return (
+    <View style={styles.question}>
+      <Text style={styles.questionText}>{question}</Text>
+      <View style={styles.answerRow}>
+        <Pressable
+          style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
+          onPress={() => confirmRunning(entry).catch(showError('Could not save'))}
+        >
+          <Text style={styles.buttonText}>{onBreak ? 'Still on break' : 'Still working'}</Text>
+        </Pressable>
+        <Pressable
+          style={({ pressed }) => [styles.answerButton, pressed && styles.buttonPressed]}
+          onPress={() => stopRunning(entry, null).catch(showError('Could not save'))}
+        >
+          <Text style={styles.answerText}>I stopped at {formatClockTime(lastTouch)}</Text>
+        </Pressable>
+        <Pressable
+          style={({ pressed }) => [styles.answerButton, pressed && styles.buttonPressed]}
+          onPress={onPickTime}
+        >
+          <Text style={styles.answerText}>Pick a time</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
 export default function WorkScreen() {
   const {
     pieces,
     runningBreak,
+    runningEntry,
     today,
     load,
     start,
@@ -152,12 +199,14 @@ export default function WorkScreen() {
     takeBreak,
     backToWork,
     endDay,
+    stopRunning,
   } = useWorkStore();
   const [name, setName] = useState('');
   const [category, setCategory] = useState<PieceCategory>('piece');
   const [finishing, setFinishing] = useState<Finishing | null>(null);
   const [openingPieceId, setOpeningPieceId] = useState<number | null>(null);
   const [photographingPieceId, setPhotographingPieceId] = useState<number | null>(null);
+  const [pickingStopFor, setPickingStopFor] = useState<RunningEntry | null>(null);
   const trimmedName = name.trim();
   const placeholder = categoryOptions.find(({ value }) => value === category)?.placeholder;
   const working = pieces.some((piece) => piece.running_since !== null);
@@ -240,6 +289,12 @@ export default function WorkScreen() {
           <Text style={styles.buttonText}>Start</Text>
         </Pressable>
       </View>
+      {runningEntry && (
+        <StillWorkingQuestion
+          entry={runningEntry}
+          onPickTime={() => setPickingStopFor(runningEntry)}
+        />
+      )}
 
       <ScrollView style={styles.pieceList} contentContainerStyle={styles.pieceListContent}>
         {pieces.map((piece) => (
@@ -340,6 +395,23 @@ export default function WorkScreen() {
       </View>
       <TodayTable today={today} />
       {finishPanel}
+      {pickingStopFor && (
+        <StopTimePanel
+          title={
+            pickingStopFor.kind === 'break'
+              ? 'When did the break end?'
+              : `When did you stop working on ${pickingStopFor.piece_name}?`
+          }
+          startedAt={Date.parse(pickingStopFor.started_at)}
+          initialEndedAt={getLastTouch(pickingStopFor)}
+          onCancel={() => setPickingStopFor(null)}
+          onSave={(endedAt) =>
+            stopRunning(pickingStopFor, new Date(endedAt).toISOString()).then(() =>
+              setPickingStopFor(null),
+            )
+          }
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -407,6 +479,35 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     color: colors.textOnFill,
   },
+  question: {
+    gap: 12,
+    padding: 16,
+    borderWidth: 2,
+    borderColor: colors.accent,
+    borderRadius: 12,
+    backgroundColor: colors.surface,
+  },
+  questionText: {
+    fontSize: 18,
+    color: colors.text,
+  },
+  answerRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  answerButton: {
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    borderRadius: 8,
+  },
+  answerText: {
+    fontSize: 18,
+    lineHeight: 20,
+    color: colors.text,
+  },
   buttonTextHidden: {
     opacity: 0,
   },
@@ -416,7 +517,6 @@ const styles = StyleSheet.create({
   pieceListContent: {
     gap: 12,
   },
-  // The name across the full width on top, then the time with the buttons at the bottom right.
   pieceRow: {
     gap: 12,
     paddingVertical: 20,

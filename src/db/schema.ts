@@ -25,6 +25,8 @@ export const SCHEMA_SQL = `
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     started_at TEXT NOT NULL,
     ended_at   TEXT,
+    -- When Still on break was last tapped, so the question waits another hour from then.
+    confirmed_at TEXT,
     CHECK (ended_at IS NULL OR ended_at >= started_at)
   );
 
@@ -39,6 +41,8 @@ export const SCHEMA_SQL = `
     ended_at           TEXT,
     -- Set when a break ended this segment, so Back to work knows which pieces to restart.
     paused_by_break_id INTEGER REFERENCES breaks(id),
+    -- When Still working was last tapped, so the question waits another 6 hours from then.
+    confirmed_at       TEXT,
     CHECK (ended_at IS NULL OR ended_at >= started_at)
   );
 

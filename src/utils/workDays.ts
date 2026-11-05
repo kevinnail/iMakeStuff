@@ -97,26 +97,12 @@ export function getWorkDays(
   return toWorkDays(spanSegments(segments, now), otherSegments, breaks, now);
 }
 
-// Whole days, oldest first. A break counts toward its day when work follows it that day (one
-// before the first piece or between pieces), or while it's still running today. A break ended
-// by End day with no work after it isn't break time, and a forgotten break doesn't make
-// earlier days out of the nights it ran through.
+// Whole days, oldest first, each from its first action to its last, piece or break. Break time
+// is from Break to Back to work or End day, so a break with no work after it still counts.
 export function getWholeDays(segments: TimeRange[], breaks: TimeRange[], now: number): WorkDay[] {
   const days = spanSegments(segments, now);
-  const lastWorkStarts = new Map<number, number>();
-  for (const segment of segments) {
-    for (const { dayStart, start } of splitAtMidnight(segment, now)) {
-      lastWorkStarts.set(dayStart, Math.max(start, lastWorkStarts.get(dayStart) ?? start));
-    }
-  }
-  const today = startOfDay(now);
   for (const onBreak of breaks) {
-    for (const part of splitAtMidnight(onBreak, now)) {
-      const lastWorkStart = lastWorkStarts.get(part.dayStart);
-      const workFollows = lastWorkStart !== undefined && part.stop <= lastWorkStart;
-      const runningToday = onBreak.ended_at === null && part.dayStart === today;
-      if (workFollows || runningToday) addToDay(days, part, 0);
-    }
+    for (const part of splitAtMidnight(onBreak, now)) addToDay(days, part, 0);
   }
   return toWorkDays(days, [], breaks, now);
 }
