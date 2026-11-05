@@ -8,21 +8,25 @@ import {
 } from '@/db/queries/breakQueries';
 import { getWorkRecords, type WorkRecords } from '@/db/queries/dayQueries';
 import {
+  deletePiece,
   endDay,
   finishPiece,
   getUnfinishedPieces,
+  setPiecePhoto,
   startPiece,
   switchToPiece,
   type PieceCategory,
   type UnfinishedPiece,
 } from '@/db/queries/pieceQueries';
 import type { NewPrepUse } from '@/db/queries/prepQueries';
-import { withSavedPhoto } from '@/utils/photoStorage';
+import { deletePhoto, withSavedPhoto } from '@/utils/photoStorage';
 import { startOfDay } from '@/utils/workDays';
 
 interface FinishInput {
   notes: string | null;
+  // A photo just taken at Done, or null to keep the photo taken before it (if any).
   cameraPhotoUri: string | null;
+  savedPhotoFileName: string | null;
   lost: boolean;
   prepUses: NewPrepUse[];
 }
@@ -35,7 +39,9 @@ interface WorkState {
   load: () => Promise<void>;
   start: (name: string, category: PieceCategory) => Promise<void>;
   switchTo: (pieceId: number) => Promise<void>;
+  addPhoto: (piece: UnfinishedPiece, cameraPhotoUri: string) => Promise<void>;
   finish: (pieceId: number, input: FinishInput) => Promise<void>;
+  remove: (pieceId: number) => Promise<void>;
   takeBreak: () => Promise<void>;
   backToWork: () => Promise<void>;
   endDay: () => Promise<void>;
@@ -66,11 +72,27 @@ export const useWorkStore = create<WorkState>()((set) => ({
     await switchToPiece(pieceId);
     set(await readWork());
   },
-  finish: async (pieceId, { notes, cameraPhotoUri, lost, prepUses }) => {
+  addPhoto: async (piece, cameraPhotoUri) => {
+    await withSavedPhoto(cameraPhotoUri, (photoFileName) => setPiecePhoto(piece.id, photoFileName));
+    if (piece.photo_file_name) deletePhoto(piece.photo_file_name);
+    set(await readWork());
+  },
+  finish: async (pieceId, { notes, cameraPhotoUri, savedPhotoFileName, lost, prepUses }) => {
     const endedAt = new Date().toISOString();
     await withSavedPhoto(cameraPhotoUri, (photoFileName) =>
-      finishPiece(pieceId, { endedAt, notes, photoFileName, lost, prepUses }),
+      finishPiece(pieceId, {
+        endedAt,
+        notes,
+        photoFileName: photoFileName ?? savedPhotoFileName,
+        lost,
+        prepUses,
+      }),
     );
+    set(await readWork());
+  },
+  remove: async (pieceId) => {
+    const photoFileName = await deletePiece(pieceId);
+    if (photoFileName) deletePhoto(photoFileName);
     set(await readWork());
   },
   takeBreak: async () => {
