@@ -154,24 +154,28 @@ describe('getWholeDays', () => {
     expect(day).toMatchObject({ lastStop: at(31, 10, 45), worked: hour, onBreak: 45 * minute });
   });
 
-  // Otherwise a Break tapped after the last piece and ended by End day would add hours of break to the day.
-  it('does not count a break ended with no work after it', () => {
+  // Otherwise a break ended by End day would vanish from the day, hiding time that wasn't work.
+  it('counts a break ended by End day with no work after it', () => {
     const [day] = getWholeDays(
       [range(at(28, 9), at(28, 17))],
       [range(at(28, 17), at(28, 19))],
       at(31, 12),
     );
 
-    expect(day).toMatchObject({ lastStop: at(28, 17), onBreak: 0 });
+    expect(day).toMatchObject({ lastStop: at(28, 19), worked: 8 * hour, onBreak: 2 * hour });
   });
 
-  // Otherwise a break left running overnight would add a day of nothing but break before today.
-  it('counts a forgotten running break only on today', () => {
-    const days = getWholeDays([range(at(30, 9), at(30, 17))], [range(at(30, 17), null)], at(31, 8));
+  // Otherwise a late break would put its after-midnight part on the day it started.
+  it('splits a break that crosses midnight between the two days', () => {
+    const days = getWholeDays(
+      [range(at(30, 20), at(30, 23)), range(at(31, 1), at(31, 3))],
+      [range(at(30, 23), at(31, 1))],
+      at(31, 12),
+    );
 
     expect(days).toEqual([
-      expect.objectContaining({ dayStart: at(30, 0), lastStop: at(30, 17), onBreak: 0 }),
-      expect.objectContaining({ dayStart: at(31, 0), worked: 0, onBreak: 8 * hour }),
+      expect.objectContaining({ dayStart: at(30, 0), lastStop: at(31, 0), onBreak: hour }),
+      expect.objectContaining({ dayStart: at(31, 0), firstStart: at(31, 0), onBreak: hour }),
     ]);
   });
 
