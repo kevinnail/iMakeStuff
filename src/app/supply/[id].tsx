@@ -38,7 +38,19 @@ export default function SupplyScreen() {
   if (supply === undefined) return null;
   if (supply === null) return <Text style={styles.text}>No supply with this id.</Text>;
 
-  const usedUp = supply.used_up_at !== null;
+  const usedUp = supply.used_up === 1;
+  // "1 prep and 9 pieces": the prep that used it and every piece whose cost it's in, including
+  // pieces that used that prep.
+  const costParts = [
+    { count: supply.prep_count, one: 'prep', many: 'preps' },
+    { count: supply.piece_count, one: 'piece', many: 'pieces' },
+  ]
+    .filter(({ count }) => count > 0)
+    .map(({ count, one, many }) => `${count} ${count === 1 ? one : many}`);
+  const deleteMessage =
+    costParts.length === 0
+      ? 'It comes off your supplies.'
+      : `Its cost comes off ${costParts.join(' and ')}.`;
 
   async function save(details: SupplyDetails) {
     await updateSupply(supplyId, details);
@@ -50,8 +62,8 @@ export default function SupplyScreen() {
     setSupplyUsedUp(supplyId, value).then(load).catch(showError('Could not save the supply'));
   }
 
-  function confirmDelete(name: string) {
-    Alert.alert(`Delete ${name}?`, 'It comes off your supplies.', [
+  function confirmDelete(name: string, message: string) {
+    Alert.alert(`Delete ${name}?`, message, [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Delete',
@@ -96,14 +108,14 @@ export default function SupplyScreen() {
         </View>
         <View style={styles.row}>
           <View style={styles.fill}>
-            <PrepLeftBar usedShare={0} usedUp={usedUp} />
+            <PrepLeftBar usedShare={supply.used_share} usedUp={usedUp} />
           </View>
         </View>
       </Card>
       <Card>
         <Pressable
           style={({ pressed }) => [styles.row, pressed && styles.buttonPressed]}
-          onPress={() => confirmDelete(supply.name)}
+          onPress={() => confirmDelete(supply.name, deleteMessage)}
         >
           <Text style={styles.deleteText}>Delete supply</Text>
         </Pressable>
