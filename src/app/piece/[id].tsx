@@ -7,8 +7,14 @@ import { Chevron } from '@/components/Chevron';
 import { EntryTimesPanel } from '@/components/EntryTimesPanel';
 import { PieceEditForm } from '@/components/PieceEditForm';
 import { PrepLeftBar } from '@/components/PrepLeftBar';
-import { PrepUsePanel, type PrepUseChoice } from '@/components/PrepUsePanel';
 import { Tag } from '@/components/Tag';
+import {
+  getSavedChoice,
+  UsePanel,
+  useLabels,
+  type AvailableItem,
+  type UseKind,
+} from '@/components/UsePanel';
 import { addPieceTime } from '@/db/queries/entryQueries';
 import {
   getPieceDetail,
@@ -22,10 +28,17 @@ import {
   getAvailablePrep,
   removePrepUse,
   setPrepUsedUp,
-  type AvailablePrep,
   type PieceUsingPrep,
   type UsedPrep,
 } from '@/db/queries/prepQueries';
+import {
+  addSupplyUse,
+  changeSupplyUse,
+  getAvailableSupplies,
+  removeSupplyUse,
+  type UsedSupply,
+} from '@/db/queries/supplyQueries';
+import { formatCost, getCost } from '@/utils/cost';
 import { formatClockTime, formatDay, formatDuration } from '@/utils/formatTime';
 import {
   formatPercent,
@@ -33,7 +46,9 @@ import {
   getActualShare,
   getPrepTime,
   getShareValue,
-  usesUpPrep,
+  isUsedUp,
+  type Share,
+  type UseShare,
 } from '@/utils/prepTime';
 import { getWorkDays, type WorkDay } from '@/utils/workDays';
 import { getPhotoUri } from '@/utils/photoStorage';
@@ -47,22 +62,38 @@ interface PiecePage {
   runningSince: string | null;
   usedPrep: UsedPrep[];
   usedBy: PieceUsingPrep[];
+  usedSupplies: UsedSupply[];
 }
 
 type PrepTime = ReturnType<typeof getPrepTime<UsedPrep>>;
 
-type PrepLine = PrepTime['lines'][number];
+type Cost = ReturnType<typeof getCost<UsedSupply, UsedPrep>>;
 
 interface TotalsProps {
   days: WorkDay[];
   prepTime: PrepTime;
+  cost: Cost;
   // Unfinished or Lost, beside the total.
   tag: string | null;
 }
 
-interface PrepUsedProps {
-  pieceId: number;
-  lines: PrepLine[];
+interface UseLine {
+  use: UseShare & { id: number };
+  item: { id: number; name: string };
+  values: string[];
+}
+
+interface UseQueries {
+  getAvailable: () => Promise<AvailableItem[]>;
+  add: (itemId: number, share: Share) => Promise<void>;
+  change: (useId: number, share: Share) => Promise<void>;
+  remove: (useId: number) => Promise<void>;
+}
+
+interface UsesSectionProps {
+  kind: UseKind;
+  lines: UseLine[];
+  uses: UseQueries;
   onChange: () => Promise<void>;
 }
 
@@ -93,7 +124,7 @@ function getLastHour(runningSince: string | null) {
 // The whole piece: its total time large (its own time plus its share of prep), when it was
 // worked, then a card of what the total is made of and where the rest of the time went. A piece
 // whose only entry ended at its own start (I stopped at, or a time fix) has no days, so no when.
-function Totals({ days, prepTime, tag }: TotalsProps) {
+function Totals({ days, prepTime, cost, tag }: TotalsProps) {
   const firstDay = days[0];
   const lastDay = days[days.length - 1];
   const when =
@@ -104,13 +135,21 @@ function Totals({ days, prepTime, tag }: TotalsProps) {
         : `${formatDay(firstDay.dayStart)} to ${formatDay(lastDay.dayStart)}, ${days.length} days`;
   const usedPrep = prepTime.lines.length > 0;
   const prepRows = [
-    { label: 'On the piece', milliseconds: sumDays(days, 'worked') },
-    { label: prepTime.estimated ? 'Prep, estimated' : 'Prep', milliseconds: prepTime.prep },
+    { label: 'On the piece', value: formatDuration(sumDays(days, 'worked')) },
+    {
+      label: prepTime.estimated ? 'Prep, estimated' : 'Prep',
+      value: formatDuration(prepTime.prep),
+    },
   ];
+  const costRow = {
+    label: cost.estimated ? 'Supplies, estimated' : 'Supplies',
+    value: formatCost(cost.cents),
+  };
   const rows = [
     ...(usedPrep ? prepRows : []),
-    { label: 'Break', milliseconds: sumDays(days, 'onBreak') },
-    { label: 'Other pieces', milliseconds: sumDays(days, 'otherPieces') },
+    { label: 'Break', value: formatDuration(sumDays(days, 'onBreak')) },
+    { label: 'Other pieces', value: formatDuration(sumDays(days, 'otherPieces')) },
+    ...(cost.hasSupplies ? [costRow] : []),
   ];
 
   return (
@@ -126,10 +165,10 @@ function Totals({ days, prepTime, tag }: TotalsProps) {
         {when && <Text style={styles.secondaryText}>{when}</Text>}
       </View>
       <Card>
-        {rows.map(({ label, milliseconds }) => (
+        {rows.map(({ label, value }) => (
           <View key={label} style={styles.row}>
             <Text style={[styles.text, styles.fill]}>{label}</Text>
-            <Text style={styles.value}>{formatDuration(milliseconds)}</Text>
+            <Text style={styles.value}>{value}</Text>
           </View>
         ))}
       </Card>
@@ -163,87 +202,80 @@ function DayTable({ days }: { days: WorkDay[] }) {
   );
 }
 
-// The heading, then the prep as one card: a row per prep with its share and time, tapped to
-// change or remove it, and Add prep as the last row, the same as Prep used on Add Work.
-function PrepUsed({ pieceId, lines, onChange }: PrepUsedProps) {
-  const [prepList, setPrepList] = useState<AvailablePrep[] | null>(null);
-  const [changingLine, setChangingLine] = useState<PrepLine | null>(null);
+// The heading, then the prep or supplies as one card: a row per use with its share and what it
+// adds to the piece (prep time and cost, or a supply's cost), tapped to change or remove it, and
+// Add prep or Add supply as the last row, the same as on Add Work.
+function UsesSection({ kind, lines, uses, onChange }: UsesSectionProps) {
+  const labels = useLabels[kind];
+  const [itemList, setItemList] = useState<AvailableItem[] | null>(null);
+  const [changingLine, setChangingLine] = useState<UseLine | null>(null);
 
   function save(change: Promise<void>) {
-    setPrepList(null);
+    setItemList(null);
     setChangingLine(null);
-    change.then(onChange).catch(showError('Could not save the prep'));
+    change.then(onChange).catch(showError('Could not save the change'));
   }
 
-  function openPrepList() {
-    getAvailablePrep(pieceId).then(setPrepList).catch(showError('Could not load your prep'));
-  }
-
-  function addPrep({ prep, share }: PrepUseChoice) {
-    save(addPrepUse(pieceId, { prepId: prep.id, share }));
+  function openItemList() {
+    uses.getAvailable().then(setItemList).catch(showError('Could not load the list'));
   }
 
   return (
     <View style={styles.section}>
-      <Text style={styles.heading}>Prep used</Text>
+      <Text style={styles.heading}>{labels.heading}</Text>
       <Card>
         {lines.length === 0 && (
           <View style={styles.row}>
-            <Text style={styles.secondaryText}>No prep added</Text>
+            <Text style={styles.secondaryText}>{labels.noneAdded}</Text>
           </View>
         )}
         {lines.map((line) => (
           <Pressable
-            key={line.id}
+            key={line.use.id}
             style={({ pressed }) => [styles.row, pressed && styles.buttonPressed]}
             onPress={() => setChangingLine(line)}
           >
             <View style={styles.fill}>
-              <Text style={styles.text}>{line.prep_name}</Text>
-              <Text style={styles.note}>{line.estimated ? 'Estimated' : 'Used up'}</Text>
+              <Text style={styles.text}>{line.item.name}</Text>
+              <Text style={styles.note}>{line.use.used_up ? 'Used up' : 'Estimated'}</Text>
             </View>
             <Text style={styles.value}>
-              {line.estimated ? formatShare(line) : formatPercent(line.share)}
+              {line.use.used_up ? formatPercent(getActualShare(line.use)) : formatShare(line.use)}
             </Text>
-            <Text style={[styles.value, styles.numberColumn, styles.prepTimeColumn]}>
-              {formatDuration(line.milliseconds)}
-            </Text>
+            <View style={styles.valuesColumn}>
+              {line.values.map((value) => (
+                <Text key={value} style={[styles.value, styles.numberColumn]}>
+                  {value}
+                </Text>
+              ))}
+            </View>
             <Chevron />
           </Pressable>
         ))}
         <Pressable
           style={({ pressed }) => [styles.row, pressed && styles.buttonPressed]}
-          onPress={openPrepList}
+          onPress={openItemList}
         >
-          <Text style={styles.addText}>Add prep</Text>
+          <Text style={styles.addText}>{labels.add}</Text>
         </Pressable>
       </Card>
-      {prepList && (
-        <PrepUsePanel
-          prepList={prepList}
+      {itemList && (
+        <UsePanel
+          kind={kind}
+          itemList={itemList}
           initial={null}
-          onCancel={() => setPrepList(null)}
-          onSave={addPrep}
+          onCancel={() => setItemList(null)}
+          onSave={({ item, share }) => save(uses.add(item.id, share))}
         />
       )}
       {changingLine && (
-        <PrepUsePanel
-          prepList={null}
-          initial={{
-            prep: {
-              id: changingLine.prep_id,
-              name: changingLine.prep_name,
-              otherPiecesShare: changingLine.shares_total - getShareValue(changingLine),
-              usedUp: changingLine.prep_used_up === 1,
-            },
-            share: {
-              share_numerator: changingLine.share_numerator,
-              share_denominator: changingLine.share_denominator,
-            },
-          }}
+        <UsePanel
+          kind={kind}
+          itemList={null}
+          initial={getSavedChoice(changingLine.use, changingLine.item)}
           onCancel={() => setChangingLine(null)}
-          onSave={({ share }) => save(changePrepUse(changingLine.id, share))}
-          onRemove={() => save(removePrepUse(changingLine.id))}
+          onSave={({ share }) => save(uses.change(changingLine.use.id, share))}
+          onRemove={() => save(uses.remove(changingLine.use.id))}
         />
       )}
     </View>
@@ -339,6 +371,7 @@ export default function PieceScreen() {
               )?.started_at ?? null,
             usedPrep: detail.usedPrep,
             usedBy: detail.usedBy,
+            usedSupplies: detail.usedSupplies,
           },
         ),
       ),
@@ -355,11 +388,41 @@ export default function PieceScreen() {
   if (page === undefined) return null;
   if (page === null) return <Text style={styles.text}>No piece with this id.</Text>;
 
-  const { piece, days, runningSince, usedPrep, usedBy } = page;
+  const { piece, days, runningSince, usedPrep, usedBy, usedSupplies } = page;
   const prepTime = getPrepTime(sumDays(days, 'worked'), usedPrep);
+  const cost = getCost(piece.id, usedPrep, usedSupplies);
   const finishedPrep = piece.category === 'prep' && piece.finished_at !== null;
   const usedShare = usedBy.reduce((total, use) => total + getShareValue(use), 0);
-  const usedUp = piece.used_up_at !== null || usesUpPrep(usedShare);
+  const usedUp = piece.used_up_at !== null || isUsedUp(usedShare);
+
+  const prepLines = prepTime.lines.map((line, index): UseLine => {
+    const costLine = cost.prepLines[index];
+    return {
+      use: line,
+      item: { id: line.prep_id, name: line.prep_name },
+      values: [
+        formatDuration(line.milliseconds),
+        ...(costLine.hasSupplies ? [formatCost(costLine.cents)] : []),
+      ],
+    };
+  });
+  const supplyLines = cost.supplyLines.map((line): UseLine => ({
+    use: line,
+    item: { id: line.supply_id, name: line.supply_name },
+    values: [formatCost(line.cents)],
+  }));
+  const prepQueries: UseQueries = {
+    getAvailable: () => getAvailablePrep(piece.id),
+    add: (prepId, share) => addPrepUse(piece.id, { prepId, share }),
+    change: changePrepUse,
+    remove: removePrepUse,
+  };
+  const supplyQueries: UseQueries = {
+    getAvailable: () => getAvailableSupplies(piece.id),
+    add: (supplyId, share) => addSupplyUse(piece.id, { supplyId, share }),
+    change: changeSupplyUse,
+    remove: removeSupplyUse,
+  };
 
   async function saveAddedTime(startedAt: number, endedAt: number | null) {
     await addPieceTime(
@@ -419,6 +482,7 @@ export default function PieceScreen() {
       <Totals
         days={days}
         prepTime={prepTime}
+        cost={cost}
         tag={!piece.finished_at ? 'Unfinished' : piece.lost ? 'Lost' : null}
       />
       {/* The rows that change the piece: a finished prep's Used up and what's left of it, a
@@ -470,10 +534,11 @@ export default function PieceScreen() {
         </Pressable>
       </Card>
       {piece.category === 'piece' ? (
-        <PrepUsed pieceId={piece.id} lines={prepTime.lines} onChange={load} />
+        <UsesSection kind="prep" lines={prepLines} uses={prepQueries} onChange={load} />
       ) : (
         <UsedBy usedBy={usedBy} usedUp={usedUp} />
       )}
+      <UsesSection kind="supply" lines={supplyLines} uses={supplyQueries} onChange={load} />
       {days.length > 1 && <DayTable days={days} />}
       {piece.notes && (
         <Card>
@@ -563,8 +628,9 @@ const styles = StyleSheet.create({
   numberColumn: {
     textAlign: 'right',
   },
-  prepTimeColumn: {
-    width: 76,
+  // Prep time over its cost, or a supply's cost: wide enough for "12h 55m" or "$120.00".
+  valuesColumn: {
+    width: 80,
   },
   estimatedColumn: {
     width: 90,
