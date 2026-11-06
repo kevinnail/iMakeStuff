@@ -84,18 +84,9 @@ describe('getDayTicks', () => {
   });
 });
 
+// The tests run in New York time (__tests__/globalSetup.ts), where the clocks go back at 2am on
+// Nov 1, 2026 and forward at 2am on Mar 8, 2026.
 describe('getDayTicks on daylight saving days', () => {
-  const savedTimeZone = process.env.TZ;
-
-  // New York's clocks go back at 2am on Nov 1, 2026 and forward at 2am on Mar 8, 2026.
-  beforeAll(() => {
-    process.env.TZ = 'America/New_York';
-  });
-
-  afterAll(() => {
-    process.env.TZ = savedTimeZone;
-  });
-
   // Otherwise the last hour of the day the clocks go back would have no ticks, hiding late work.
   it('gives the 25 hour day 150 ticks, with work up to midnight on the last one', () => {
     const fallBackStart = new Date(2026, 10, 1).getTime();
