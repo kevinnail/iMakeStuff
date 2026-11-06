@@ -53,6 +53,7 @@ const finish = {
   notes: 'Cobalt glaze',
   photoFileName: null,
   lost: false,
+  supplyUses: [],
 };
 
 let database: ReturnType<typeof createTestDb>;
@@ -91,7 +92,7 @@ async function getActualPercents(prepId: number) {
 // Used up as every screen sees it: Used up tapped on, or its shares reaching 100%.
 async function isUsedUp(prepId: number) {
   const usedBy = (await getPieceDetail(prepId))?.usedBy ?? [];
-  return usedBy.some((row) => row.prep_used_up === 1);
+  return usedBy.some((row) => row.used_up === 1);
 }
 
 beforeEach(async () => {
@@ -114,7 +115,7 @@ describe('finishPiece with prep', () => {
         prep_id: caneId,
         prep_name: 'Dichroic cane',
         ...share(25),
-        prep_used_up: 0,
+        used_up: 0,
         shares_total: 0.25,
         prep_worked_milliseconds: 4 * hour + 40 * minute,
       },
@@ -124,7 +125,7 @@ describe('finishPiece with prep', () => {
         prep_id: fritId,
         prep_name: 'Frit mix',
         ...share(10),
-        prep_used_up: 0,
+        used_up: 0,
         shares_total: 0.1,
         prep_worked_milliseconds: 2 * hour,
       },
@@ -470,7 +471,7 @@ describe('getPieceDetail for prep', () => {
         piece_id: vaseId,
         piece_name: 'Blue vase',
         ...share(25),
-        prep_used_up: 0,
+        used_up: 0,
         shares_total: 0.6,
       },
       {
@@ -478,7 +479,7 @@ describe('getPieceDetail for prep', () => {
         piece_id: bowlId,
         piece_name: 'Green bowl',
         ...share(35),
-        prep_used_up: 0,
+        used_up: 0,
         shares_total: 0.6,
       },
     ]);
