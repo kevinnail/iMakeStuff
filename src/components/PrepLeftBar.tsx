@@ -53,8 +53,10 @@ const styles = StyleSheet.create({
     height: '100%',
     backgroundColor: colors.prep,
   },
+  // At least 128 so most rows' bars line up, wider when the text needs it, so it never wraps;
+  // the bar gives up the room.
   text: {
-    width: 128,
+    minWidth: 128,
     textAlign: 'right',
     fontSize: 16,
     color: colors.secondaryText,
