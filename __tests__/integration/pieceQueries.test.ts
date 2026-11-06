@@ -250,6 +250,7 @@ describe('finishPiece', () => {
       notes: null,
       photoFileName: 'vase.jpg',
       lost: false,
+      supplyUses: [],
       prepUses: [],
     });
 
@@ -274,6 +275,7 @@ describe('finishPiece', () => {
       notes: 'Cobalt glaze',
       photoFileName: null,
       lost: false,
+      supplyUses: [],
       prepUses: [],
     });
 
@@ -291,6 +293,7 @@ describe('finishPiece', () => {
       notes: 'Cobalt glaze',
       photoFileName: null,
       lost: false,
+      supplyUses: [],
       prepUses: [],
     });
 
@@ -311,6 +314,7 @@ describe('finishPiece', () => {
         notes: null,
         photoFileName: null,
         lost: false,
+        supplyUses: [],
         prepUses: [],
       }),
     ).rejects.toThrow(/CHECK constraint/);
@@ -333,6 +337,7 @@ describe('finishPiece', () => {
       notes: null,
       photoFileName: 'vase.jpg',
       lost: false,
+      supplyUses: [],
       prepUses: [],
     });
 
@@ -342,6 +347,7 @@ describe('finishPiece', () => {
         notes: null,
         photoFileName: 'other.jpg',
         lost: false,
+        supplyUses: [],
         prepUses: [],
       }),
     ).rejects.toThrow('That piece is already finished.');
@@ -365,6 +371,7 @@ describe('finishPiece as lost', () => {
       notes: null,
       photoFileName: 'crack.jpg',
       lost: true,
+      supplyUses: [],
       prepUses: [],
     });
 
@@ -380,7 +387,14 @@ describe('finishPiece as lost', () => {
     const pieceId = await startPiece('Blue vase', 'piece');
 
     await expect(
-      finishPiece(pieceId, { endedAt, notes: null, photoFileName: null, lost: true, prepUses: [] }),
+      finishPiece(pieceId, {
+        endedAt,
+        notes: null,
+        photoFileName: null,
+        lost: true,
+        supplyUses: [],
+        prepUses: [],
+      }),
     ).rejects.toThrow(/CHECK constraint/);
     expect(await getUnfinishedPieces()).toEqual([expect.objectContaining({ id: pieceId })]);
   });
@@ -408,6 +422,7 @@ describe('setPiecePhoto', () => {
       notes: null,
       photoFileName: 'vase.jpg',
       lost: false,
+      supplyUses: [],
       prepUses: [],
     });
 
@@ -432,6 +447,7 @@ describe('setPieceLost', () => {
       notes: 'Cobalt',
       photoFileName: null,
       lost: false,
+      supplyUses: [],
       prepUses: [],
     });
 
@@ -481,6 +497,8 @@ describe('getPieces', () => {
         used_share: 0,
         used_up: 0,
         no_prep: 0,
+        cost_cents: null,
+        cost_estimated: false,
       },
       {
         id: 2,
@@ -495,6 +513,8 @@ describe('getPieces', () => {
         used_share: 0,
         used_up: 0,
         no_prep: 0,
+        cost_cents: null,
+        cost_estimated: false,
       },
       {
         id: 1,
@@ -509,6 +529,8 @@ describe('getPieces', () => {
         used_share: 0,
         used_up: 0,
         no_prep: 0,
+        cost_cents: null,
+        cost_estimated: false,
       },
     ]);
   });
@@ -564,6 +586,7 @@ describe('getPieceDetail', () => {
       breaks: [{ started_at: '2026-10-31T10:30:00.000Z', ended_at: '2026-10-31T11:00:00.000Z' }],
       usedPrep: [],
       usedBy: [],
+      usedSupplies: [],
     });
   });
 
