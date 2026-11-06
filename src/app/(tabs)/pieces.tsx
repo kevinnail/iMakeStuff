@@ -4,6 +4,7 @@ import { Alert, FlatList, Image, Pressable, StyleSheet, Text, View } from 'react
 
 import { Chevron } from '@/components/Chevron';
 import { JoinedButtons } from '@/components/JoinedButtons';
+import { PrepLeftBar } from '@/components/PrepLeftBar';
 import { Tag } from '@/components/Tag';
 import { getPieces, type PieceListItem } from '@/db/queries/pieceQueries';
 import { formatDay, formatDuration } from '@/utils/formatTime';
@@ -23,6 +24,16 @@ const filters: { value: PieceFilter; label: string; emptyText: string }[] = [
 // All covers pieces only, so Prep sits apart from the joined buttons.
 const pieceFilters = filters.filter(({ value }) => value !== 'prep');
 
+function isUsable(prep: PieceListItem) {
+  return prep.finished_at !== null && !prep.used_up && !prep.lost;
+}
+
+function PrepLeft({ prep }: { prep: PieceListItem }) {
+  if (!prep.finished_at) return <Text style={styles.detailText}>Unfinished</Text>;
+  if (prep.lost) return null;
+  return <PrepLeftBar usedPercent={prep.used_percent} usedUp={prep.used_up === 1} />;
+}
+
 export default function PiecesScreen() {
   const [pieces, setPieces] = useState<PieceListItem[]>([]);
   const [filter, setFilter] = useState<PieceFilter>('all');
@@ -35,6 +46,10 @@ export default function PiecesScreen() {
     if (filter === 'lost') return piece.lost === 1;
     return true;
   });
+  const listedPieces =
+    filter === 'prep'
+      ? [...shownPieces].sort((first, second) => Number(isUsable(second)) - Number(isUsable(first)))
+      : shownPieces;
   const emptyText = filters.find(({ value }) => value === filter)?.emptyText;
 
   // Reloads every time the tab is shown, so a piece finished on Work appears here.
@@ -48,7 +63,7 @@ export default function PiecesScreen() {
 
   return (
     <FlatList
-      data={shownPieces}
+      data={listedPieces}
       keyExtractor={(piece) => String(piece.id)}
       contentInsetAdjustmentBehavior="automatic"
       contentContainerStyle={styles.list}
@@ -84,27 +99,56 @@ export default function PiecesScreen() {
           <View style={styles.details}>
             <View style={styles.nameRow}>
               <Text style={styles.name}>{piece.name}</Text>
-              {piece.lost === 1 && <Tag label="Lost" />}
             </View>
-            <View style={styles.bottomRow}>
-              <Text style={[styles.detailText, styles.dateText]}>
-                {piece.finished_at
-                  ? `${piece.lost ? 'Lost' : 'Finished'} ${formatDay(Date.parse(piece.finished_at))}`
-                  : 'Unfinished'}
-              </Text>
-              <View style={styles.timeColumn}>
-                <Text style={styles.detailText}>Worked</Text>
-                <Text style={styles.timeValue}>{formatDuration(piece.worked_milliseconds)}</Text>
-              </View>
-              {piece.prep_milliseconds !== null && (
-                <View style={styles.timeColumn}>
+            {piece.category === 'prep' ? (
+              <>
+                <PrepLeft prep={piece} />
+                <View style={styles.bottomRow}>
+                  <View style={[styles.dateText, styles.inlineRow]}>
+                    {piece.lost === 1 && <Tag label="Lost" />}
+                    <Text style={styles.detailText}>
+                      {piece.finished_at
+                        ? `${piece.lost ? '' : 'Made '}${formatDay(Date.parse(piece.finished_at))}`
+                        : ''}
+                    </Text>
+                  </View>
                   <Text style={styles.detailText}>
-                    {piece.prep_estimated ? 'Prep, est.' : 'Prep'}
+                    {formatDuration(piece.worked_milliseconds)} worked
                   </Text>
-                  <Text style={styles.timeValue}>{formatDuration(piece.prep_milliseconds)}</Text>
                 </View>
-              )}
-            </View>
+              </>
+            ) : (
+              <View style={styles.bottomRow}>
+                <View style={[styles.dateText, styles.dateColumn]}>
+                  {piece.finished_at ? (
+                    <>
+                      {piece.lost ? (
+                        <Tag label="Lost" />
+                      ) : (
+                        <Text style={styles.detailText}>Finished</Text>
+                      )}
+                      <Text style={styles.timeValue}>
+                        {formatDay(Date.parse(piece.finished_at))}
+                      </Text>
+                    </>
+                  ) : (
+                    <Text style={styles.detailText}>Unfinished</Text>
+                  )}
+                </View>
+                <View style={styles.timeColumn}>
+                  <Text style={styles.detailText}>Worked</Text>
+                  <Text style={styles.timeValue}>{formatDuration(piece.worked_milliseconds)}</Text>
+                </View>
+                {piece.prep_milliseconds !== null && (
+                  <View style={styles.timeColumn}>
+                    <Text style={styles.detailText}>
+                      {piece.prep_estimated ? 'Prep, est.' : 'Prep'}
+                    </Text>
+                    <Text style={styles.timeValue}>{formatDuration(piece.prep_milliseconds)}</Text>
+                  </View>
+                )}
+              </View>
+            )}
           </View>
           <Chevron />
         </Pressable>
@@ -180,7 +224,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: colors.secondaryText,
   },
-  // Under the full-width name: the date on the left, the times on the right.
   bottomRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',
@@ -189,7 +232,15 @@ const styles = StyleSheet.create({
   dateText: {
     flex: 1,
   },
-  // A label over its time, right-aligned so the times line up from row to row.
+  dateColumn: {
+    alignItems: 'flex-start',
+    gap: 2,
+  },
+  inlineRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   timeColumn: {
     alignItems: 'flex-end',
     gap: 2,
