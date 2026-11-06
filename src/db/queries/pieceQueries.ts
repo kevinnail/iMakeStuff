@@ -5,7 +5,8 @@ import {
   getPiecesUsingPrep,
   getUsedPrep,
   insertPrepUse,
-  type NewPrepUse,
+  usedUpSql,
+  type FinishPrepUse,
   type PieceUsingPrep,
   type UsedPrep,
 } from '@/db/queries/prepQueries';
@@ -18,8 +19,8 @@ export interface UnfinishedPiece {
   id: number;
   name: string;
   category: PieceCategory;
-  // A photo taken before Done, which Done then uses instead of opening the camera.
   photo_file_name: string | null;
+  template_id: number | null;
   worked_milliseconds: number;
   running_since: string | null;
 }
@@ -36,6 +37,8 @@ export interface PieceListItem {
   prep_milliseconds: number | null;
   // true while any of its prep isn't used up.
   prep_estimated: boolean;
+  used_percent: number;
+  used_up: number;
 }
 
 export interface PieceRecord {
@@ -47,6 +50,14 @@ export interface PieceRecord {
   finished_at: string | null;
   used_up_at: string | null;
   lost: number;
+  is_template: number;
+}
+
+export interface Template {
+  id: number;
+  name: string;
+  category: PieceCategory;
+  photo_file_name: string | null;
 }
 
 export interface PieceDetail {
@@ -64,7 +75,8 @@ export interface FinishDetails {
   notes: string | null;
   photoFileName: string | null;
   lost: boolean;
-  prepUses: NewPrepUse[];
+  // Every prep the piece ends up with. Uses already on it that aren't listed are removed.
+  prepUses: FinishPrepUse[];
 }
 
 export interface PieceChanges {
@@ -111,6 +123,23 @@ export async function startPiece(name: string, category: PieceCategory): Promise
   return pieceId;
 }
 
+export async function startFromTemplate(templateId: number): Promise<number> {
+  const database = await getDb();
+  const startedAt = new Date().toISOString();
+  let pieceId = 0;
+  await database.withTransactionAsync(async () => {
+    const result = await database.runAsync(
+      `INSERT INTO pieces (name, category, template_id)
+       SELECT name, category, id FROM pieces WHERE id = ? AND is_template = 1`,
+      templateId,
+    );
+    if (result.changes === 0) throw new Error("That piece isn't a template.");
+    pieceId = result.lastInsertRowId;
+    await startSegment(database, pieceId, startedAt);
+  });
+  return pieceId;
+}
+
 export async function switchToPiece(pieceId: number): Promise<void> {
   const database = await getDb();
   const startedAt = new Date().toISOString();
@@ -146,7 +175,25 @@ export async function finishPiece(
       pieceId,
     );
     if (result.changes === 0) throw new Error('That piece is already finished.');
-    for (const use of prepUses) await insertPrepUse(database, pieceId, use);
+    const keptUseIds = prepUses.flatMap((use) => (use.useId === undefined ? [] : [use.useId]));
+    await database.runAsync(
+      'DELETE FROM prep_uses WHERE piece_id = ? AND id NOT IN (SELECT value FROM json_each(?))',
+      pieceId,
+      JSON.stringify(keptUseIds),
+    );
+    for (const use of prepUses) {
+      if (use.useId === undefined) {
+        await insertPrepUse(database, pieceId, use);
+        continue;
+      }
+      const changed = await database.runAsync(
+        'UPDATE prep_uses SET estimated_percent = ? WHERE id = ? AND piece_id = ?',
+        use.estimatedPercent,
+        use.useId,
+        pieceId,
+      );
+      if (changed.changes === 0) throw new Error('That prep use no longer exists.');
+    }
   });
 }
 
@@ -192,6 +239,8 @@ export async function deletePiece(pieceId: number): Promise<string | null> {
       pieceId,
     );
     await database.runAsync('DELETE FROM work_segments WHERE piece_id = ?', pieceId);
+
+    await database.runAsync('UPDATE pieces SET template_id = NULL WHERE template_id = ?', pieceId);
     const deleted = await database.getFirstAsync<{ photo_file_name: string | null }>(
       'DELETE FROM pieces WHERE id = ? RETURNING photo_file_name',
       pieceId,
@@ -225,11 +274,29 @@ export async function setPieceLost(pieceId: number, lost: boolean): Promise<void
   if (result.changes === 0) throw new Error('Only a finished piece can be marked lost or good.');
 }
 
+export async function setPieceTemplate(pieceId: number, isTemplate: boolean): Promise<void> {
+  const database = await getDb();
+  const result = await database.runAsync(
+    'UPDATE pieces SET is_template = ? WHERE id = ? AND finished_at IS NOT NULL',
+    isTemplate ? 1 : 0,
+    pieceId,
+  );
+  if (result.changes === 0) throw new Error('Only a finished piece can be a template.');
+}
+
+export async function getTemplates(): Promise<Template[]> {
+  const database = await getDb();
+  return database.getAllAsync<Template>(
+    `SELECT id, name, category, photo_file_name FROM pieces
+     WHERE is_template = 1 ORDER BY name COLLATE NOCASE`,
+  );
+}
+
 // In the order the pieces were started, so rows don't move when you swap.
 export async function getUnfinishedPieces(): Promise<UnfinishedPiece[]> {
   const database = await getDb();
   return database.getAllAsync<UnfinishedPiece>(
-    `SELECT pieces.id, pieces.name, pieces.category, pieces.photo_file_name,
+    `SELECT pieces.id, pieces.name, pieces.category, pieces.photo_file_name, pieces.template_id,
        round(total(julianday(work_segments.ended_at) - julianday(work_segments.started_at))
          * 86400000) AS worked_milliseconds,
        max(CASE WHEN work_segments.ended_at IS NULL THEN work_segments.started_at END)
@@ -243,17 +310,24 @@ export async function getUnfinishedPieces(): Promise<UnfinishedPiece[]> {
 }
 
 // Unfinished pieces first, then finished ones newest first. Prep time is worked out the same
-// way as on the piece's page, so the list and the page always match.
+// way as on the piece's page, so the list and the page always match. Each prep's estimates are
+// added up once, in one pass over prep_uses, and a piece that isn't prep has none to add.
 export async function getPieces(): Promise<PieceListItem[]> {
   const database = await getDb();
+  const usedPercentSql = 'coalesce(prep_totals.used_percent, 0)';
   const [pieces, usedPrep] = await Promise.all([
     database.getAllAsync<Omit<PieceListItem, 'prep_milliseconds' | 'prep_estimated'>>(
       `SELECT pieces.id, pieces.name, pieces.category, pieces.photo_file_name, pieces.finished_at,
          pieces.lost,
          round(total(julianday(coalesce(work_segments.ended_at, 'now'))
-           - julianday(work_segments.started_at)) * 86400000) AS worked_milliseconds
+           - julianday(work_segments.started_at)) * 86400000) AS worked_milliseconds,
+         ${usedPercentSql} AS used_percent,
+         ${usedUpSql('pieces', usedPercentSql)} AS used_up
        FROM pieces
        JOIN work_segments ON work_segments.piece_id = pieces.id
+       LEFT JOIN (
+         SELECT prep_id, total(estimated_percent) AS used_percent FROM prep_uses GROUP BY prep_id
+       ) AS prep_totals ON prep_totals.prep_id = pieces.id
        GROUP BY pieces.id
        ORDER BY pieces.finished_at IS NOT NULL, pieces.finished_at DESC, pieces.id DESC`,
     ),
@@ -273,7 +347,8 @@ export async function getPieces(): Promise<PieceListItem[]> {
 export async function getPieceDetail(pieceId: number): Promise<PieceDetail | null> {
   const database = await getDb();
   const piece = await database.getFirstAsync<PieceRecord>(
-    `SELECT id, name, category, notes, photo_file_name, finished_at, used_up_at, lost
+    `SELECT id, name, category, notes, photo_file_name, finished_at, used_up_at, lost,
+       is_template
      FROM pieces WHERE id = ?`,
     pieceId,
   );
