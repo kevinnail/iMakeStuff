@@ -147,6 +147,7 @@ export default function PiecesScreen() {
                     <Text style={styles.timeValue}>{formatDuration(piece.prep_milliseconds)}</Text>
                   </View>
                 )}
+                {piece.no_prep === 1 && <Tag label="No prep" />}
               </View>
             )}
           </View>

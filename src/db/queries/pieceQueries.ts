@@ -5,6 +5,7 @@ import {
   getPiecesUsingPrep,
   getUsedPrep,
   insertPrepUse,
+  noPrepSql,
   usedUpSql,
   type FinishPrepUse,
   type PieceUsingPrep,
@@ -39,6 +40,7 @@ export interface PieceListItem {
   prep_estimated: boolean;
   used_percent: number;
   used_up: number;
+  no_prep: number;
 }
 
 export interface PieceRecord {
@@ -322,7 +324,8 @@ export async function getPieces(): Promise<PieceListItem[]> {
          round(total(julianday(coalesce(work_segments.ended_at, 'now'))
            - julianday(work_segments.started_at)) * 86400000) AS worked_milliseconds,
          ${usedPercentSql} AS used_percent,
-         ${usedUpSql('pieces', usedPercentSql)} AS used_up
+         ${usedUpSql('pieces', usedPercentSql)} AS used_up,
+         ${noPrepSql} AS no_prep
        FROM pieces
        JOIN work_segments ON work_segments.piece_id = pieces.id
        LEFT JOIN (
