@@ -31,7 +31,8 @@
           "savePhotosPermission": "Allow iMakeStuff to save the photos you take to your camera roll.",
           "photosPermission": false
         }
-      ]
+      ],
+      "expo-widgets"
     ],
     "experiments": {
       "typedRoutes": true

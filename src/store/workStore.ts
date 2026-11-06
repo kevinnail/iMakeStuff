@@ -30,6 +30,8 @@ import {
 import type { FinishPrepUse } from '@/db/queries/prepQueries';
 import { deletePhoto, withSavedPhoto } from '@/utils/photoStorage';
 import { startOfDay } from '@/utils/workDays';
+import { getWorkTimerContent } from '@/utils/workTimer';
+import { showWorkTimer } from '@/widgets/WorkTimerActivity';
 
 interface FinishInput {
   notes: string | null;
@@ -74,6 +76,14 @@ async function readWork() {
   return { pieces, runningBreak, runningEntry, today };
 }
 
+// Shows what's in the database on the Work screen, then on the Lock Screen and in the Dynamic
+// Island, so the timer there changes with every tap that changes what's running.
+async function showWork(set: (work: Partial<WorkState>) => void) {
+  const work = await readWork();
+  set(work);
+  await showWorkTimer(getWorkTimerContent(work.pieces, work.runningBreak));
+}
+
 export const useWorkStore = create<WorkState>()((set) => ({
   pieces: [],
   runningBreak: null,
@@ -82,25 +92,25 @@ export const useWorkStore = create<WorkState>()((set) => ({
   today: { segments: [], breaks: [], finishedPieces: [] },
 
   load: async () => {
-    const [work, templates] = await Promise.all([readWork(), getTemplates()]);
-    set({ ...work, templates });
+    set({ templates: await getTemplates() });
+    await showWork(set);
   },
   start: async (name, category) => {
     await startPiece(name, category);
-    set(await readWork());
+    await showWork(set);
   },
   startFromTemplate: async (templateId) => {
     await startFromTemplate(templateId);
-    set(await readWork());
+    await showWork(set);
   },
   switchTo: async (pieceId) => {
     await switchToPiece(pieceId);
-    set(await readWork());
+    await showWork(set);
   },
   addPhoto: async (piece, cameraPhotoUri) => {
     await withSavedPhoto(cameraPhotoUri, (photoFileName) => setPiecePhoto(piece.id, photoFileName));
     if (piece.photo_file_name) deletePhoto(piece.photo_file_name);
-    set(await readWork());
+    await showWork(set);
   },
   finish: async (pieceId, { notes, cameraPhotoUri, savedPhotoFileName, lost, prepUses }) => {
     const endedAt = new Date().toISOString();
@@ -113,31 +123,31 @@ export const useWorkStore = create<WorkState>()((set) => ({
         prepUses,
       }),
     );
-    set(await readWork());
+    await showWork(set);
   },
   remove: async (pieceId) => {
     const photoFileName = await deletePiece(pieceId);
     if (photoFileName) deletePhoto(photoFileName);
-    set(await readWork());
+    await showWork(set);
   },
   takeBreak: async () => {
     await startBreak();
-    set(await readWork());
+    await showWork(set);
   },
   backToWork: async () => {
     await endBreak();
-    set(await readWork());
+    await showWork(set);
   },
   endDay: async () => {
     await endDay();
-    set(await readWork());
+    await showWork(set);
   },
   confirmRunning: async (entry) => {
     await confirmRunningEntry(entry.kind, entry.id);
-    set(await readWork());
+    await showWork(set);
   },
   stopRunning: async (entry, endedAt) => {
     await stopRunningEntry(entry.kind, entry.id, endedAt);
-    set(await readWork());
+    await showWork(set);
   },
 }));

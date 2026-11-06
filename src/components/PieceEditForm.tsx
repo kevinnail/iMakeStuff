@@ -1,7 +1,17 @@
 import { Stack } from 'expo-router';
 import { useState } from 'react';
-import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, TextInput } from 'react-native';
+import {
+  Alert,
+  Image,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 
+import { Chevron } from '@/components/Chevron';
 import { getNotesPlaceholder } from '@/components/FinishPiecePanel';
 import { JoinedButtons } from '@/components/JoinedButtons';
 import {
@@ -41,7 +51,8 @@ export function getDeleteMessage(worked: number, usedByCount: number) {
 }
 
 // The piece's page as a form, the way iOS Contacts edits a contact: Cancel and Save in the
-// header, the photo, name, Piece or Prep, and notes, then Delete piece at the bottom.
+// header, then cards like Add Work's: the name with Piece or Prep, the photo, the notes, and
+// Delete piece at the bottom.
 export function PieceEditForm({
   piece,
   worked,
@@ -140,41 +151,58 @@ export function PieceEditForm({
           ),
         }}
       />
-      {shownPhotoUri && <Image source={{ uri: shownPhotoUri }} style={styles.photo} />}
-      <Pressable
-        style={({ pressed }) => [styles.outlinedButton, pressed && styles.buttonPressed]}
-        onPress={changePhoto}
-      >
-        <Text style={styles.outlinedButtonText}>
-          {shownPhotoUri ? 'Change photo' : 'Add photo'}
-        </Text>
-      </Pressable>
-      <TextInput
-        style={[styles.input, styles.nameInput]}
-        value={name}
-        onChangeText={setName}
-        placeholder="Name"
-        placeholderTextColor={colors.secondaryText}
-      />
-      <JoinedButtons options={categoryOptions} selected={category} onSelect={setCategory} />
-      <TextInput
-        style={[styles.input, styles.notesInput]}
-        value={notes}
-        onChangeText={setNotes}
-        placeholder={
-          piece.finished_at
-            ? getNotesPlaceholder(piece.lost === 1, shownPhotoUri !== null)
-            : 'Notes'
-        }
-        placeholderTextColor={colors.secondaryText}
-        multiline
-      />
-      <Pressable
-        style={({ pressed }) => [styles.deleteButton, pressed && styles.buttonPressed]}
-        onPress={confirmDelete}
-      >
-        <Text style={styles.deleteButtonText}>Delete piece</Text>
-      </Pressable>
+      <View style={styles.card}>
+        <TextInput
+          style={styles.nameInput}
+          value={name}
+          onChangeText={setName}
+          placeholder="Name"
+          placeholderTextColor={colors.secondaryText}
+        />
+        <View style={[styles.cardRow, styles.separator]}>
+          <View style={styles.fill}>
+            <JoinedButtons
+              options={categoryOptions}
+              selected={category}
+              onSelect={setCategory}
+              style={styles.trackOnCard}
+            />
+          </View>
+        </View>
+      </View>
+      <View style={styles.card}>
+        <Pressable
+          style={({ pressed }) => [styles.cardRow, pressed && styles.buttonPressed]}
+          onPress={changePhoto}
+        >
+          <Text style={[styles.text, styles.fill]}>Photo</Text>
+          <Text style={styles.text}>{shownPhotoUri ? 'Change' : 'Add'}</Text>
+          <Chevron />
+        </Pressable>
+        {shownPhotoUri && <Image source={{ uri: shownPhotoUri }} style={styles.photo} />}
+      </View>
+      <View style={styles.card}>
+        <TextInput
+          style={styles.notesInput}
+          value={notes}
+          onChangeText={setNotes}
+          placeholder={
+            piece.finished_at
+              ? getNotesPlaceholder(piece.lost === 1, shownPhotoUri !== null)
+              : 'Notes'
+          }
+          placeholderTextColor={colors.secondaryText}
+          multiline
+        />
+      </View>
+      <View style={styles.card}>
+        <Pressable
+          style={({ pressed }) => [styles.cardRow, pressed && styles.buttonPressed]}
+          onPress={confirmDelete}
+        >
+          <Text style={styles.deleteButtonText}>Delete piece</Text>
+        </Pressable>
+      </View>
     </ScrollView>
   );
 }
@@ -182,49 +210,56 @@ export function PieceEditForm({
 const styles = StyleSheet.create({
   page: {
     padding: 16,
+    gap: 16,
+  },
+  // A group of rows, the same as Add Work's cards.
+  card: {
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    backgroundColor: colors.surface,
+  },
+  cardRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 12,
+    paddingVertical: 12,
   },
-  photo: {
-    width: '100%',
-    aspectRatio: 4 / 3,
-    borderRadius: 8,
+  separator: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.separator,
   },
-  outlinedButton: {
-    alignSelf: 'flex-start',
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderWidth: 1,
-    borderColor: colors.primary,
-    borderRadius: 8,
+  fill: {
+    flex: 1,
   },
-  outlinedButtonText: {
+  // The joined buttons' usual track is the card's color, so on a card it takes the page's.
+  trackOnCard: {
+    backgroundColor: colors.background,
+  },
+  text: {
     fontSize: 18,
     lineHeight: 20,
     color: colors.text,
   },
+  photo: {
+    width: '100%',
+    aspectRatio: 4 / 3,
+    marginBottom: 16,
+    borderRadius: 8,
+  },
   buttonPressed: {
     opacity: 0.6,
   },
-  input: {
-    fontSize: 18,
-    padding: 12,
-    color: colors.text,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.separator,
-    borderRadius: 8,
-  },
   nameInput: {
-    fontSize: 20,
+    fontSize: 18,
+    paddingVertical: 12,
+    color: colors.text,
   },
   notesInput: {
+    fontSize: 18,
+    paddingVertical: 12,
     height: 120,
     textAlignVertical: 'top',
-  },
-  deleteButton: {
-    alignSelf: 'flex-start',
-    marginTop: 12,
-    paddingVertical: 10,
+    color: colors.text,
   },
   deleteButtonText: {
     fontSize: 18,

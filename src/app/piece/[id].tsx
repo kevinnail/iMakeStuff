@@ -1,5 +1,5 @@
 import { router, Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { Children, useCallback, useState, type ReactNode } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 
 import { Chevron } from '@/components/Chevron';
@@ -59,9 +59,8 @@ interface PrepUsedProps {
 }
 
 interface UsedByProps {
-  prep: PieceRecord;
   usedBy: PieceUsingPrep[];
-  onChange: () => Promise<void>;
+  usedUp: boolean;
 }
 
 type DayField = 'worked' | 'otherPieces' | 'onBreak';
@@ -83,8 +82,22 @@ function getLastHour(runningSince: string | null) {
   return { startedAt: endedAt - 60 * 60 * 1000, endedAt };
 }
 
+// A card's rows with a thin line between each, the way Add Work's cards are laid out. Rows that
+// aren't shown (false or null) are left out, so the lines only go between the ones that are.
+function Card({ children }: { children: ReactNode }) {
+  return (
+    <View style={styles.card}>
+      {Children.toArray(children).map((row, index) => (
+        <View key={index} style={index > 0 && styles.separator}>
+          {row}
+        </View>
+      ))}
+    </View>
+  );
+}
+
 // The whole piece: its total time large (its own time plus its share of prep), when it was
-// worked, then what the total is made of and where the rest of the time went.
+// worked, then a card of what the total is made of and where the rest of the time went.
 function Totals({ days, prepTime, tag }: TotalsProps) {
   const firstDay = days[0];
   const lastDay = days[days.length - 1];
@@ -104,31 +117,35 @@ function Totals({ days, prepTime, tag }: TotalsProps) {
   ];
 
   return (
-    <View style={styles.totals}>
-      <View style={styles.prepLine}>
-        <Text style={[styles.totalLine, styles.dayColumn]}>
-          <Text style={styles.totalTime}>{formatDuration(prepTime.total)}</Text> total
-          {prepTime.estimated && ', estimated'}
-        </Text>
-        {tag && <Tag label={tag} />}
-      </View>
-      <Text style={styles.secondaryText}>{when}</Text>
-      {rows.map(({ label, milliseconds }) => (
-        <View key={label} style={styles.tableRow}>
-          <Text style={styles.secondaryText}>{label}</Text>
-          <Text style={styles.tableValue}>{formatDuration(milliseconds)}</Text>
+    <>
+      <View style={styles.totalHeader}>
+        <View style={styles.inlineRow}>
+          <Text style={[styles.totalLine, styles.fill]}>
+            <Text style={styles.totalTime}>{formatDuration(prepTime.total)}</Text> total
+            {prepTime.estimated && ', estimated'}
+          </Text>
+          {tag && <Tag label={tag} />}
         </View>
-      ))}
-    </View>
+        <Text style={styles.secondaryText}>{when}</Text>
+      </View>
+      <Card>
+        {rows.map(({ label, milliseconds }) => (
+          <View key={label} style={styles.row}>
+            <Text style={[styles.text, styles.fill]}>{label}</Text>
+            <Text style={styles.value}>{formatDuration(milliseconds)}</Text>
+          </View>
+        ))}
+      </Card>
+    </>
   );
 }
 
 // One line per day, so a piece worked over many days still fits on one screen.
 function DayTable({ days }: { days: WorkDay[] }) {
   return (
-    <View style={styles.dayTable}>
-      <View style={styles.tableRow}>
-        <Text style={[styles.secondaryText, styles.dayColumn]}>Day</Text>
+    <Card>
+      <View style={styles.row}>
+        <Text style={[styles.secondaryText, styles.fill]}>Day</Text>
         {dayColumns.map(({ label, width }) => (
           <Text key={label} style={[styles.secondaryText, styles.numberColumn, { width }]}>
             {label}
@@ -136,8 +153,8 @@ function DayTable({ days }: { days: WorkDay[] }) {
         ))}
       </View>
       {days.map((day) => (
-        <View key={day.dayStart} style={styles.tableRow}>
-          <Text style={[styles.tableValue, styles.dayColumn]}>{formatDay(day.dayStart)}</Text>
+        <View key={day.dayStart} style={styles.row}>
+          <Text style={[styles.tableValue, styles.fill]}>{formatDay(day.dayStart)}</Text>
           {dayColumns.map(({ field, width }) => (
             <Text key={field} style={[styles.tableValue, styles.numberColumn, { width }]}>
               {formatDuration(day[field])}
@@ -145,10 +162,12 @@ function DayTable({ days }: { days: WorkDay[] }) {
           ))}
         </View>
       ))}
-    </View>
+    </Card>
   );
 }
 
+// The heading, then the prep as one card: a row per prep with its percent and time, tapped to
+// change or remove it, and Add prep as the last row, the same as Prep used on Add Work.
 function PrepUsed({ pieceId, lines, onChange }: PrepUsedProps) {
   const [prepList, setPrepList] = useState<AvailablePrep[] | null>(null);
   const [changingLine, setChangingLine] = useState<PrepLine | null>(null);
@@ -168,16 +187,38 @@ function PrepUsed({ pieceId, lines, onChange }: PrepUsedProps) {
   }
 
   return (
-    <View style={styles.totals}>
-      <View style={styles.tableRow}>
-        <Text style={styles.cardTitle}>Prep used</Text>
+    <View style={styles.section}>
+      <Text style={styles.heading}>Prep used</Text>
+      <Card>
+        {lines.length === 0 && (
+          <View style={styles.row}>
+            <Text style={styles.secondaryText}>No prep added</Text>
+          </View>
+        )}
+        {lines.map((line) => (
+          <Pressable
+            key={line.id}
+            style={({ pressed }) => [styles.row, pressed && styles.buttonPressed]}
+            onPress={() => setChangingLine(line)}
+          >
+            <View style={styles.fill}>
+              <Text style={styles.text}>{line.prep_name}</Text>
+              <Text style={styles.note}>{line.estimated ? 'Estimated' : 'Used up'}</Text>
+            </View>
+            <Text style={styles.value}>{Math.round(line.percent)}%</Text>
+            <Text style={[styles.value, styles.numberColumn, styles.prepTimeColumn]}>
+              {formatDuration(line.milliseconds)}
+            </Text>
+            <Chevron />
+          </Pressable>
+        ))}
         <Pressable
-          style={({ pressed }) => [styles.addPrepButton, pressed && styles.buttonPressed]}
+          style={({ pressed }) => [styles.row, pressed && styles.buttonPressed]}
           onPress={openPrepList}
         >
-          <Text style={styles.buttonText}>Add prep</Text>
+          <Text style={styles.addText}>Add prep</Text>
         </Pressable>
-      </View>
+      </Card>
       {prepList && (
         <PrepUsePanel
           prepList={prepList}
@@ -203,55 +244,29 @@ function PrepUsed({ pieceId, lines, onChange }: PrepUsedProps) {
           onRemove={() => save(removePrepUse(changingLine.id))}
         />
       )}
-      {lines.map((line) => (
-        <Pressable
-          key={line.id}
-          style={({ pressed }) => [styles.prepLine, pressed && styles.buttonPressed]}
-          onPress={() => setChangingLine(line)}
-        >
-          <View style={styles.dayColumn}>
-            <Text style={styles.tableValue}>{line.prep_name}</Text>
-            <Text style={styles.secondaryText}>{line.estimated ? 'Estimated' : 'Used up'}</Text>
-          </View>
-          <Text style={styles.tableValue}>{Math.round(line.percent)}%</Text>
-          <Text style={[styles.tableValue, styles.numberColumn, styles.prepTimeColumn]}>
-            {formatDuration(line.milliseconds)}
-          </Text>
-          <Chevron />
-        </Pressable>
-      ))}
     </View>
   );
 }
 
 // A prep's uses: each piece's estimate, and once the prep is used up, what it really took.
-function UsedBy({ prep, usedBy, onChange }: UsedByProps) {
+function UsedBy({ usedBy, usedUp }: UsedByProps) {
   const rows = usedBy.map((use) => ({ ...use, actual_percent: getActualPercent(use) }));
   const estimatedTotal = rows.reduce((total, row) => total + row.estimated_percent, 0);
   const actualTotal = rows.reduce((total, row) => total + row.actual_percent, 0);
-  const usedUp = prep.used_up_at !== null || estimatedTotal >= 100;
-
-  function setUsedUp(value: boolean) {
-    setPrepUsedUp(prep.id, value).then(onChange).catch(showError('Could not save the prep'));
-  }
 
   return (
-    <View style={styles.totals}>
-      {prep.finished_at && (
-        <View style={styles.prepLine}>
-          <Text style={[styles.cardTitle, styles.dayColumn]}>Used up</Text>
-          <Switch value={usedUp} onValueChange={setUsedUp} trackColor={{ true: colors.primary }} />
-        </View>
-      )}
-      {prep.finished_at && !prep.lost && (
-        <PrepLeftBar usedPercent={estimatedTotal} usedUp={usedUp} />
-      )}
+    <View style={styles.section}>
+      <Text style={styles.heading}>Used by</Text>
       {rows.length === 0 ? (
-        <Text style={styles.secondaryText}>No pieces have used it yet.</Text>
+        <Card>
+          <View style={styles.row}>
+            <Text style={styles.secondaryText}>No pieces have used it yet.</Text>
+          </View>
+        </Card>
       ) : (
-        <>
-          <View style={styles.tableRow}>
-            <Text style={[styles.secondaryText, styles.dayColumn]}>Piece</Text>
+        <Card>
+          <View style={styles.row}>
+            <Text style={[styles.secondaryText, styles.fill]}>Piece</Text>
             <Text style={[styles.secondaryText, styles.numberColumn, styles.estimatedColumn]}>
               Estimated
             </Text>
@@ -265,10 +280,10 @@ function UsedBy({ prep, usedBy, onChange }: UsedByProps) {
           {rows.map((row) => (
             <Pressable
               key={row.id}
-              style={({ pressed }) => [styles.prepLine, pressed && styles.buttonPressed]}
+              style={({ pressed }) => [styles.row, pressed && styles.buttonPressed]}
               onPress={() => router.push({ pathname: '/piece/[id]', params: { id: row.piece_id } })}
             >
-              <Text style={[styles.tableValue, styles.dayColumn]}>{row.piece_name}</Text>
+              <Text style={[styles.tableValue, styles.fill]}>{row.piece_name}</Text>
               <Text style={[styles.tableValue, styles.numberColumn, styles.estimatedColumn]}>
                 {row.estimated_percent}%
               </Text>
@@ -282,8 +297,8 @@ function UsedBy({ prep, usedBy, onChange }: UsedByProps) {
               </View>
             </Pressable>
           ))}
-          <View style={styles.tableRow}>
-            <Text style={[styles.secondaryText, styles.dayColumn]}>Total</Text>
+          <View style={styles.row}>
+            <Text style={[styles.secondaryText, styles.fill]}>Total</Text>
             <Text style={[styles.tableValue, styles.numberColumn, styles.estimatedColumn]}>
               {estimatedTotal}%
             </Text>
@@ -294,7 +309,7 @@ function UsedBy({ prep, usedBy, onChange }: UsedByProps) {
             )}
             <View style={styles.chevronColumn} />
           </View>
-        </>
+        </Card>
       )}
     </View>
   );
@@ -340,6 +355,9 @@ export default function PieceScreen() {
 
   const { piece, days, runningSince, usedPrep, usedBy } = page;
   const prepTime = getPrepTime(sumDays(days, 'worked'), usedPrep);
+  const finishedPrep = piece.category === 'prep' && piece.finished_at !== null;
+  const usedPercent = usedBy.reduce((total, use) => total + use.estimated_percent, 0);
+  const usedUp = piece.used_up_at !== null || usedPercent >= 100;
 
   async function saveAddedTime(startedAt: number, endedAt: number | null) {
     await addPieceTime(
@@ -357,6 +375,10 @@ export default function PieceScreen() {
 
   function setTemplate(isTemplate: boolean) {
     setPieceTemplate(piece.id, isTemplate).then(load).catch(showError('Could not save the piece'));
+  }
+
+  function setUsedUp(value: boolean) {
+    setPrepUsedUp(piece.id, value).then(load).catch(showError('Could not save the prep'));
   }
 
   if (editing) {
@@ -397,49 +419,64 @@ export default function PieceScreen() {
         prepTime={prepTime}
         tag={!piece.finished_at ? 'Unfinished' : piece.lost ? 'Lost' : null}
       />
-      <View style={styles.optionsCard}>
+      {/* The rows that change the piece: a finished prep's Used up and what's left of it, a
+          finished piece's switches, then Add time. */}
+      <Card>
+        {finishedPrep && (
+          <View style={styles.row}>
+            <Text style={[styles.text, styles.fill]}>Used up</Text>
+            <Switch
+              value={usedUp}
+              onValueChange={setUsedUp}
+              trackColor={{ true: colors.primary }}
+            />
+          </View>
+        )}
+        {finishedPrep && !piece.lost && (
+          <View style={styles.row}>
+            <View style={styles.fill}>
+              <PrepLeftBar usedPercent={usedPercent} usedUp={usedUp} />
+            </View>
+          </View>
+        )}
         {piece.finished_at && (
-          <>
-            <View style={styles.optionRow}>
-              <Text style={[styles.text, styles.dayColumn]}>Use as template</Text>
-              <Switch
-                value={piece.is_template === 1}
-                onValueChange={setTemplate}
-                trackColor={{ true: colors.primary }}
-              />
-            </View>
-            <View style={[styles.optionRow, styles.optionSeparator]}>
-              <Text style={[styles.text, styles.dayColumn]}>Lost</Text>
-              <Switch
-                value={piece.lost === 1}
-                onValueChange={setLost}
-                trackColor={{ true: colors.primary }}
-              />
-            </View>
-          </>
+          <View style={styles.row}>
+            <Text style={[styles.text, styles.fill]}>Use as template</Text>
+            <Switch
+              value={piece.is_template === 1}
+              onValueChange={setTemplate}
+              trackColor={{ true: colors.primary }}
+            />
+          </View>
+        )}
+        {piece.finished_at && (
+          <View style={styles.row}>
+            <Text style={[styles.text, styles.fill]}>Lost</Text>
+            <Switch
+              value={piece.lost === 1}
+              onValueChange={setLost}
+              trackColor={{ true: colors.primary }}
+            />
+          </View>
         )}
         <Pressable
-          style={({ pressed }) => [
-            styles.optionRow,
-            piece.finished_at !== null && styles.optionSeparator,
-            pressed && styles.buttonPressed,
-          ]}
+          style={({ pressed }) => [styles.row, pressed && styles.buttonPressed]}
           onPress={() => setAddingTime(getLastHour(runningSince))}
         >
-          <Text style={[styles.text, styles.dayColumn]}>Add time</Text>
+          <Text style={[styles.text, styles.fill]}>Add time</Text>
           <Chevron />
         </Pressable>
-      </View>
+      </Card>
       {piece.category === 'piece' ? (
         <PrepUsed pieceId={piece.id} lines={prepTime.lines} onChange={load} />
       ) : (
-        <UsedBy prep={piece} usedBy={usedBy} onChange={load} />
+        <UsedBy usedBy={usedBy} usedUp={usedUp} />
       )}
       {days.length > 1 && <DayTable days={days} />}
       {piece.notes && (
-        <View style={styles.totals}>
-          <Text style={styles.text}>{piece.notes}</Text>
-        </View>
+        <Card>
+          <Text style={[styles.text, styles.notes]}>{piece.notes}</Text>
+        </Card>
       )}
       {piece.photo_file_name && (
         <Image
@@ -466,33 +503,69 @@ export default function PieceScreen() {
 const styles = StyleSheet.create({
   page: {
     padding: 16,
-    gap: 12,
+    gap: 16,
   },
   photo: {
     width: '100%',
     borderRadius: 8,
   },
-  text: {
-    fontSize: 18,
-    color: colors.text,
-  },
-  totals: {
-    padding: 16,
-    gap: 8,
+  // A group of rows, the same as Add Work's cards.
+  card: {
+    paddingHorizontal: 16,
     borderRadius: 12,
     backgroundColor: colors.surface,
   },
-  tableRow: {
+  row: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'baseline',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 12,
+  },
+  separator: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.separator,
+  },
+  fill: {
+    flex: 1,
+  },
+  inlineRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  section: {
     gap: 8,
   },
-  dayTable: {
-    gap: 6,
+  heading: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: colors.text,
   },
-  dayColumn: {
-    flex: 1,
+  totalHeader: {
+    gap: 4,
+  },
+  text: {
+    fontSize: 18,
+    lineHeight: 20,
+    color: colors.text,
+  },
+  notes: {
+    paddingVertical: 12,
+  },
+  note: {
+    fontSize: 16,
+    color: colors.secondaryText,
+  },
+  value: {
+    fontSize: 18,
+    lineHeight: 20,
+    fontVariant: ['tabular-nums'],
+    color: colors.text,
+  },
+  addText: {
+    fontSize: 18,
+    lineHeight: 20,
+    color: colors.primary,
   },
   numberColumn: {
     textAlign: 'right',
@@ -509,24 +582,6 @@ const styles = StyleSheet.create({
   chevronColumn: {
     width: 12,
   },
-  optionsCard: {
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    backgroundColor: colors.surface,
-  },
-  optionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingVertical: 12,
-  },
-  optionSeparator: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.separator,
-  },
-  startAligned: {
-    alignSelf: 'flex-start',
-  },
   editButton: {
     paddingVertical: 6,
     paddingHorizontal: 12,
@@ -538,29 +593,8 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     color: colors.textOnFill,
   },
-  prepLine: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  cardTitle: {
-    fontSize: 18,
-    color: colors.text,
-  },
-  addPrepButton: {
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderWidth: 1,
-    borderColor: colors.primary,
-    borderRadius: 8,
-  },
   buttonPressed: {
     opacity: 0.6,
-  },
-  buttonText: {
-    fontSize: 18,
-    lineHeight: 20,
-    color: colors.text,
   },
   totalLine: {
     fontSize: 18,
