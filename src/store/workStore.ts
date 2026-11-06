@@ -28,6 +28,7 @@ import {
   type UnfinishedPiece,
 } from '@/db/queries/pieceQueries';
 import type { FinishPrepUse } from '@/db/queries/prepQueries';
+import type { FinishSupplyUse } from '@/db/queries/supplyQueries';
 import { deletePhoto, withSavedPhoto } from '@/utils/photoStorage';
 import { startOfDay } from '@/utils/workDays';
 import { getWorkTimerContent } from '@/utils/workTimer';
@@ -40,6 +41,7 @@ interface FinishInput {
   savedPhotoFileName: string | null;
   lost: boolean;
   prepUses: FinishPrepUse[];
+  supplyUses: FinishSupplyUse[];
 }
 
 interface WorkState {
@@ -112,7 +114,10 @@ export const useWorkStore = create<WorkState>()((set) => ({
     if (piece.photo_file_name) deletePhoto(piece.photo_file_name);
     await showWork(set);
   },
-  finish: async (pieceId, { notes, cameraPhotoUri, savedPhotoFileName, lost, prepUses }) => {
+  finish: async (
+    pieceId,
+    { notes, cameraPhotoUri, savedPhotoFileName, lost, prepUses, supplyUses },
+  ) => {
     const endedAt = new Date().toISOString();
     await withSavedPhoto(cameraPhotoUri, (photoFileName) =>
       finishPiece(pieceId, {
@@ -121,6 +126,7 @@ export const useWorkStore = create<WorkState>()((set) => ({
         photoFileName: photoFileName ?? savedPhotoFileName,
         lost,
         prepUses,
+        supplyUses,
       }),
     );
     await showWork(set);

@@ -5,6 +5,7 @@ import {
   KeyboardAvoidingView,
   Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -13,21 +14,29 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { JoinedButtons } from '@/components/JoinedButtons';
-import { confirmTemplateUseUp, PrepChoices, type MissingPrep } from '@/components/PrepChoices';
-import type { PrepUseChoice } from '@/components/PrepUsePanel';
-import type { AvailablePrep, FinishPrepUse } from '@/db/queries/prepQueries';
+import { confirmTemplateUseUp, UseChoices, type MissingPrep } from '@/components/UseChoices';
+import type { AvailableItem, UseChoice } from '@/components/UsePanel';
+import type { FinishPrepUse } from '@/db/queries/prepQueries';
+import type { FinishSupplyUse } from '@/db/queries/supplyQueries';
 import { colors } from '@/theme';
 
 interface FinishPiecePanelProps {
   pieceName: string;
   photoUri: string | null;
   // null when finishing prep, which doesn't use other prep.
-  availablePrep: AvailablePrep[] | null;
+  availablePrep: AvailableItem[] | null;
 
-  initialPrep: PrepUseChoice[];
+  initialPrep: UseChoice[];
   missingPrep: MissingPrep[];
+  availableSupplies: AvailableItem[];
+  initialSupplies: UseChoice[];
   onCancel: () => void;
-  onSave: (notes: string | null, lost: boolean, prepUses: FinishPrepUse[]) => Promise<void>;
+  onSave: (
+    notes: string | null,
+    lost: boolean,
+    prepUses: FinishPrepUse[],
+    supplyUses: FinishSupplyUse[],
+  ) => Promise<void>;
 }
 
 export type Outcome = 'good' | 'lost';
@@ -50,6 +59,8 @@ export function FinishPiecePanel({
   availablePrep,
   initialPrep,
   missingPrep,
+  availableSupplies,
+  initialSupplies,
   onCancel,
   onSave,
 }: FinishPiecePanelProps) {
@@ -57,18 +68,25 @@ export function FinishPiecePanel({
   const [outcome, setOutcome] = useState<Outcome>('good');
   const [notes, setNotes] = useState('');
   const [chosenPrep, setChosenPrep] = useState(initialPrep);
+  const [chosenSupplies, setChosenSupplies] = useState(initialSupplies);
   const [saving, setSaving] = useState(false);
   const trimmedNotes = notes.trim();
   const canSave = !saving && (photoUri !== null || trimmedNotes !== '');
 
   function save() {
     setSaving(true);
-    const prepUses = chosenPrep.map(({ prep, share, useId }) => ({
-      prepId: prep.id,
+    // A use already on the piece keeps its id, so it's changed rather than added again.
+    const prepUses = chosenPrep.map(({ item, share, useId }) => ({
+      prepId: item.id,
       share,
-      ...(useId === undefined ? {} : { useId }),
+      useId,
     }));
-    onSave(trimmedNotes || null, outcome === 'lost', prepUses).catch((error: Error) => {
+    const supplyUses = chosenSupplies.map(({ item, share, useId }) => ({
+      supplyId: item.id,
+      share,
+      useId,
+    }));
+    onSave(trimmedNotes || null, outcome === 'lost', prepUses, supplyUses).catch((error: Error) => {
       setSaving(false);
       Alert.alert('Could not save', error.message);
     });
@@ -78,28 +96,40 @@ export function FinishPiecePanel({
     <Modal visible transparent animationType="slide" onRequestClose={onCancel}>
       <KeyboardAvoidingView style={styles.overlay} behavior="padding">
         <View style={[styles.panel, { paddingBottom: insets.bottom + 16 }]}>
-          <JoinedButtons options={outcomeOptions} selected={outcome} onSelect={setOutcome} />
-          <Text style={styles.pieceName}>{pieceName}</Text>
-          {photoUri && <Image source={{ uri: photoUri }} style={styles.photo} />}
-          <TextInput
-            style={styles.notesInput}
-            value={notes}
-            onChangeText={setNotes}
-            placeholder={getNotesPlaceholder(outcome === 'lost', photoUri !== null)}
-            placeholderTextColor={colors.secondaryText}
-            multiline
-            autoFocus={!photoUri}
-          />
-          {availablePrep &&
-            (availablePrep.length > 0 || chosenPrep.length > 0 || missingPrep.length > 0) && (
-              <PrepChoices
-                availablePrep={availablePrep}
-                chosen={chosenPrep}
-                missing={missingPrep}
-                onChange={setChosenPrep}
-                style={styles.prepCard}
+          <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+            <JoinedButtons options={outcomeOptions} selected={outcome} onSelect={setOutcome} />
+            <Text style={styles.pieceName}>{pieceName}</Text>
+            {photoUri && <Image source={{ uri: photoUri }} style={styles.photo} />}
+            <TextInput
+              style={styles.notesInput}
+              value={notes}
+              onChangeText={setNotes}
+              placeholder={getNotesPlaceholder(outcome === 'lost', photoUri !== null)}
+              placeholderTextColor={colors.secondaryText}
+              multiline
+              autoFocus={!photoUri}
+            />
+            {availablePrep &&
+              (availablePrep.length > 0 || chosenPrep.length > 0 || missingPrep.length > 0) && (
+                <UseChoices
+                  kind="prep"
+                  availableItems={availablePrep}
+                  chosen={chosenPrep}
+                  missing={missingPrep}
+                  onChange={setChosenPrep}
+                  style={styles.useCard}
+                />
+              )}
+            {(availableSupplies.length > 0 || chosenSupplies.length > 0) && (
+              <UseChoices
+                kind="supply"
+                availableItems={availableSupplies}
+                chosen={chosenSupplies}
+                onChange={setChosenSupplies}
+                style={styles.useCard}
               />
             )}
+          </ScrollView>
           <View style={styles.buttonRow}>
             <Pressable style={styles.cancelButton} onPress={onCancel}>
               <Text style={styles.cancelButtonText}>Cancel</Text>
@@ -125,11 +155,15 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.6)',
   },
   panel: {
+    maxHeight: '90%',
     padding: 16,
     gap: 12,
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
     backgroundColor: colors.surface,
+  },
+  content: {
+    gap: 12,
   },
   pieceName: {
     fontSize: 20,
@@ -151,7 +185,7 @@ const styles = StyleSheet.create({
     borderColor: colors.separator,
     borderRadius: 8,
   },
-  prepCard: {
+  useCard: {
     backgroundColor: colors.background,
   },
   buttonRow: {

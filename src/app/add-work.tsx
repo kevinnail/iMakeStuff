@@ -20,13 +20,14 @@ import { JoinedButtons } from '@/components/JoinedButtons';
 import {
   confirmTemplateUseUp,
   getTemplateChoices,
-  PrepChoices,
+  UseChoices,
   type MissingPrep,
-} from '@/components/PrepChoices';
-import type { PrepUseChoice } from '@/components/PrepUsePanel';
+} from '@/components/UseChoices';
+import type { UseChoice } from '@/components/UsePanel';
 import { addPastWork } from '@/db/queries/entryQueries';
 import { getTemplates, type PieceCategory, type Template } from '@/db/queries/pieceQueries';
 import { getAvailablePrep, getTemplatePrep, type AvailablePrep } from '@/db/queries/prepQueries';
+import { getAvailableSupplies, type AvailableSupply } from '@/db/queries/supplyQueries';
 import { colors } from '@/theme';
 import { showPhotoChoices, withSavedPhoto } from '@/utils/photoStorage';
 import { showError } from '@/utils/showError';
@@ -56,12 +57,14 @@ function yesterdayAt(hours: number) {
 export default function AddWorkScreen() {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [availablePrep, setAvailablePrep] = useState<AvailablePrep[]>([]);
+  const [availableSupplies, setAvailableSupplies] = useState<AvailableSupply[]>([]);
   const [source, setSource] = useState<Source>('piece');
   const [template, setTemplate] = useState<Template | null>(null);
   const [category, setCategory] = useState<PieceCategory>('piece');
   const [name, setName] = useState('');
-  const [chosenPrep, setChosenPrep] = useState<PrepUseChoice[]>([]);
+  const [chosenPrep, setChosenPrep] = useState<UseChoice[]>([]);
   const [missingPrep, setMissingPrep] = useState<MissingPrep[]>([]);
+  const [chosenSupplies, setChosenSupplies] = useState<UseChoice[]>([]);
   const [startedAt, setStartedAt] = useState(() => yesterdayAt(9));
   const [endedAt, setEndedAt] = useState(() => yesterdayAt(10));
   const [finishing, setFinishing] = useState(false);
@@ -93,10 +96,11 @@ export default function AddWorkScreen() {
     (!finishing || photoUri !== null || trimmedNotes !== '');
 
   useEffect(() => {
-    Promise.all([getTemplates(), getAvailablePrep(null)])
-      .then(([savedTemplates, prep]) => {
+    Promise.all([getTemplates(), getAvailablePrep(null), getAvailableSupplies(null)])
+      .then(([savedTemplates, prep, supplies]) => {
         setTemplates(savedTemplates);
         setAvailablePrep(prep);
+        setAvailableSupplies(supplies);
       })
       .catch(showError('Could not load your templates'));
   }, []);
@@ -142,7 +146,8 @@ export default function AddWorkScreen() {
         endedAt: new Date(endedAt).toISOString(),
         photoFileName,
         finish: finishing ? { notes: trimmedNotes || null, lost: outcome === 'lost' } : null,
-        prepUses: usesPrep ? chosenPrep.map(({ prep, share }) => ({ prepId: prep.id, share })) : [],
+        prepUses: usesPrep ? chosenPrep.map(({ item, share }) => ({ prepId: item.id, share })) : [],
+        supplyUses: chosenSupplies.map(({ item, share }) => ({ supplyId: item.id, share })),
       }),
     )
       .then(() => router.back())
@@ -215,11 +220,20 @@ export default function AddWorkScreen() {
             </View>
           </View>
           {usesPrep && (availablePrep.length > 0 || missingPrep.length > 0) && (
-            <PrepChoices
-              availablePrep={availablePrep}
+            <UseChoices
+              kind="prep"
+              availableItems={availablePrep}
               chosen={chosenPrep}
               missing={missingPrep}
               onChange={setChosenPrep}
+            />
+          )}
+          {availableSupplies.length > 0 && (
+            <UseChoices
+              kind="supply"
+              availableItems={availableSupplies}
+              chosen={chosenSupplies}
+              onChange={setChosenSupplies}
             />
           )}
           <View style={styles.card}>

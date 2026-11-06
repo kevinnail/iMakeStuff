@@ -228,6 +228,7 @@ describe('addPastWork', () => {
       endedAt,
       photoFileName: null,
       finish: null,
+      supplyUses: [],
       prepUses: [],
     });
 
@@ -256,6 +257,7 @@ describe('addPastWork', () => {
       endedAt,
       photoFileName: null,
       finish: null,
+      supplyUses: [],
       prepUses: [],
     });
 
@@ -272,6 +274,7 @@ describe('addPastWork', () => {
       endedAt,
       photoFileName: null,
       finish: { notes: 'Copper red', lost: false },
+      supplyUses: [],
       prepUses: [],
     });
 
@@ -288,6 +291,7 @@ describe('addPastWork', () => {
       endedAt,
       photoFileName: null,
       finish: { notes: 'Cracked in the kiln', lost: true },
+      supplyUses: [],
       prepUses: [],
     });
 
@@ -305,6 +309,7 @@ describe('addPastWork', () => {
         endedAt,
         photoFileName: null,
         finish: { notes: null, lost: false },
+        supplyUses: [],
         prepUses: [],
       }),
     ).rejects.toThrow(/CHECK constraint/);
@@ -322,6 +327,7 @@ describe('addPastWork', () => {
         endedAt: startedAt,
         photoFileName: null,
         finish: null,
+        supplyUses: [],
         prepUses: [],
       }),
     ).rejects.toThrow(/CHECK constraint/);
@@ -343,6 +349,7 @@ describe('addPastWork', () => {
         endedAt,
         photoFileName: null,
         finish: null,
+        supplyUses: [],
         prepUses: [],
       }),
     ).rejects.toThrow('That overlaps another entry.');
@@ -357,6 +364,7 @@ describe('addPastWork', () => {
       endedAt,
       photoFileName: 'cup.jpg',
       finish: null,
+      supplyUses: [],
       prepUses: [],
     });
 
@@ -385,6 +393,7 @@ describe('addPastWork', () => {
       endedAt,
       photoFileName: 'second.jpg',
       finish: null,
+      supplyUses: [],
       prepUses: [{ prepId: 3, share: { share_numerator: 25, share_denominator: 100 } }],
     });
 
@@ -429,6 +438,7 @@ describe('addPastWork', () => {
         endedAt,
         photoFileName: null,
         finish: null,
+        supplyUses: [],
         prepUses: [{ prepId: 3, share: { share_numerator: 25, share_denominator: 100 } }],
       }),
     ).rejects.toThrow("Only finished prep that isn't used up or lost can be used.");

@@ -3,11 +3,11 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import { getDb } from '@/db/database';
 import {
   formatPercent,
-  usesUpPrep,
-  wholePrep,
-  type PrepShare,
+  isUsedUp,
+  wholeShare,
   type PrepTimeShare,
   type Share,
+  type UseShare,
 } from '@/utils/prepTime';
 
 export interface NewPrepUse {
@@ -40,14 +40,14 @@ export interface TemplatePrepUse extends Share {
   replacement: AvailablePrep | null;
 }
 
-export interface PieceUsingPrep extends PrepShare {
+export interface PieceUsingPrep extends UseShare {
   id: number;
   piece_id: number;
   piece_name: string;
 }
 
-// A prep use's share as a number, 1 being the whole prep. It names no table, so it reads the
-// prep_uses row of the query it's in.
+// A use's share as a number, 1 being the whole prep or supply. It names no table, so it reads
+// the prep_uses or supply_uses row of the query it's in.
 export const shareSql = '(share_numerator * 1.0 / share_denominator)';
 
 // A query that already has the prep's shares added together passes that column in, so they
@@ -56,7 +56,7 @@ export function usedUpSql(
   prepTable: string,
   usedShareSql = `(SELECT total(${shareSql}) FROM prep_uses WHERE prep_id = ${prepTable}.id)`,
 ) {
-  return `(${prepTable}.used_up_at IS NOT NULL OR ${usedShareSql} >= ${wholePrep})`;
+  return `(${prepTable}.used_up_at IS NOT NULL OR ${usedShareSql} >= ${wholeShare})`;
 }
 
 // A finished piece made from a template that used prep, with none of its own: likely a missed
@@ -69,7 +69,7 @@ export const noPrepSql = `(pieces.finished_at IS NOT NULL
 const shareColumnsSql = `
   prep_uses.share_numerator, prep_uses.share_denominator,
   (SELECT ${usedUpSql('prep')} FROM pieces AS prep WHERE prep.id = prep_uses.prep_id)
-    AS prep_used_up,
+    AS used_up,
   (SELECT total(${shareSql}) FROM prep_uses AS sibling
    WHERE sibling.prep_id = prep_uses.prep_id) AS shares_total`;
 
@@ -202,7 +202,7 @@ export async function setPrepUsedUp(prepId: number, usedUp: boolean): Promise<vo
     `UPDATE pieces SET used_up_at = ?
      WHERE id = ? AND category = 'prep' AND finished_at IS NOT NULL
        AND (used_up_at IS NULL) = ?
-       AND (? OR (SELECT total(${shareSql}) FROM prep_uses WHERE prep_id = pieces.id) < ${wholePrep})`,
+       AND (? OR (SELECT total(${shareSql}) FROM prep_uses WHERE prep_id = pieces.id) < ${wholeShare})`,
     usedUp ? new Date().toISOString() : null,
     prepId,
     usedUp ? 1 : 0,
@@ -216,7 +216,7 @@ export async function setPrepUsedUp(prepId: number, usedUp: boolean): Promise<vo
     prepId,
   );
   const total = shares?.total ?? 0;
-  if (usesUpPrep(total)) {
+  if (isUsedUp(total)) {
     throw new Error(`Its uses add up to ${formatPercent(total)}. Lower one to put it back in use.`);
   }
   throw new Error("That prep isn't used up.");

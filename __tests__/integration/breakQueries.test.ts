@@ -127,6 +127,7 @@ describe('endBreak', () => {
       notes: 'Cobalt glaze',
       photoFileName: null,
       lost: false,
+      supplyUses: [],
       prepUses: [],
     });
 
