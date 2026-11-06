@@ -59,19 +59,21 @@ function MonthCalendar({ monthStart, today, workedDayStarts, onChangeMonth }: Mo
   return (
     <View style={styles.calendar} {...swipe.panHandlers}>
       <View style={styles.monthRow}>
-        <Pressable style={styles.arrowButton} onPress={() => onChangeMonth(previousMonthStart)}>
-          <Text style={styles.arrowText}>‹</Text>
-        </Pressable>
         <Text style={styles.monthTitle}>
           {shown.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
         </Text>
-        <Pressable
-          style={[styles.arrowButton, isCurrentMonth && styles.arrowHidden]}
-          onPress={() => onChangeMonth(nextMonthStart)}
-          disabled={isCurrentMonth}
-        >
-          <Text style={styles.arrowText}>›</Text>
-        </Pressable>
+        <View style={styles.arrows}>
+          <Pressable style={styles.arrowButton} onPress={() => onChangeMonth(previousMonthStart)}>
+            <Text style={styles.arrowText}>‹</Text>
+          </Pressable>
+          <Pressable
+            style={[styles.arrowButton, isCurrentMonth && styles.arrowHidden]}
+            onPress={() => onChangeMonth(nextMonthStart)}
+            disabled={isCurrentMonth}
+          >
+            <Text style={styles.arrowText}>›</Text>
+          </Pressable>
+        </View>
       </View>
       <View style={styles.week}>
         {weekdayInitials.map((initial, index) => (
@@ -263,6 +265,10 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '600',
     color: colors.text,
+  },
+  arrows: {
+    flexDirection: 'row',
+    gap: 30,
   },
   arrowButton: {
     paddingVertical: 4,
