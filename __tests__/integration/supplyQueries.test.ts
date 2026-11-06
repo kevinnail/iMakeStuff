@@ -31,6 +31,10 @@ describe('addSupply', () => {
       cost_cents: 4000,
       bought_at: '2026-11-01T17:00:00.000Z',
       used_up_at: null,
+      used_share: 0,
+      used_up: 0,
+      prep_count: 0,
+      piece_count: 0,
     });
   });
 
