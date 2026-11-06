@@ -19,6 +19,9 @@ import { parseAmount } from '@/utils/prepTime';
 export interface PrepUseChoice {
   prep: { id: number; name: string; otherPiecesPercent: number; usedUp: boolean };
   estimatedPercent: number;
+  note?: string;
+  useId?: number;
+  fromTemplate?: boolean;
 }
 
 interface PrepUsePanelProps {
@@ -98,7 +101,7 @@ export function PrepUsePanel({ prepList, initial, onCancel, onSave, onRemove }: 
           )}
           {chosenPrep && (
             <View style={styles.fieldRow}>
-              <Text style={styles.label}>How much this piece took</Text>
+              <Text style={[styles.label, styles.amountLabel]}>How much this piece took</Text>
               <TextInput
                 style={styles.amountInput}
                 value={amountText}
@@ -165,8 +168,10 @@ const styles = StyleSheet.create({
     fontSize: 18,
     color: colors.text,
   },
+  amountLabel: {
+    flex: 1,
+  },
   amountInput: {
-    marginLeft: 'auto',
     width: 88,
     fontSize: 18,
     padding: 8,
