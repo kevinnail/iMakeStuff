@@ -1,14 +1,20 @@
 import { router, Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Alert, Image, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 
 import { Chevron } from '@/components/Chevron';
 import { EntryTimesPanel } from '@/components/EntryTimesPanel';
 import { PieceEditForm } from '@/components/PieceEditForm';
+import { PrepLeftBar } from '@/components/PrepLeftBar';
 import { PrepUsePanel, type PrepUseChoice } from '@/components/PrepUsePanel';
 import { Tag } from '@/components/Tag';
 import { addPieceTime } from '@/db/queries/entryQueries';
-import { getPieceDetail, setPieceLost, type PieceRecord } from '@/db/queries/pieceQueries';
+import {
+  getPieceDetail,
+  setPieceLost,
+  setPieceTemplate,
+  type PieceRecord,
+} from '@/db/queries/pieceQueries';
 import {
   addPrepUse,
   changePrepUse,
@@ -24,6 +30,7 @@ import { getActualPercent, getPrepTime } from '@/utils/prepTime';
 import { getWorkDays, type WorkDay } from '@/utils/workDays';
 import { getPhotoUri } from '@/utils/photoStorage';
 import { colors } from '@/theme';
+import { showError } from '@/utils/showError';
 
 interface PiecePage {
   piece: PieceRecord;
@@ -41,6 +48,8 @@ type PrepLine = PrepTime['lines'][number];
 interface TotalsProps {
   days: WorkDay[];
   prepTime: PrepTime;
+  // Unfinished or Lost, beside the total.
+  tag: string | null;
 }
 
 interface PrepUsedProps {
@@ -67,10 +76,6 @@ function sumDays(days: WorkDay[], field: DayField) {
   return days.reduce((total, day) => total + day[field], 0);
 }
 
-function showError(title: string) {
-  return (error: Error) => Alert.alert(title, error.message);
-}
-
 // Add time starts on the hour just past, the likeliest stretch to have gone unrecorded. With
 // something running, the hour ends where it started, so it doesn't overlap it.
 function getLastHour(runningSince: string | null) {
@@ -80,7 +85,7 @@ function getLastHour(runningSince: string | null) {
 
 // The whole piece: its total time large (its own time plus its share of prep), when it was
 // worked, then what the total is made of and where the rest of the time went.
-function Totals({ days, prepTime }: TotalsProps) {
+function Totals({ days, prepTime, tag }: TotalsProps) {
   const firstDay = days[0];
   const lastDay = days[days.length - 1];
   const when =
@@ -100,10 +105,13 @@ function Totals({ days, prepTime }: TotalsProps) {
 
   return (
     <View style={styles.totals}>
-      <Text style={styles.totalLine}>
-        <Text style={styles.totalTime}>{formatDuration(prepTime.total)}</Text> total
-        {prepTime.estimated && ', estimated'}
-      </Text>
+      <View style={styles.prepLine}>
+        <Text style={[styles.totalLine, styles.dayColumn]}>
+          <Text style={styles.totalTime}>{formatDuration(prepTime.total)}</Text> total
+          {prepTime.estimated && ', estimated'}
+        </Text>
+        {tag && <Tag label={tag} />}
+      </View>
       <Text style={styles.secondaryText}>{when}</Text>
       {rows.map(({ label, milliseconds }) => (
         <View key={label} style={styles.tableRow}>
@@ -235,6 +243,9 @@ function UsedBy({ prep, usedBy, onChange }: UsedByProps) {
           <Switch value={usedUp} onValueChange={setUsedUp} trackColor={{ true: colors.primary }} />
         </View>
       )}
+      {prep.finished_at && !prep.lost && (
+        <PrepLeftBar usedPercent={estimatedTotal} usedUp={usedUp} />
+      )}
       {rows.length === 0 ? (
         <Text style={styles.secondaryText}>No pieces have used it yet.</Text>
       ) : (
@@ -340,8 +351,12 @@ export default function PieceScreen() {
     await load();
   }
 
-  function toggleLost() {
-    setPieceLost(piece.id, !piece.lost).then(load).catch(showError('Could not save the piece'));
+  function setLost(lost: boolean) {
+    setPieceLost(piece.id, lost).then(load).catch(showError('Could not save the piece'));
+  }
+
+  function setTemplate(isTemplate: boolean) {
+    setPieceTemplate(piece.id, isTemplate).then(load).catch(showError('Could not save the piece'));
   }
 
   if (editing) {
@@ -377,6 +392,55 @@ export default function PieceScreen() {
           ),
         }}
       />
+      <Totals
+        days={days}
+        prepTime={prepTime}
+        tag={!piece.finished_at ? 'Unfinished' : piece.lost ? 'Lost' : null}
+      />
+      <View style={styles.optionsCard}>
+        {piece.finished_at && (
+          <>
+            <View style={styles.optionRow}>
+              <Text style={[styles.text, styles.dayColumn]}>Use as template</Text>
+              <Switch
+                value={piece.is_template === 1}
+                onValueChange={setTemplate}
+                trackColor={{ true: colors.primary }}
+              />
+            </View>
+            <View style={[styles.optionRow, styles.optionSeparator]}>
+              <Text style={[styles.text, styles.dayColumn]}>Lost</Text>
+              <Switch
+                value={piece.lost === 1}
+                onValueChange={setLost}
+                trackColor={{ true: colors.primary }}
+              />
+            </View>
+          </>
+        )}
+        <Pressable
+          style={({ pressed }) => [
+            styles.optionRow,
+            piece.finished_at !== null && styles.optionSeparator,
+            pressed && styles.buttonPressed,
+          ]}
+          onPress={() => setAddingTime(getLastHour(runningSince))}
+        >
+          <Text style={[styles.text, styles.dayColumn]}>Add time</Text>
+          <Chevron />
+        </Pressable>
+      </View>
+      {piece.category === 'piece' ? (
+        <PrepUsed pieceId={piece.id} lines={prepTime.lines} onChange={load} />
+      ) : (
+        <UsedBy prep={piece} usedBy={usedBy} onChange={load} />
+      )}
+      {days.length > 1 && <DayTable days={days} />}
+      {piece.notes && (
+        <View style={styles.totals}>
+          <Text style={styles.text}>{piece.notes}</Text>
+        </View>
+      )}
       {piece.photo_file_name && (
         <Image
           source={{ uri: getPhotoUri(piece.photo_file_name) }}
@@ -386,25 +450,6 @@ export default function PieceScreen() {
           }
         />
       )}
-      {!piece.finished_at && <Text style={styles.text}>Unfinished</Text>}
-      {piece.lost === 1 && (
-        <View style={styles.startAligned}>
-          <Tag label="Lost" />
-        </View>
-      )}
-      {piece.notes && <Text style={styles.text}>{piece.notes}</Text>}
-      <Totals days={days} prepTime={prepTime} />
-      {days.length > 1 && <DayTable days={days} />}
-      <Pressable
-        style={({ pressed }) => [
-          styles.addPrepButton,
-          styles.startAligned,
-          pressed && styles.buttonPressed,
-        ]}
-        onPress={() => setAddingTime(getLastHour(runningSince))}
-      >
-        <Text style={styles.buttonText}>Add time</Text>
-      </Pressable>
       {addingTime && (
         <EntryTimesPanel
           title={`Add time to ${piece.name}`}
@@ -413,23 +458,6 @@ export default function PieceScreen() {
           onCancel={() => setAddingTime(null)}
           onSave={saveAddedTime}
         />
-      )}
-      {piece.category === 'piece' ? (
-        <PrepUsed pieceId={piece.id} lines={prepTime.lines} onChange={load} />
-      ) : (
-        <UsedBy prep={piece} usedBy={usedBy} onChange={load} />
-      )}
-      {piece.finished_at && (
-        <Pressable
-          style={({ pressed }) => [
-            styles.addPrepButton,
-            styles.startAligned,
-            pressed && styles.buttonPressed,
-          ]}
-          onPress={toggleLost}
-        >
-          <Text style={styles.buttonText}>{piece.lost ? 'Mark as good' : 'Mark as lost'}</Text>
-        </Pressable>
       )}
     </ScrollView>
   );
@@ -480,6 +508,21 @@ const styles = StyleSheet.create({
   },
   chevronColumn: {
     width: 12,
+  },
+  optionsCard: {
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    backgroundColor: colors.surface,
+  },
+  optionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 12,
+  },
+  optionSeparator: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.separator,
   },
   startAligned: {
     alignSelf: 'flex-start',
