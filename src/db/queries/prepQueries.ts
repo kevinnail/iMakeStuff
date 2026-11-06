@@ -48,6 +48,12 @@ export function usedUpSql(
   return `(${prepTable}.used_up_at IS NOT NULL OR ${usedPercentSql} >= 100)`;
 }
 
+// A finished piece made from a template that used prep, with none of its own: likely a missed
+// cost. Unfinished pieces are left out, since a template's prep is only filled in at Done.
+export const noPrepSql = `(pieces.finished_at IS NOT NULL
+  AND EXISTS (SELECT 1 FROM prep_uses WHERE piece_id = pieces.template_id)
+  AND NOT EXISTS (SELECT 1 FROM prep_uses WHERE piece_id = pieces.id))`;
+
 // The columns getActualPercent needs: whether the prep is used up, and every estimate on it.
 const shareColumnsSql = `
   prep_uses.estimated_percent,
