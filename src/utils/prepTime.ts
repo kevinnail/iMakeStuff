@@ -1,26 +1,27 @@
-// A share of a prep as it was entered: "1/8" is 1 over 8, and "25" (a percent) is 25 over 100.
+// A share of a prep or a supply as it was entered: "1/8" is 1 over 8, and "25" (a percent) is
+// 25 over 100.
 export interface Share {
   share_numerator: number;
   share_denominator: number;
 }
 
-// A use of a prep, with what's needed to scale its share once the prep is used up.
-export interface PrepShare extends Share {
-  // 1 once the prep is used up.
-  prep_used_up: number;
-  // Every piece's share of the prep added together, 1 being all of it.
+// A use of a prep or a supply, with what's needed to scale its share once it's used up.
+export interface UseShare extends Share {
+  // 1 once the prep or supply is used up.
+  used_up: number;
+  // Every piece's share of it added together, 1 being all of it.
   shares_total: number;
 }
 
-export interface PrepTimeShare extends PrepShare {
+export interface PrepTimeShare extends UseShare {
   prep_worked_milliseconds: number;
 }
 
 const minute = 60 * 1000;
 
-// Ten shares of 1/10 add up to 0.9999999999999999, so shares this close to the whole prep
-// count as all of it. The SQL checks use the same number.
-export const wholePrep = 1 - 1e-9;
+// Ten shares of 1/10 add up to 0.9999999999999999, so shares this close to the whole prep or
+// supply count as all of it. The SQL checks use the same number.
+export const wholeShare = 1 - 1e-9;
 
 // What a piece took of a prep, typed as a whole percent ("13" or "13%") or a fraction ("1/8"),
 // or null for anything else. It's kept as typed, so eight shares of 1/8 add up to exactly the prep.
@@ -52,8 +53,8 @@ export function formatPercent(value: number) {
   return `${Math.round(value * 100)}%`;
 }
 
-export function usesUpPrep(sharesTotal: number) {
-  return sharesTotal >= wholePrep;
+export function isUsedUp(sharesTotal: number) {
+  return sharesTotal >= wholeShare;
 }
 
 // Times show as whole minutes, rounded down.
@@ -61,9 +62,9 @@ function wholeMinutes(milliseconds: number) {
   return Math.floor(milliseconds / minute) * minute;
 }
 
-export function getActualShare(share: PrepShare) {
+export function getActualShare(share: UseShare) {
   const estimate = getShareValue(share);
-  return share.prep_used_up ? estimate / share.shares_total : estimate;
+  return share.used_up ? estimate / share.shares_total : estimate;
 }
 
 export function getPrepTime<Use extends PrepTimeShare>(worked: number, uses: Use[]) {
@@ -72,7 +73,7 @@ export function getPrepTime<Use extends PrepTimeShare>(worked: number, uses: Use
     return {
       ...use,
       share,
-      estimated: !use.prep_used_up,
+      estimated: !use.used_up,
       milliseconds: wholeMinutes(use.prep_worked_milliseconds * share),
     };
   });
