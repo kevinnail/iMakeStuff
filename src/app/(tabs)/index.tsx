@@ -19,8 +19,8 @@ import { Dropdown } from '@/components/Dropdown';
 import { FinishPiecePanel } from '@/components/FinishPiecePanel';
 import { getDeleteMessage } from '@/components/PieceEditForm';
 import { JoinedButtons } from '@/components/JoinedButtons';
-import { getTemplateChoices, type MissingPrep } from '@/components/PrepChoices';
-import type { PrepUseChoice } from '@/components/PrepUsePanel';
+import { getTemplateChoices, type MissingPrep } from '@/components/UseChoices';
+import { getSavedChoice, type UseChoice } from '@/components/UsePanel';
 import { StopTimePanel } from '@/components/StopTimePanel';
 import { Tag } from '@/components/Tag';
 import type { WorkRecords } from '@/db/queries/dayQueries';
@@ -32,10 +32,14 @@ import {
   getTemplatePrep,
   type AvailablePrep,
 } from '@/db/queries/prepQueries';
+import {
+  getAvailableSupplies,
+  getPieceSupplies,
+  type AvailableSupply,
+} from '@/db/queries/supplyQueries';
 import { useWorkStore } from '@/store/workStore';
 import { formatClockTime, formatDuration } from '@/utils/formatTime';
 import { getPhotoUri, takePhoto } from '@/utils/photoStorage';
-import { getShareValue } from '@/utils/prepTime';
 import { getLastTouch, isQuestionDue } from '@/utils/stillWorking';
 import { colors } from '@/theme';
 import { getWholeDays, startOfDay } from '@/utils/workDays';
@@ -45,8 +49,10 @@ interface Finishing {
   piece: UnfinishedPiece;
   cameraPhotoUri: string | null;
   availablePrep: AvailablePrep[] | null;
-  initialPrep: PrepUseChoice[];
+  initialPrep: UseChoice[];
   missingPrep: MissingPrep[];
+  availableSupplies: AvailableSupply[];
+  initialSupplies: UseChoice[];
 }
 
 interface RunningTimeProps {
@@ -98,16 +104,9 @@ async function loadFinishPrep(piece: UnfinishedPiece) {
     getPiecePrep(piece.id),
     piece.template_id === null ? [] : getTemplatePrep(piece.template_id),
   ]);
-  const savedPrep = usedPrep.map((use) => ({
-    prep: {
-      id: use.prep_id,
-      name: use.prep_name,
-      otherPiecesShare: use.shares_total - getShareValue(use),
-      usedUp: use.prep_used_up === 1,
-    },
-    share: { share_numerator: use.share_numerator, share_denominator: use.share_denominator },
-    useId: use.id,
-  }));
+  const savedPrep = usedPrep.map((use) =>
+    getSavedChoice(use, { id: use.prep_id, name: use.prep_name }),
+  );
   const template = getTemplateChoices(
     templateUses.filter((use) => !usedPrep.some((saved) => saved.prep_name === use.prep_name)),
   );
@@ -115,6 +114,23 @@ async function loadFinishPrep(piece: UnfinishedPiece) {
     availablePrep,
     initialPrep: [...savedPrep, ...template.chosen],
     missingPrep: template.missing,
+  };
+}
+
+// What the panel after Done starts with: the prep (for a piece) and the supplies already on it,
+// and what can be added.
+async function loadFinishUses(piece: UnfinishedPiece) {
+  const [prep, availableSupplies, usedSupplies] = await Promise.all([
+    loadFinishPrep(piece),
+    getAvailableSupplies(piece.id),
+    getPieceSupplies(piece.id),
+  ]);
+  return {
+    ...prep,
+    availableSupplies,
+    initialSupplies: usedSupplies.map((use) =>
+      getSavedChoice(use, { id: use.supply_id, name: use.supply_name }),
+    ),
   };
 }
 
@@ -289,7 +305,7 @@ export default function WorkScreen() {
     setOpeningPieceId(piece.id);
     try {
       const cameraPhotoUri = piece.photo_file_name ? null : await takePhoto();
-      setFinishing({ piece, cameraPhotoUri, ...(await loadFinishPrep(piece)) });
+      setFinishing({ piece, cameraPhotoUri, ...(await loadFinishUses(piece)) });
     } finally {
       setOpeningPieceId(null);
     }
@@ -305,14 +321,17 @@ export default function WorkScreen() {
       availablePrep={finishing.availablePrep}
       initialPrep={finishing.initialPrep}
       missingPrep={finishing.missingPrep}
+      availableSupplies={finishing.availableSupplies}
+      initialSupplies={finishing.initialSupplies}
       onCancel={() => setFinishing(null)}
-      onSave={(notes, lost, prepUses) =>
+      onSave={(notes, lost, prepUses, supplyUses) =>
         finish(finishing.piece.id, {
           notes,
           cameraPhotoUri: finishing.cameraPhotoUri,
           savedPhotoFileName: finishing.piece.photo_file_name,
           lost,
           prepUses,
+          supplyUses,
         }).then(() => setFinishing(null))
       }
     />
