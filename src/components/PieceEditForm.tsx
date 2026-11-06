@@ -13,6 +13,7 @@ import {
 import { colors } from '@/theme';
 import { formatDuration } from '@/utils/formatTime';
 import { deletePhoto, getPhotoUri, showPhotoChoices, withSavedPhoto } from '@/utils/photoStorage';
+import { showError } from '@/utils/showError';
 
 // The saved photo, a new one to copy in, or none.
 type PhotoChoice = { kind: 'saved' } | { kind: 'new'; uri: string } | { kind: 'none' };
@@ -31,10 +32,6 @@ const categoryOptions: { value: PieceCategory; label: string; color?: string }[]
   { value: 'piece', label: 'Piece' },
   { value: 'prep', label: 'Prep', color: colors.prep },
 ];
-
-function showError(title: string) {
-  return (error: Error) => Alert.alert(title, error.message);
-}
 
 export function getDeleteMessage(worked: number, usedByCount: number) {
   const workLine = `Its ${formatDuration(worked)} of work comes off the days it was worked.`;
