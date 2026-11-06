@@ -10,10 +10,16 @@ import {
 } from 'react-native';
 
 import { Chevron } from '@/components/Chevron';
-import { PrepUsePanel, type PrepUseChoice } from '@/components/PrepUsePanel';
-import type { AvailablePrep, TemplatePrepUse } from '@/db/queries/prepQueries';
+import {
+  UsePanel,
+  useLabels,
+  type AvailableItem,
+  type UseChoice,
+  type UseKind,
+} from '@/components/UsePanel';
+import type { TemplatePrepUse } from '@/db/queries/prepQueries';
 import { colors } from '@/theme';
-import { formatShare, getShareValue, usesUpPrep } from '@/utils/prepTime';
+import { formatShare, getShareValue, isUsedUp } from '@/utils/prepTime';
 
 // A template's prep that's used up or lost with no newer batch, shown so it's clear nothing was added for it.
 export interface MissingPrep {
@@ -22,11 +28,13 @@ export interface MissingPrep {
   reason: 'Used up' | 'Lost';
 }
 
-interface PrepChoicesProps {
-  availablePrep: AvailablePrep[];
-  chosen: PrepUseChoice[];
-  missing: MissingPrep[];
-  onChange: (chosen: PrepUseChoice[]) => void;
+interface UseChoicesProps {
+  kind: UseKind;
+  availableItems: AvailableItem[];
+  chosen: UseChoice[];
+  // A template's prep with nothing to add for it. Supplies have none.
+  missing?: MissingPrep[];
+  onChange: (chosen: UseChoice[]) => void;
   // Sets the card's color where it sits on a panel the color of the page's cards.
   style?: StyleProp<ViewStyle>;
 }
@@ -36,14 +44,14 @@ interface PrepChoicesProps {
 // as missing lines.
 export function getTemplateChoices(uses: TemplatePrepUse[]) {
   const chosen = uses.flatMap(
-    ({ prep_id, share_numerator, share_denominator, replacement }): PrepUseChoice[] =>
+    ({ prep_id, share_numerator, share_denominator, replacement }): UseChoice[] =>
       replacement
         ? [
             {
-              prep: {
+              item: {
                 id: replacement.id,
                 name: replacement.name,
-                otherPiecesShare: replacement.used_share,
+                otherUsesShare: replacement.used_share,
                 usedUp: false,
               },
               share: { share_numerator, share_denominator },
@@ -65,17 +73,17 @@ export function getTemplateChoices(uses: TemplatePrepUse[]) {
 
 // A template's amount hasn't been through the prep panel, which asks before a use reaches 100%,
 // so the form's Save asks instead when one would use its prep up.
-export function confirmTemplateUseUp(chosen: PrepUseChoice[], save: () => void) {
+export function confirmTemplateUseUp(chosen: UseChoice[], save: () => void) {
   const usingUp = chosen.filter(
-    ({ prep, share, fromTemplate }) =>
-      fromTemplate && usesUpPrep(prep.otherPiecesShare + getShareValue(share)),
+    ({ item, share, fromTemplate }) =>
+      fromTemplate && isUsedUp(item.otherUsesShare + getShareValue(share)),
   );
   if (usingUp.length === 0) {
     save();
     return;
   }
   Alert.alert(
-    `Use up ${usingUp.map(({ prep }) => prep.name).join(' and ')}?`,
+    `Use up ${usingUp.map(({ item }) => item.name).join(' and ')}?`,
     "The template's amount brings it to 100% or more, so saving marks it used up.",
     [
       { text: 'Cancel', style: 'cancel' },
@@ -84,60 +92,68 @@ export function confirmTemplateUseUp(chosen: PrepUseChoice[], save: () => void) 
   );
 }
 
-// Prep used on a piece: the heading, then the list as one card. Each chosen prep is a row with its
-// share, tapped to change or remove it. A template prep that's gone is a row saying so, with
-// nothing added for it, and isn't saved. The last row adds prep. Nothing is saved until the
-// form it's in is.
-export function PrepChoices({ availablePrep, chosen, missing, onChange, style }: PrepChoicesProps) {
-  const [pickingPrep, setPickingPrep] = useState(false);
-  const [changingPrep, setChangingPrep] = useState<PrepUseChoice | null>(null);
-  const unchosenPrep = availablePrep.filter(
-    (prep) => !chosen.some((choice) => choice.prep.id === prep.id),
+// Prep or supplies used on a piece: the heading, then the list as one card. Each chosen one is
+// a row with its share, tapped to change or remove it. A template prep that's gone is a row
+// saying so, with nothing added for it, and isn't saved. The last row adds one. Nothing is
+// saved until the form it's in is.
+export function UseChoices({
+  kind,
+  availableItems,
+  chosen,
+  missing = [],
+  onChange,
+  style,
+}: UseChoicesProps) {
+  const labels = useLabels[kind];
+  const [picking, setPicking] = useState(false);
+  const [changing, setChanging] = useState<UseChoice | null>(null);
+  const unchosenItems = availableItems.filter(
+    (item) => !chosen.some((choice) => choice.item.id === item.id),
   );
   const isEmpty = chosen.length === 0 && missing.length === 0;
 
-  function addPrep(choice: PrepUseChoice) {
+  function add(choice: UseChoice) {
     onChange([...chosen, choice]);
-    setPickingPrep(false);
+    setPicking(false);
   }
 
   // Keeps the line's note and saved use, since only the share changes. The panel has asked
   // about using it up, so it's no longer the template's amount.
-  function changePrep({ prep, share }: PrepUseChoice) {
+  function change({ item, share }: UseChoice) {
     onChange(
       chosen.map((choice) =>
-        choice.prep.id === prep.id ? { ...choice, share, fromTemplate: false } : choice,
+        choice.item.id === item.id ? { ...choice, share, fromTemplate: false } : choice,
       ),
     );
-    setChangingPrep(null);
+    setChanging(null);
   }
 
-  function removePrep(prepId: number) {
-    onChange(chosen.filter((choice) => choice.prep.id !== prepId));
-    setChangingPrep(null);
+  function remove(itemId: number) {
+    onChange(chosen.filter((choice) => choice.item.id !== itemId));
+    setChanging(null);
   }
 
   return (
     <View style={styles.section}>
-      <Text style={styles.heading}>Prep used</Text>
+      <Text style={styles.heading}>{labels.heading}</Text>
       <View style={[styles.card, style]}>
         {isEmpty && (
           <View style={styles.row}>
-            <Text style={styles.secondaryText}>No prep added</Text>
+            <Text style={styles.secondaryText}>{labels.noneAdded}</Text>
           </View>
         )}
         {chosen.map((choice, index) => (
           <Pressable
-            key={choice.prep.id}
+            key={choice.item.id}
             style={({ pressed }) => [
               styles.row,
               index > 0 && styles.separator,
               pressed && styles.buttonPressed,
             ]}
-            onPress={() => setChangingPrep(choice)}
+            onPress={() => setChanging(choice)}
           >
             <View style={styles.name}>
-              <Text style={styles.text}>{choice.prep.name}</Text>
+              <Text style={styles.text}>{choice.item.name}</Text>
               {choice.note ? <Text style={styles.note}>{choice.note}</Text> : null}
             </View>
             <Text style={styles.text}>{formatShare(choice.share)}</Text>
@@ -158,26 +174,28 @@ export function PrepChoices({ availablePrep, chosen, missing, onChange, style }:
         ))}
         <Pressable
           style={({ pressed }) => [styles.row, styles.separator, pressed && styles.buttonPressed]}
-          onPress={() => setPickingPrep(true)}
+          onPress={() => setPicking(true)}
         >
-          <Text style={styles.addText}>Add prep</Text>
+          <Text style={styles.addText}>{labels.add}</Text>
         </Pressable>
       </View>
-      {pickingPrep && (
-        <PrepUsePanel
-          prepList={unchosenPrep}
+      {picking && (
+        <UsePanel
+          kind={kind}
+          itemList={unchosenItems}
           initial={null}
-          onCancel={() => setPickingPrep(false)}
-          onSave={addPrep}
+          onCancel={() => setPicking(false)}
+          onSave={add}
         />
       )}
-      {changingPrep && (
-        <PrepUsePanel
-          prepList={null}
-          initial={changingPrep}
-          onCancel={() => setChangingPrep(null)}
-          onSave={changePrep}
-          onRemove={() => removePrep(changingPrep.prep.id)}
+      {changing && (
+        <UsePanel
+          kind={kind}
+          itemList={null}
+          initial={changing}
+          onCancel={() => setChanging(null)}
+          onSave={change}
+          onRemove={() => remove(changing.item.id)}
         />
       )}
     </View>
