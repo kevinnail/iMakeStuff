@@ -6,9 +6,11 @@ import {
   finishPiece,
   getPieceDetail,
   getPieces,
+  getTemplates,
   getUnfinishedPieces,
   setPieceLost,
   setPiecePhoto,
+  setPieceTemplate,
   startPiece,
   switchToPiece,
   updatePiece,
@@ -58,6 +60,7 @@ describe('startPiece', () => {
         category: 'piece',
         photo_file_name: null,
         worked_milliseconds: 0,
+        template_id: null,
         running_since: segments[0].started_at,
       },
     ]);
@@ -182,6 +185,7 @@ describe('getUnfinishedPieces', () => {
         category: 'piece',
         photo_file_name: null,
         worked_milliseconds: 105 * 60 * 1000,
+        template_id: null,
         running_since: null,
       },
     ]);
@@ -202,6 +206,7 @@ describe('endDay', () => {
         category: 'piece',
         photo_file_name: null,
         worked_milliseconds: expect.any(Number),
+        template_id: null,
         running_since: null,
       },
     ]);
@@ -473,6 +478,8 @@ describe('getPieces', () => {
         worked_milliseconds: 30 * 60 * 1000,
         prep_milliseconds: null,
         prep_estimated: false,
+        used_percent: 0,
+        used_up: 0,
       },
       {
         id: 2,
@@ -484,6 +491,8 @@ describe('getPieces', () => {
         worked_milliseconds: 2 * 60 * 60 * 1000,
         prep_milliseconds: null,
         prep_estimated: false,
+        used_percent: 0,
+        used_up: 0,
       },
       {
         id: 1,
@@ -495,6 +504,8 @@ describe('getPieces', () => {
         worked_milliseconds: 60 * 60 * 1000,
         prep_milliseconds: null,
         prep_estimated: false,
+        used_percent: 0,
+        used_up: 0,
       },
     ]);
   });
@@ -538,6 +549,7 @@ describe('getPieceDetail', () => {
         finished_at: null,
         used_up_at: null,
         lost: 0,
+        is_template: 0,
       },
       segments: [
         { started_at: '2026-10-31T09:00:00.000Z', ended_at: '2026-10-31T10:00:00.000Z' },
@@ -699,5 +711,71 @@ describe('deletePiece', () => {
   // Otherwise a stale page could report a piece as deleted when nothing was.
   it('fails for a piece that does not exist', async () => {
     await expect(deletePiece(999)).rejects.toThrow('That piece no longer exists.');
+  });
+});
+
+describe('setPieceTemplate', () => {
+  const templateSql = 'SELECT is_template FROM pieces WHERE id = 1';
+
+  // Otherwise a piece could never be offered on Add Work's Existing, or never taken off it.
+  it('marks a finished piece as a template and back', async () => {
+    await database.execAsync(`
+      INSERT INTO pieces (id, name, category, notes, finished_at) VALUES
+        (1, 'Blue vase', 'piece', 'Cobalt', '2026-10-30T12:00:00.000Z');
+    `);
+
+    await setPieceTemplate(1, true);
+    expect(await database.getFirstAsync(templateSql)).toEqual({ is_template: 1 });
+
+    await setPieceTemplate(1, false);
+    expect(await database.getFirstAsync(templateSql)).toEqual({ is_template: 0 });
+  });
+
+  // Otherwise a piece still being made could be copied before anyone knows how it turns out.
+  it('rejects marking an unfinished piece', async () => {
+    await database.execAsync(
+      "INSERT INTO pieces (id, name, category) VALUES (1, 'Blue vase', 'piece')",
+    );
+
+    await expect(setPieceTemplate(1, true)).rejects.toThrow(
+      'Only a finished piece can be a template.',
+    );
+    expect(await database.getFirstAsync(templateSql)).toEqual({ is_template: 0 });
+  });
+});
+
+describe('getTemplates', () => {
+  // Otherwise Existing would offer every piece again, and adding to one would be back.
+  it('lists only templates, pieces and prep, by name', async () => {
+    await database.execAsync(`
+      INSERT INTO pieces (id, name, category, notes, photo_file_name, finished_at, is_template)
+      VALUES
+        (1, 'blue vase', 'piece', 'Cobalt', 'vase.jpg', '2026-10-30T12:00:00.000Z', 1),
+        (2, 'Green bowl', 'piece', 'Lime', NULL, '2026-10-30T13:00:00.000Z', 0),
+        (3, 'Dichroic cane', 'prep', 'Blue', NULL, '2026-10-30T14:00:00.000Z', 1);
+      INSERT INTO pieces (id, name, category) VALUES (4, 'Red cup', 'piece');
+    `);
+
+    expect(await getTemplates()).toEqual([
+      { id: 1, name: 'blue vase', category: 'piece', photo_file_name: 'vase.jpg' },
+      { id: 3, name: 'Dichroic cane', category: 'prep', photo_file_name: null },
+    ]);
+  });
+});
+
+describe('deleting a template', () => {
+  // Otherwise deleting a template would fail, or take the pieces made from it with it.
+  it('leaves the pieces made from it with no template', async () => {
+    await database.execAsync(`
+      INSERT INTO pieces (id, name, category, notes, finished_at, is_template) VALUES
+        (1, 'Blue vase', 'piece', 'Cobalt', '2026-10-30T12:00:00.000Z', 1);
+      INSERT INTO pieces (id, name, category, template_id) VALUES (2, 'Blue vase', 'piece', 1);
+    `);
+
+    await deletePiece(1);
+
+    expect(await database.getAllAsync('SELECT id, template_id FROM pieces')).toEqual([
+      { id: 2, template_id: null },
+    ]);
   });
 });
