@@ -6,6 +6,7 @@ import {
   getUsedPrep,
   insertPrepUse,
   noPrepSql,
+  shareSql,
   usedUpSql,
   type FinishPrepUse,
   type PieceUsingPrep,
@@ -38,7 +39,8 @@ export interface PieceListItem {
   prep_milliseconds: number | null;
   // true while any of its prep isn't used up.
   prep_estimated: boolean;
-  used_percent: number;
+  // Every piece's share of this prep added together, 1 being all of it.
+  used_share: number;
   used_up: number;
   no_prep: number;
 }
@@ -189,8 +191,10 @@ export async function finishPiece(
         continue;
       }
       const changed = await database.runAsync(
-        'UPDATE prep_uses SET estimated_percent = ? WHERE id = ? AND piece_id = ?',
-        use.estimatedPercent,
+        `UPDATE prep_uses SET share_numerator = ?, share_denominator = ?
+         WHERE id = ? AND piece_id = ?`,
+        use.share.share_numerator,
+        use.share.share_denominator,
         use.useId,
         pieceId,
       );
@@ -312,24 +316,24 @@ export async function getUnfinishedPieces(): Promise<UnfinishedPiece[]> {
 }
 
 // Unfinished pieces first, then finished ones newest first. Prep time is worked out the same
-// way as on the piece's page, so the list and the page always match. Each prep's estimates are
+// way as on the piece's page, so the list and the page always match. Each prep's shares are
 // added up once, in one pass over prep_uses, and a piece that isn't prep has none to add.
 export async function getPieces(): Promise<PieceListItem[]> {
   const database = await getDb();
-  const usedPercentSql = 'coalesce(prep_totals.used_percent, 0)';
+  const usedShareSql = 'coalesce(prep_totals.used_share, 0)';
   const [pieces, usedPrep] = await Promise.all([
     database.getAllAsync<Omit<PieceListItem, 'prep_milliseconds' | 'prep_estimated'>>(
       `SELECT pieces.id, pieces.name, pieces.category, pieces.photo_file_name, pieces.finished_at,
          pieces.lost,
          round(total(julianday(coalesce(work_segments.ended_at, 'now'))
            - julianday(work_segments.started_at)) * 86400000) AS worked_milliseconds,
-         ${usedPercentSql} AS used_percent,
-         ${usedUpSql('pieces', usedPercentSql)} AS used_up,
+         ${usedShareSql} AS used_share,
+         ${usedUpSql('pieces', usedShareSql)} AS used_up,
          ${noPrepSql} AS no_prep
        FROM pieces
        JOIN work_segments ON work_segments.piece_id = pieces.id
        LEFT JOIN (
-         SELECT prep_id, total(estimated_percent) AS used_percent FROM prep_uses GROUP BY prep_id
+         SELECT prep_id, total(${shareSql}) AS used_share FROM prep_uses GROUP BY prep_id
        ) AS prep_totals ON prep_totals.prep_id = pieces.id
        GROUP BY pieces.id
        ORDER BY pieces.finished_at IS NOT NULL, pieces.finished_at DESC, pieces.id DESC`,
