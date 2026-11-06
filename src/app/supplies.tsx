@@ -65,7 +65,7 @@ export default function SuppliesScreen() {
           >
             <View style={styles.details}>
               <Text style={styles.name}>{supply.name}</Text>
-              <PrepLeftBar usedShare={0} usedUp={supply.used_up_at !== null} />
+              <PrepLeftBar usedShare={supply.used_share} usedUp={supply.used_up === 1} />
               <View style={styles.bottomRow}>
                 <Text style={[styles.detailText, styles.fill]}>
                   Bought {formatDay(Date.parse(supply.bought_at))}
