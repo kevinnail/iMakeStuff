@@ -2,6 +2,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { getDb } from '@/db/database';
 import type { PieceCategory } from '@/db/queries/pieceQueries';
+import { insertPrepUse, type NewPrepUse } from '@/db/queries/prepQueries';
 import { getLastTouch } from '@/utils/stillWorking';
 
 export type EntryKind = 'segment' | 'break';
@@ -33,12 +34,12 @@ interface TimelineEntry {
 }
 
 export interface PastWork {
-  piece: { id: number } | { name: string; category: PieceCategory };
+  piece: { name: string; category: PieceCategory; templateId: number | null };
   startedAt: string;
   endedAt: string;
-
   photoFileName: string | null;
   finish: { notes: string | null; lost: boolean } | null;
+  prepUses: NewPrepUse[];
 }
 
 const tableByKind = { segment: 'work_segments', break: 'breaks' } as const;
@@ -144,48 +145,41 @@ export async function addBreak(startedAt: string, endedAt: string): Promise<void
   });
 }
 
+// A finished piece is finished at the work's end in the same insert, so the database's photo
+// or description rule applies to it.
 export async function addPastWork({
   piece,
   startedAt,
   endedAt,
   photoFileName,
   finish,
+  prepUses,
 }: PastWork): Promise<void> {
   const database = await getDb();
   const now = new Date().toISOString();
   await database.withTransactionAsync(async () => {
     const overlapping = await getOverlappingEntries(database, startedAt, endedAt, now);
     if (overlapping.length > 0) throw new Error('That overlaps another entry.');
-    const pieceId =
-      'id' in piece
-        ? piece.id
-        : (
-            await database.runAsync(
-              'INSERT INTO pieces (name, category, photo_file_name, created_at) VALUES (?, ?, ?, ?)',
-              piece.name,
-              piece.category,
-              photoFileName,
-              startedAt,
-            )
-          ).lastInsertRowId;
+    const { lastInsertRowId: pieceId } = await database.runAsync(
+      `INSERT INTO pieces
+         (name, category, template_id, photo_file_name, created_at, finished_at, notes, lost)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      piece.name,
+      piece.category,
+      piece.templateId,
+      photoFileName,
+      startedAt,
+      finish ? endedAt : null,
+      finish?.notes ?? null,
+      finish?.lost ? 1 : 0,
+    );
     await database.runAsync(
       'INSERT INTO work_segments (piece_id, started_at, ended_at) VALUES (?, ?, ?)',
       pieceId,
       startedAt,
       endedAt,
     );
-    if (!finish) return;
-    const finished = await database.runAsync(
-      `UPDATE pieces SET finished_at = ?, notes = ?,
-         photo_file_name = coalesce(?, photo_file_name), lost = ?
-       WHERE id = ? AND finished_at IS NULL`,
-      endedAt,
-      finish.notes,
-      photoFileName,
-      finish.lost ? 1 : 0,
-      pieceId,
-    );
-    if (finished.changes === 0) throw new Error('That piece is already finished.');
+    for (const use of prepUses) await insertPrepUse(database, pieceId, use);
   });
 }
 

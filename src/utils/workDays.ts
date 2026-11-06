@@ -30,7 +30,7 @@ function overlap(range: TimeRange, from: number, to: number, now: number) {
   return Math.max(0, Math.min(end, to) - Math.max(start, from));
 }
 
-function totalOverlap(ranges: TimeRange[], from: number, to: number, now: number) {
+export function totalOverlap(ranges: TimeRange[], from: number, to: number, now: number) {
   return ranges.reduce((total, range) => total + overlap(range, from, to, now), 0);
 }
 

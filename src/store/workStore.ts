@@ -17,14 +17,17 @@ import {
   deletePiece,
   endDay,
   finishPiece,
+  getTemplates,
   getUnfinishedPieces,
   setPiecePhoto,
+  startFromTemplate,
   startPiece,
   switchToPiece,
   type PieceCategory,
+  type Template,
   type UnfinishedPiece,
 } from '@/db/queries/pieceQueries';
-import type { NewPrepUse } from '@/db/queries/prepQueries';
+import type { FinishPrepUse } from '@/db/queries/prepQueries';
 import { deletePhoto, withSavedPhoto } from '@/utils/photoStorage';
 import { startOfDay } from '@/utils/workDays';
 
@@ -34,7 +37,7 @@ interface FinishInput {
   cameraPhotoUri: string | null;
   savedPhotoFileName: string | null;
   lost: boolean;
-  prepUses: NewPrepUse[];
+  prepUses: FinishPrepUse[];
 }
 
 interface WorkState {
@@ -42,10 +45,13 @@ interface WorkState {
   runningBreak: RunningBreak | null;
   // The running piece's segment or the running break, for the Still working question.
   runningEntry: RunningEntry | null;
+  // For starting another one like a piece made before.
+  templates: Template[];
   // Everything since midnight, for the line about today on the Work screen.
   today: WorkRecords;
   load: () => Promise<void>;
   start: (name: string, category: PieceCategory) => Promise<void>;
+  startFromTemplate: (templateId: number) => Promise<void>;
   switchTo: (pieceId: number) => Promise<void>;
   addPhoto: (piece: UnfinishedPiece, cameraPhotoUri: string) => Promise<void>;
   finish: (pieceId: number, input: FinishInput) => Promise<void>;
@@ -72,12 +78,19 @@ export const useWorkStore = create<WorkState>()((set) => ({
   pieces: [],
   runningBreak: null,
   runningEntry: null,
+  templates: [],
   today: { segments: [], breaks: [], finishedPieces: [] },
+
   load: async () => {
-    set(await readWork());
+    const [work, templates] = await Promise.all([readWork(), getTemplates()]);
+    set({ ...work, templates });
   },
   start: async (name, category) => {
     await startPiece(name, category);
+    set(await readWork());
+  },
+  startFromTemplate: async (templateId) => {
+    await startFromTemplate(templateId);
     set(await readWork());
   },
   switchTo: async (pieceId) => {

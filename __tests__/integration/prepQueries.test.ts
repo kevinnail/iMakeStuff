@@ -5,11 +5,13 @@ import {
   getPieceDetail,
   getPieces,
   setPieceLost,
+  startFromTemplate,
 } from '@/db/queries/pieceQueries';
 import {
   addPrepUse,
   changePrepUse,
   getAvailablePrep,
+  getTemplatePrep,
   removePrepUse,
   setPrepUsedUp,
 } from '@/db/queries/prepQueries';
@@ -448,5 +450,179 @@ describe('getPieces with prep', () => {
       prep_milliseconds: 4 * hour + 40 * minute,
       prep_estimated: false,
     });
+  });
+
+  // Otherwise the Prep list's bars couldn't show how much of each prep is left.
+  it("gives each prep its estimates added together and whether it's used up", async () => {
+    await addPrepUse(vaseId, use(caneId, 25));
+    await addPrepUse(bowlId, use(caneId, 35));
+    await addPrepUse(vaseId, use(fritId, 60));
+    await addPrepUse(bowlId, use(fritId, 40));
+
+    const pieces = await getPieces();
+    expect(pieces.find((piece) => piece.id === caneId)).toMatchObject({
+      used_percent: 60,
+      used_up: 0,
+    });
+    expect(pieces.find((piece) => piece.id === fritId)).toMatchObject({
+      used_percent: 100,
+      used_up: 1,
+    });
+  });
+
+  // Otherwise prep marked Used up before reaching 100% would still show as having some left.
+  it('shows prep marked used up as used up, and a piece that is not prep as having no uses', async () => {
+    await addPrepUse(vaseId, use(caneId, 25));
+    await setPrepUsedUp(caneId, true);
+
+    const pieces = await getPieces();
+    expect(pieces.find((piece) => piece.id === caneId)).toMatchObject({
+      used_percent: 25,
+      used_up: 1,
+    });
+    expect(pieces.find((piece) => piece.id === vaseId)).toMatchObject({
+      used_percent: 0,
+      used_up: 0,
+    });
+  });
+});
+
+describe('getTemplatePrep', () => {
+  const newCaneId = 6;
+
+  // The bowl is the template, using 30% of the cane and 20% of the frit.
+  beforeEach(async () => {
+    await addPrepUse(bowlId, use(caneId, 30));
+    await addPrepUse(bowlId, use(fritId, 20));
+  });
+
+  // Otherwise a template whose cane ran out couldn't be copied without hunting for the new one.
+  it('swaps a used-up prep for an available one with the same name and keeps one still available', async () => {
+    await setPrepUsedUp(caneId, true);
+    await database.execAsync(`
+      INSERT INTO pieces (id, name, category, notes, finished_at) VALUES
+        (${newCaneId}, 'Dichroic cane', 'prep', 'Second pull', '2026-10-31T17:00:00.000Z');
+    `);
+
+    expect(await getTemplatePrep(bowlId)).toEqual([
+      {
+        prep_id: caneId,
+        prep_name: 'Dichroic cane',
+        prep_lost: 0,
+        estimated_percent: 30,
+        replacement: { id: newCaneId, name: 'Dichroic cane', used_percent: 0 },
+      },
+      {
+        prep_id: fritId,
+        prep_name: 'Frit mix',
+        prep_lost: 0,
+        estimated_percent: 20,
+        replacement: { id: fritId, name: 'Frit mix', used_percent: 20 },
+      },
+    ]);
+  });
+
+  // Otherwise a template with a prep that's gone would offer one that can't be saved.
+  it('leaves off a prep that is used up or lost with no match', async () => {
+    await setPrepUsedUp(caneId, true);
+    await setPieceLost(fritId, true);
+
+    expect(await getTemplatePrep(bowlId)).toEqual([
+      expect.objectContaining({ prep_id: caneId, prep_lost: 0, replacement: null }),
+      expect.objectContaining({ prep_id: fritId, prep_lost: 1, replacement: null }),
+    ]);
+  });
+});
+
+describe('startFromTemplate', () => {
+  const templateSql = `SELECT id, name, category, template_id, finished_at, photo_file_name
+    FROM pieces WHERE id = ?`;
+
+  // The bowl is the template, using 30% of the cane.
+  beforeEach(async () => {
+    await database.execAsync(
+      `UPDATE pieces SET is_template = 1, photo_file_name = 'bowl.jpg' WHERE id = ${bowlId}`,
+    );
+    await addPrepUse(bowlId, use(caneId, 30));
+  });
+
+  // Otherwise starting another one would need the name typed again, would change the template, or would count its prep as used before Done.
+  it('starts a new running piece with its name, category, and template, saving no prep and leaving the template alone', async () => {
+    const pieceId = await startFromTemplate(bowlId);
+
+    expect(await database.getFirstAsync(templateSql, pieceId)).toEqual({
+      id: pieceId,
+      name: 'Green bowl',
+      category: 'piece',
+      template_id: bowlId,
+      finished_at: null,
+      photo_file_name: null,
+    });
+    expect(
+      await database.getAllAsync('SELECT piece_id FROM work_segments WHERE ended_at IS NULL'),
+    ).toEqual([{ piece_id: pieceId }]);
+    expect(
+      await database.getAllAsync(
+        'SELECT piece_id, prep_id, estimated_percent FROM prep_uses ORDER BY id',
+      ),
+    ).toEqual([{ piece_id: bowlId, prep_id: caneId, estimated_percent: 30 }]);
+    expect(await database.getFirstAsync(templateSql, bowlId)).toEqual({
+      id: bowlId,
+      name: 'Green bowl',
+      category: 'piece',
+      template_id: null,
+      finished_at: '2026-10-30T17:00:00.000Z',
+      photo_file_name: 'bowl.jpg',
+    });
+  });
+
+  // Otherwise any piece could be started as a copy, bypassing the switch that picks which ones are offered.
+  it('rejects starting from a piece that is not a template and starts nothing', async () => {
+    await expect(startFromTemplate(fritId)).rejects.toThrow("That piece isn't a template.");
+    expect(
+      await database.getAllAsync('SELECT id FROM work_segments WHERE ended_at IS NULL'),
+    ).toEqual([]);
+  });
+});
+
+describe('finishPiece with prep already on the piece', () => {
+  // Otherwise a change made to copied prep in the panel after Done would be lost, or a removed one kept.
+  it('changes a kept use, removes a dropped one, and adds a new one', async () => {
+    await addPrepUse(vaseId, use(caneId, 30));
+    await addPrepUse(vaseId, use(fritId, 20));
+    const caneUseId = await getUseId(vaseId, caneId);
+
+    await finishPiece(vaseId, {
+      ...finish,
+      prepUses: [{ ...use(caneId, 40), useId: caneUseId }],
+    });
+
+    expect(
+      await database.getAllAsync(
+        'SELECT id, prep_id, estimated_percent FROM prep_uses WHERE piece_id = ? ORDER BY id',
+        vaseId,
+      ),
+    ).toEqual([{ id: caneUseId, prep_id: caneId, estimated_percent: 40 }]);
+  });
+
+  // Otherwise a new prep added at Done next to copied ones would be dropped.
+  it('adds a new use beside one already on the piece', async () => {
+    await addPrepUse(vaseId, use(caneId, 30));
+    const caneUseId = await getUseId(vaseId, caneId);
+
+    await finishPiece(vaseId, {
+      ...finish,
+      prepUses: [{ ...use(caneId, 30), useId: caneUseId }, use(fritId, 10)],
+    });
+
+    expect(
+      await database.getAllAsync(
+        'SELECT prep_id, estimated_percent FROM prep_uses WHERE piece_id = ? ORDER BY id',
+        vaseId,
+      ),
+    ).toEqual([
+      { prep_id: caneId, estimated_percent: 30 },
+      { prep_id: fritId, estimated_percent: 10 },
+    ]);
   });
 });

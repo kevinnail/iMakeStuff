@@ -8,14 +8,16 @@ export interface NewPrepUse {
   estimatedPercent: number;
 }
 
-// Finished prep that isn't used up or lost, with every piece's estimate on it added together.
+export interface FinishPrepUse extends NewPrepUse {
+  useId?: number;
+}
+
 export interface AvailablePrep {
   id: number;
   name: string;
   used_percent: number;
 }
 
-// A prep a piece used, with the prep's worked time for the piece's share of it.
 export interface UsedPrep extends PrepTimeShare {
   id: number;
   piece_id: number;
@@ -23,19 +25,27 @@ export interface UsedPrep extends PrepTimeShare {
   prep_name: string;
 }
 
-// A piece that used a prep, for the prep's page.
+export interface TemplatePrepUse {
+  prep_id: number;
+  prep_name: string;
+  prep_lost: number;
+  estimated_percent: number;
+  replacement: AvailablePrep | null;
+}
+
 export interface PieceUsingPrep extends PrepShare {
   id: number;
   piece_id: number;
   piece_name: string;
 }
 
-// A prep is used up when Used up is on, or when its estimates add up to 100% or more. Reaching
-// 100% isn't stored, so lowering or removing a use, or deleting a piece that used it, puts the
-// prep back in use, while Used up tapped on stays on.
-function usedUpSql(prepTable: string) {
-  return `(${prepTable}.used_up_at IS NOT NULL OR
-    (SELECT total(estimated_percent) FROM prep_uses WHERE prep_id = ${prepTable}.id) >= 100)`;
+// A query that already has the prep's estimates added together passes that column in, so they
+// aren't added up twice.
+export function usedUpSql(
+  prepTable: string,
+  usedPercentSql = `(SELECT total(estimated_percent) FROM prep_uses WHERE prep_id = ${prepTable}.id)`,
+) {
+  return `(${prepTable}.used_up_at IS NOT NULL OR ${usedPercentSql} >= 100)`;
 }
 
 // The columns getActualPercent needs: whether the prep is used up, and every estimate on it.
@@ -84,6 +94,11 @@ export function getUsedPrep(database: SQLiteDatabase, pieceId: number | null) {
   );
 }
 
+// The prep a piece already uses, for the panel after Done.
+export async function getPiecePrep(pieceId: number): Promise<UsedPrep[]> {
+  return getUsedPrep(await getDb(), pieceId);
+}
+
 export function getPiecesUsingPrep(database: SQLiteDatabase, prepId: number) {
   return database.getAllAsync<PieceUsingPrep>(
     `SELECT prep_uses.id, prep_uses.piece_id, pieces.name AS piece_name, ${shareColumnsSql}
@@ -95,8 +110,8 @@ export function getPiecesUsingPrep(database: SQLiteDatabase, prepId: number) {
   );
 }
 
-// Newest first, leaving out prep this piece already uses.
-export async function getAvailablePrep(pieceId: number): Promise<AvailablePrep[]> {
+// Newest first, leaving out prep this piece already uses. A piece not saved yet has no id.
+export async function getAvailablePrep(pieceId: number | null): Promise<AvailablePrep[]> {
   const database = await getDb();
   return database.getAllAsync<AvailablePrep>(
     `SELECT pieces.id, pieces.name, total(prep_uses.estimated_percent) AS used_percent
@@ -109,6 +124,34 @@ export async function getAvailablePrep(pieceId: number): Promise<AvailablePrep[]
      ORDER BY pieces.finished_at DESC`,
     pieceId,
   );
+}
+
+export async function getTemplatePrep(templateId: number): Promise<TemplatePrepUse[]> {
+  const database = await getDb();
+  const [uses, available] = await Promise.all([
+    database.getAllAsync<Omit<TemplatePrepUse, 'replacement'>>(
+      `SELECT prep_uses.prep_id, pieces.name AS prep_name, pieces.lost AS prep_lost,
+         prep_uses.estimated_percent
+       FROM prep_uses
+       JOIN pieces ON pieces.id = prep_uses.prep_id
+       WHERE prep_uses.piece_id = ?
+       ORDER BY prep_uses.id`,
+      templateId,
+    ),
+    getAvailablePrep(null),
+  ]);
+  const availableIds = new Set(available.map((prep) => prep.id));
+  const taken = new Set(
+    uses.map((use) => use.prep_id).filter((prepId) => availableIds.has(prepId)),
+  );
+  return uses.map((use) => {
+    const same = available.find((prep) => prep.id === use.prep_id);
+    if (same) return { ...use, replacement: same };
+    const newerBatch =
+      available.find((prep) => prep.name === use.prep_name && !taken.has(prep.id)) ?? null;
+    if (newerBatch) taken.add(newerBatch.id);
+    return { ...use, replacement: newerBatch };
+  });
 }
 
 export async function addPrepUse(pieceId: number, use: NewPrepUse): Promise<void> {

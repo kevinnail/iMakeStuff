@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Chevron } from '@/components/Chevron';
+import { DayTicks } from '@/components/DayTicks';
 import { EntryTimesPanel } from '@/components/EntryTimesPanel';
 import {
   addBreak,
@@ -11,8 +12,9 @@ import {
   type DayEntry,
 } from '@/db/queries/entryQueries';
 import { colors } from '@/theme';
+import { getDayTicks } from '@/utils/dayTicks';
 import { formatClockTime, formatDay, formatDuration } from '@/utils/formatTime';
-import { getWholeDays, startOfNextDay, type WorkDay } from '@/utils/workDays';
+import { getWholeDays, startOfNextDay, type TimeRange, type WorkDay } from '@/utils/workDays';
 
 interface PanelSettings {
   title: string;
@@ -50,7 +52,14 @@ function getTimelinePoints(entries: DayEntry[], now: number): TimelinePoint[] {
   });
 }
 
-function DaySummary({ day }: { day: WorkDay }) {
+interface DaySummaryProps {
+  day: WorkDay;
+  segments: TimeRange[];
+  breaks: TimeRange[];
+  now: number;
+}
+
+function DaySummary({ day, segments, breaks, now }: DaySummaryProps) {
   const inShop = day.lastStop - day.firstStart;
   const rows = [
     { label: 'Worked', milliseconds: day.worked, dot: null, color: colors.primary },
@@ -81,6 +90,7 @@ function DaySummary({ day }: { day: WorkDay }) {
           <Text style={[styles.summaryValue, { color }]}>{formatDuration(milliseconds)}</Text>
         </View>
       ))}
+      <DayTicks ticks={getDayTicks(day, segments, breaks, now)} />
     </View>
   );
 }
@@ -139,11 +149,11 @@ export default function DayScreen() {
   }
 
   const points = getTimelinePoints(entries, loadedAt);
-  const day = getWholeDays(
-    entries.filter((entry) => entry.kind === 'segment'),
-    entries.filter((entry) => entry.kind === 'break'),
-    loadedAt,
-  ).find((workDay) => workDay.dayStart === dayStart);
+  const segments = entries.filter((entry) => entry.kind === 'segment');
+  const breaks = entries.filter((entry) => entry.kind === 'break');
+  const day = getWholeDays(segments, breaks, loadedAt).find(
+    (workDay) => workDay.dayStart === dayStart,
+  );
 
   return (
     <ScrollView
@@ -151,7 +161,7 @@ export default function DayScreen() {
       contentContainerStyle={styles.page}
       stickyHeaderIndices={[day ? 1 : 0]}
     >
-      {day && <DaySummary day={day} />}
+      {day && <DaySummary day={day} segments={segments} breaks={breaks} now={loadedAt} />}
       <View style={styles.pinnedBar}>
         <View style={styles.titleRow}>
           <Stack.Screen options={{ title: formatDay(dayStart) }} />

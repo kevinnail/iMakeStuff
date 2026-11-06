@@ -15,10 +15,15 @@ export const SCHEMA_SQL = `
     used_up_at      TEXT,
     -- Broke or cracked partway: still finished, with its time, but not output.
     lost            INTEGER NOT NULL DEFAULT 0 CHECK (lost IN (0, 1)),
+    -- A finished piece offered on Add Work's Existing, to make another one like it.
+    is_template     INTEGER NOT NULL DEFAULT 0 CHECK (is_template IN (0, 1)),
+    -- The template this piece was made from.
+    template_id     INTEGER REFERENCES pieces(id),
     -- A finished piece must be identifiable later: it needs a photo or a description.
     CHECK (finished_at IS NULL OR photo_file_name IS NOT NULL OR trim(coalesce(notes, '')) <> ''),
     CHECK (used_up_at IS NULL OR category = 'prep'),
-    CHECK (lost = 0 OR finished_at IS NOT NULL)
+    CHECK (lost = 0 OR finished_at IS NOT NULL),
+    CHECK (is_template = 0 OR finished_at IS NOT NULL)
   );
 
   CREATE TABLE IF NOT EXISTS breaks (

@@ -12,10 +12,10 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Chevron } from '@/components/Chevron';
 import { JoinedButtons } from '@/components/JoinedButtons';
-import { PrepUsePanel, type PrepUseChoice } from '@/components/PrepUsePanel';
-import type { AvailablePrep, NewPrepUse } from '@/db/queries/prepQueries';
+import { confirmTemplateUseUp, PrepChoices, type MissingPrep } from '@/components/PrepChoices';
+import type { PrepUseChoice } from '@/components/PrepUsePanel';
+import type { AvailablePrep, FinishPrepUse } from '@/db/queries/prepQueries';
 import { colors } from '@/theme';
 
 interface FinishPiecePanelProps {
@@ -23,8 +23,11 @@ interface FinishPiecePanelProps {
   photoUri: string | null;
   // null when finishing prep, which doesn't use other prep.
   availablePrep: AvailablePrep[] | null;
+
+  initialPrep: PrepUseChoice[];
+  missingPrep: MissingPrep[];
   onCancel: () => void;
-  onSave: (notes: string | null, lost: boolean, prepUses: NewPrepUse[]) => Promise<void>;
+  onSave: (notes: string | null, lost: boolean, prepUses: FinishPrepUse[]) => Promise<void>;
 }
 
 export type Outcome = 'good' | 'lost';
@@ -45,44 +48,25 @@ export function FinishPiecePanel({
   pieceName,
   photoUri,
   availablePrep,
+  initialPrep,
+  missingPrep,
   onCancel,
   onSave,
 }: FinishPiecePanelProps) {
   const insets = useSafeAreaInsets();
   const [outcome, setOutcome] = useState<Outcome>('good');
   const [notes, setNotes] = useState('');
-  const [chosenPrep, setChosenPrep] = useState<PrepUseChoice[]>([]);
-  const [pickingPrep, setPickingPrep] = useState(false);
-  const [changingPrep, setChangingPrep] = useState<PrepUseChoice | null>(null);
+  const [chosenPrep, setChosenPrep] = useState(initialPrep);
   const [saving, setSaving] = useState(false);
   const trimmedNotes = notes.trim();
   const canSave = !saving && (photoUri !== null || trimmedNotes !== '');
-  const unchosenPrep = (availablePrep ?? []).filter(
-    (prep) => !chosenPrep.some((chosen) => chosen.prep.id === prep.id),
-  );
 
-  function addPrep(choice: PrepUseChoice) {
-    setChosenPrep((current) => [...current, choice]);
-    setPickingPrep(false);
-  }
-
-  function changePrep(choice: PrepUseChoice) {
-    setChosenPrep((current) =>
-      current.map((chosen) => (chosen.prep.id === choice.prep.id ? choice : chosen)),
-    );
-    setChangingPrep(null);
-  }
-
-  function removePrep(prepId: number) {
-    setChosenPrep((current) => current.filter((chosen) => chosen.prep.id !== prepId));
-    setChangingPrep(null);
-  }
-
-  function handleSave() {
+  function save() {
     setSaving(true);
-    const prepUses = chosenPrep.map(({ prep, estimatedPercent }) => ({
+    const prepUses = chosenPrep.map(({ prep, estimatedPercent, useId }) => ({
       prepId: prep.id,
       estimatedPercent,
+      ...(useId === undefined ? {} : { useId }),
     }));
     onSave(trimmedNotes || null, outcome === 'lost', prepUses).catch((error: Error) => {
       setSaving(false);
@@ -106,37 +90,23 @@ export function FinishPiecePanel({
             multiline
             autoFocus={!photoUri}
           />
-          {availablePrep && availablePrep.length > 0 && (
-            <View style={styles.prepSection}>
-              <View style={styles.prepRow}>
-                <Text style={styles.prepTitle}>Prep used</Text>
-                <Pressable
-                  style={({ pressed }) => [styles.addPrepButton, pressed && styles.buttonPressed]}
-                  onPress={() => setPickingPrep(true)}
-                >
-                  <Text style={styles.prepText}>Add prep</Text>
-                </Pressable>
-              </View>
-              {chosenPrep.map((chosen) => (
-                <Pressable
-                  key={chosen.prep.id}
-                  style={({ pressed }) => [styles.prepRow, pressed && styles.buttonPressed]}
-                  onPress={() => setChangingPrep(chosen)}
-                >
-                  <Text style={[styles.prepText, styles.prepName]}>{chosen.prep.name}</Text>
-                  <Text style={styles.prepText}>{chosen.estimatedPercent}%</Text>
-                  <Chevron />
-                </Pressable>
-              ))}
-            </View>
-          )}
+          {availablePrep &&
+            (availablePrep.length > 0 || chosenPrep.length > 0 || missingPrep.length > 0) && (
+              <PrepChoices
+                availablePrep={availablePrep}
+                chosen={chosenPrep}
+                missing={missingPrep}
+                onChange={setChosenPrep}
+                style={styles.prepCard}
+              />
+            )}
           <View style={styles.buttonRow}>
             <Pressable style={styles.cancelButton} onPress={onCancel}>
               <Text style={styles.cancelButtonText}>Cancel</Text>
             </Pressable>
             <Pressable
               style={[styles.saveButton, !canSave && styles.buttonDisabled]}
-              onPress={handleSave}
+              onPress={() => confirmTemplateUseUp(chosenPrep, save)}
               disabled={!canSave}
             >
               <Text style={styles.saveButtonText}>Save</Text>
@@ -144,23 +114,6 @@ export function FinishPiecePanel({
           </View>
         </View>
       </KeyboardAvoidingView>
-      {pickingPrep && (
-        <PrepUsePanel
-          prepList={unchosenPrep}
-          initial={null}
-          onCancel={() => setPickingPrep(false)}
-          onSave={addPrep}
-        />
-      )}
-      {changingPrep && (
-        <PrepUsePanel
-          prepList={null}
-          initial={changingPrep}
-          onCancel={() => setChangingPrep(null)}
-          onSave={changePrep}
-          onRemove={() => removePrep(changingPrep.prep.id)}
-        />
-      )}
     </Modal>
   );
 }
@@ -198,36 +151,8 @@ const styles = StyleSheet.create({
     borderColor: colors.separator,
     borderRadius: 8,
   },
-  prepSection: {
-    gap: 8,
-  },
-  prepRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: 12,
-  },
-  prepTitle: {
-    fontSize: 18,
-    color: colors.secondaryText,
-  },
-  prepName: {
-    flex: 1,
-  },
-  addPrepButton: {
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderWidth: 1,
-    borderColor: colors.primary,
-    borderRadius: 8,
-  },
-  buttonPressed: {
-    opacity: 0.6,
-  },
-  prepText: {
-    fontSize: 18,
-    lineHeight: 20,
-    color: colors.text,
+  prepCard: {
+    backgroundColor: colors.background,
   },
   buttonRow: {
     flexDirection: 'row',

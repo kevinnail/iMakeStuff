@@ -1,4 +1,4 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { colors } from '@/theme';
 
@@ -6,6 +6,8 @@ interface JoinedButtonsProps<Value extends string> {
   options: { value: Value; label: string; color?: string }[];
   selected: Value;
   onSelect: (value: Value) => void;
+
+  style?: StyleProp<ViewStyle>;
 }
 
 // A row of joined buttons with one selected, like iOS's segmented control.
@@ -13,9 +15,10 @@ export function JoinedButtons<Value extends string>({
   options,
   selected,
   onSelect,
+  style,
 }: JoinedButtonsProps<Value>) {
   return (
-    <View style={styles.row}>
+    <View style={[styles.row, style]}>
       {options.map(({ value, label, color }) => (
         <Pressable
           key={value}

@@ -15,26 +15,37 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { Dropdown } from '@/components/Dropdown';
 import { FinishPiecePanel } from '@/components/FinishPiecePanel';
 import { getDeleteMessage } from '@/components/PieceEditForm';
 import { JoinedButtons } from '@/components/JoinedButtons';
+import { getTemplateChoices, type MissingPrep } from '@/components/PrepChoices';
+import type { PrepUseChoice } from '@/components/PrepUsePanel';
 import { StopTimePanel } from '@/components/StopTimePanel';
 import { Tag } from '@/components/Tag';
 import type { WorkRecords } from '@/db/queries/dayQueries';
 import type { RunningEntry } from '@/db/queries/entryQueries';
-import type { PieceCategory, UnfinishedPiece } from '@/db/queries/pieceQueries';
-import { getAvailablePrep, type AvailablePrep } from '@/db/queries/prepQueries';
+import type { PieceCategory, Template, UnfinishedPiece } from '@/db/queries/pieceQueries';
+import {
+  getAvailablePrep,
+  getPiecePrep,
+  getTemplatePrep,
+  type AvailablePrep,
+} from '@/db/queries/prepQueries';
 import { useWorkStore } from '@/store/workStore';
 import { formatClockTime, formatDuration } from '@/utils/formatTime';
 import { getPhotoUri, takePhoto } from '@/utils/photoStorage';
 import { getLastTouch, isQuestionDue } from '@/utils/stillWorking';
 import { colors } from '@/theme';
 import { getWholeDays, startOfDay } from '@/utils/workDays';
+import { showError } from '@/utils/showError';
 
 interface Finishing {
   piece: UnfinishedPiece;
   cameraPhotoUri: string | null;
   availablePrep: AvailablePrep[] | null;
+  initialPrep: PrepUseChoice[];
+  missingPrep: MissingPrep[];
 }
 
 interface RunningTimeProps {
@@ -61,10 +72,6 @@ function formatElapsed(milliseconds: number) {
   return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 }
 
-function showError(title: string) {
-  return (error: Error) => Alert.alert(title, error.message);
-}
-
 function confirmDelete(piece: UnfinishedPiece, remove: (pieceId: number) => Promise<void>) {
   const runningMilliseconds = piece.running_since
     ? Date.now() - Date.parse(piece.running_since)
@@ -81,6 +88,33 @@ function confirmDelete(piece: UnfinishedPiece, remove: (pieceId: number) => Prom
       },
     ],
   );
+}
+
+async function loadFinishPrep(piece: UnfinishedPiece) {
+  if (piece.category === 'prep') return { availablePrep: null, initialPrep: [], missingPrep: [] };
+  const [availablePrep, usedPrep, templateUses] = await Promise.all([
+    getAvailablePrep(piece.id),
+    getPiecePrep(piece.id),
+    piece.template_id === null ? [] : getTemplatePrep(piece.template_id),
+  ]);
+  const savedPrep = usedPrep.map((use) => ({
+    prep: {
+      id: use.prep_id,
+      name: use.prep_name,
+      otherPiecesPercent: use.estimates_total - use.estimated_percent,
+      usedUp: use.prep_used_up === 1,
+    },
+    estimatedPercent: use.estimated_percent,
+    useId: use.id,
+  }));
+  const template = getTemplateChoices(
+    templateUses.filter((use) => !usedPrep.some((saved) => saved.prep_name === use.prep_name)),
+  );
+  return {
+    availablePrep,
+    initialPrep: [...savedPrep, ...template.chosen],
+    missingPrep: template.missing,
+  };
 }
 
 // The current time, updated every second.
@@ -189,9 +223,11 @@ export default function WorkScreen() {
     pieces,
     runningBreak,
     runningEntry,
+    templates,
     today,
     load,
     start,
+    startFromTemplate,
     switchTo,
     addPhoto,
     finish,
@@ -209,6 +245,14 @@ export default function WorkScreen() {
   const [pickingStopFor, setPickingStopFor] = useState<RunningEntry | null>(null);
   const trimmedName = name.trim();
   const placeholder = categoryOptions.find(({ value }) => value === category)?.placeholder;
+  const templateOptions = templates
+    .filter((template) => template.category === category)
+    .map((template) => ({
+      key: template.id,
+      label: template.name,
+      photoFileName: template.photo_file_name,
+      template,
+    }));
   const working = pieces.some((piece) => piece.running_since !== null);
 
   // Reloads whenever the tab is shown, so fixes made on a day's page show here.
@@ -225,6 +269,11 @@ export default function WorkScreen() {
       .catch(showError('Could not start'));
   }
 
+  function startFrom(template: Template) {
+    Keyboard.dismiss();
+    startFromTemplate(template.id).catch(showError('Could not start'));
+  }
+
   function photograph(piece: UnfinishedPiece) {
     setPhotographingPieceId(piece.id);
     takePhoto()
@@ -239,8 +288,7 @@ export default function WorkScreen() {
     setOpeningPieceId(piece.id);
     try {
       const cameraPhotoUri = piece.photo_file_name ? null : await takePhoto();
-      const availablePrep = piece.category === 'piece' ? await getAvailablePrep(piece.id) : null;
-      setFinishing({ piece, cameraPhotoUri, availablePrep });
+      setFinishing({ piece, cameraPhotoUri, ...(await loadFinishPrep(piece)) });
     } finally {
       setOpeningPieceId(null);
     }
@@ -254,6 +302,8 @@ export default function WorkScreen() {
         (finishing.piece.photo_file_name ? getPhotoUri(finishing.piece.photo_file_name) : null)
       }
       availablePrep={finishing.availablePrep}
+      initialPrep={finishing.initialPrep}
+      missingPrep={finishing.missingPrep}
       onCancel={() => setFinishing(null)}
       onSave={(notes, lost, prepUses) =>
         finish(finishing.piece.id, {
@@ -289,6 +339,15 @@ export default function WorkScreen() {
           <Text style={styles.buttonText}>Start</Text>
         </Pressable>
       </View>
+      {templateOptions.length > 0 && (
+        <Dropdown
+          options={templateOptions}
+          selectedKey={null}
+          placeholder="Or start from a template"
+          onSelect={({ template }) => startFrom(template)}
+          floating
+        />
+      )}
       {runningEntry && (
         <StillWorkingQuestion
           entry={runningEntry}
