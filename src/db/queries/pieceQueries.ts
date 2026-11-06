@@ -12,7 +12,14 @@ import {
   type PieceUsingPrep,
   type UsedPrep,
 } from '@/db/queries/prepQueries';
-import { getPrepTime } from '@/utils/prepTime';
+import {
+  getUsedSupplies,
+  insertSupplyUse,
+  type FinishSupplyUse,
+  type UsedSupply,
+} from '@/db/queries/supplyQueries';
+import { getCost } from '@/utils/cost';
+import { getPrepTime, type Share } from '@/utils/prepTime';
 import type { TimeRange } from '@/utils/workDays';
 
 export type PieceCategory = 'piece' | 'prep';
@@ -39,6 +46,10 @@ export interface PieceListItem {
   prep_milliseconds: number | null;
   // true while any of its prep isn't used up.
   prep_estimated: boolean;
+  // null for a piece with no supplies behind it, its own or its prep's.
+  cost_cents: number | null;
+  // true while any supply or prep behind its cost isn't used up.
+  cost_estimated: boolean;
   // Every piece's share of this prep added together, 1 being all of it.
   used_share: number;
   used_up: number;
@@ -72,6 +83,8 @@ export interface PieceDetail {
   // For a piece, the prep it used. For prep, the pieces that used it.
   usedPrep: UsedPrep[];
   usedBy: PieceUsingPrep[];
+  // Its own supplies and the supplies behind its prep, for its cost.
+  usedSupplies: UsedSupply[];
 }
 
 export interface FinishDetails {
@@ -79,8 +92,9 @@ export interface FinishDetails {
   notes: string | null;
   photoFileName: string | null;
   lost: boolean;
-  // Every prep the piece ends up with. Uses already on it that aren't listed are removed.
+  // Every prep and supply the piece ends up with. Uses already on it that aren't listed are removed.
   prepUses: FinishPrepUse[];
+  supplyUses: FinishSupplyUse[];
 }
 
 export interface PieceChanges {
@@ -158,9 +172,38 @@ export async function endDay(): Promise<void> {
   });
 }
 
+async function saveUses<Use extends { useId?: number; share: Share }>(
+  database: SQLiteDatabase,
+  pieceId: number,
+  table: 'prep_uses' | 'supply_uses',
+  uses: Use[],
+  insert: (use: Use) => Promise<void>,
+) {
+  const keptUseIds = uses.flatMap((use) => (use.useId === undefined ? [] : [use.useId]));
+  await database.runAsync(
+    `DELETE FROM ${table} WHERE piece_id = ? AND id NOT IN (SELECT value FROM json_each(?))`,
+    pieceId,
+    JSON.stringify(keptUseIds),
+  );
+  for (const use of uses) {
+    if (use.useId === undefined) {
+      await insert(use);
+      continue;
+    }
+    const changed = await database.runAsync(
+      `UPDATE ${table} SET share_numerator = ?, share_denominator = ? WHERE id = ? AND piece_id = ?`,
+      use.share.share_numerator,
+      use.share.share_denominator,
+      use.useId,
+      pieceId,
+    );
+    if (changed.changes === 0) throw new Error('That use no longer exists.');
+  }
+}
+
 export async function finishPiece(
   pieceId: number,
-  { endedAt, notes, photoFileName, lost, prepUses }: FinishDetails,
+  { endedAt, notes, photoFileName, lost, prepUses, supplyUses }: FinishDetails,
 ): Promise<void> {
   const database = await getDb();
   await database.withTransactionAsync(async () => {
@@ -179,27 +222,12 @@ export async function finishPiece(
       pieceId,
     );
     if (result.changes === 0) throw new Error('That piece is already finished.');
-    const keptUseIds = prepUses.flatMap((use) => (use.useId === undefined ? [] : [use.useId]));
-    await database.runAsync(
-      'DELETE FROM prep_uses WHERE piece_id = ? AND id NOT IN (SELECT value FROM json_each(?))',
-      pieceId,
-      JSON.stringify(keptUseIds),
+    await saveUses(database, pieceId, 'prep_uses', prepUses, (use) =>
+      insertPrepUse(database, pieceId, use),
     );
-    for (const use of prepUses) {
-      if (use.useId === undefined) {
-        await insertPrepUse(database, pieceId, use);
-        continue;
-      }
-      const changed = await database.runAsync(
-        `UPDATE prep_uses SET share_numerator = ?, share_denominator = ?
-         WHERE id = ? AND piece_id = ?`,
-        use.share.share_numerator,
-        use.share.share_denominator,
-        use.useId,
-        pieceId,
-      );
-      if (changed.changes === 0) throw new Error('That prep use no longer exists.');
-    }
+    await saveUses(database, pieceId, 'supply_uses', supplyUses, (use) =>
+      insertSupplyUse(database, pieceId, use),
+    );
   });
 }
 
@@ -244,6 +272,7 @@ export async function deletePiece(pieceId: number): Promise<string | null> {
       pieceId,
       pieceId,
     );
+    await database.runAsync('DELETE FROM supply_uses WHERE piece_id = ?', pieceId);
     await database.runAsync('DELETE FROM work_segments WHERE piece_id = ?', pieceId);
 
     await database.runAsync('UPDATE pieces SET template_id = NULL WHERE template_id = ?', pieceId);
@@ -315,14 +344,16 @@ export async function getUnfinishedPieces(): Promise<UnfinishedPiece[]> {
   );
 }
 
-// Unfinished pieces first, then finished ones newest first. Prep time is worked out the same
-// way as on the piece's page, so the list and the page always match. Each prep's shares are
-// added up once, in one pass over prep_uses, and a piece that isn't prep has none to add.
+// Unfinished pieces first, then finished ones newest first. Prep time and cost are worked out
+// the same way as on the piece's page, so the list and the page always match. Each prep's
+// shares are added up once, in one pass over prep_uses, and a piece that isn't prep has none.
 export async function getPieces(): Promise<PieceListItem[]> {
   const database = await getDb();
   const usedShareSql = 'coalesce(prep_totals.used_share, 0)';
-  const [pieces, usedPrep] = await Promise.all([
-    database.getAllAsync<Omit<PieceListItem, 'prep_milliseconds' | 'prep_estimated'>>(
+  const [pieces, usedPrep, usedSupplies] = await Promise.all([
+    database.getAllAsync<
+      Omit<PieceListItem, 'prep_milliseconds' | 'prep_estimated' | 'cost_cents' | 'cost_estimated'>
+    >(
       `SELECT pieces.id, pieces.name, pieces.category, pieces.photo_file_name, pieces.finished_at,
          pieces.lost,
          round(total(julianday(coalesce(work_segments.ended_at, 'now'))
@@ -339,14 +370,18 @@ export async function getPieces(): Promise<PieceListItem[]> {
        ORDER BY pieces.finished_at IS NOT NULL, pieces.finished_at DESC, pieces.id DESC`,
     ),
     getUsedPrep(database, null),
+    getUsedSupplies(database, null),
   ]);
   return pieces.map((piece) => {
     const uses = usedPrep.filter((use) => use.piece_id === piece.id);
     const prepTime = getPrepTime(piece.worked_milliseconds, uses);
+    const cost = getCost(piece.id, uses, usedSupplies);
     return {
       ...piece,
       prep_milliseconds: uses.length > 0 ? prepTime.prep : null,
       prep_estimated: prepTime.estimated,
+      cost_cents: cost.hasSupplies ? cost.cents : null,
+      cost_estimated: cost.estimated,
     };
   });
 }
@@ -361,7 +396,7 @@ export async function getPieceDetail(pieceId: number): Promise<PieceDetail | nul
   );
   if (!piece) return null;
   const firstStartSql = '(SELECT min(started_at) FROM work_segments WHERE piece_id = ?)';
-  const [segments, otherSegments, breaks, usedPrep, usedBy] = await Promise.all([
+  const [segments, otherSegments, breaks, usedPrep, usedBy, usedSupplies] = await Promise.all([
     database.getAllAsync<TimeRange>(
       'SELECT started_at, ended_at FROM work_segments WHERE piece_id = ? ORDER BY started_at',
       pieceId,
@@ -379,6 +414,7 @@ export async function getPieceDetail(pieceId: number): Promise<PieceDetail | nul
     ),
     getUsedPrep(database, pieceId),
     getPiecesUsingPrep(database, pieceId),
+    getUsedSupplies(database, pieceId),
   ]);
-  return { piece, segments, otherSegments, breaks, usedPrep, usedBy };
+  return { piece, segments, otherSegments, breaks, usedPrep, usedBy, usedSupplies };
 }
