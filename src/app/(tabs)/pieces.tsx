@@ -7,6 +7,7 @@ import { JoinedButtons } from '@/components/JoinedButtons';
 import { PrepLeftBar } from '@/components/PrepLeftBar';
 import { Tag } from '@/components/Tag';
 import { getPieces, type PieceListItem } from '@/db/queries/pieceQueries';
+import { formatCost } from '@/utils/cost';
 import { formatDay, formatDuration } from '@/utils/formatTime';
 import { colors } from '@/theme';
 import { getPhotoUri } from '@/utils/photoStorage';
@@ -154,6 +155,14 @@ export default function PiecesScreen() {
                       {piece.prep_estimated ? 'Prep, est.' : 'Prep'}
                     </Text>
                     <Text style={styles.timeValue}>{formatDuration(piece.prep_milliseconds)}</Text>
+                  </View>
+                )}
+                {piece.cost_cents !== null && (
+                  <View style={styles.timeColumn}>
+                    <Text style={styles.detailText}>
+                      {piece.cost_estimated ? 'Cost, est.' : 'Cost'}
+                    </Text>
+                    <Text style={styles.timeValue}>{formatCost(piece.cost_cents)}</Text>
                   </View>
                 )}
                 {piece.no_prep === 1 && <Tag label="No prep" />}
