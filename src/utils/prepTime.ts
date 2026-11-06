@@ -1,10 +1,15 @@
-// A use of a prep, with what's needed to scale its estimate once the prep is used up.
-export interface PrepShare {
-  estimated_percent: number;
+// A share of a prep as it was entered: "1/8" is 1 over 8, and "25" (a percent) is 25 over 100.
+export interface Share {
+  share_numerator: number;
+  share_denominator: number;
+}
+
+// A use of a prep, with what's needed to scale its share once the prep is used up.
+export interface PrepShare extends Share {
   // 1 once the prep is used up.
   prep_used_up: number;
-  // Every piece's estimate on the prep added together.
-  estimates_total: number;
+  // Every piece's share of the prep added together, 1 being all of it.
+  shares_total: number;
 }
 
 export interface PrepTimeShare extends PrepShare {
@@ -13,15 +18,42 @@ export interface PrepTimeShare extends PrepShare {
 
 const minute = 60 * 1000;
 
-// What a piece took of a prep, typed as a whole percent ("13") or a fraction ("1/8"), as a whole
-// percent from 1 to 100, or null for anything else. A fraction rounds down, so a prep split
-// evenly never reaches 100% before its last cut is used; Used up then fills in what's left.
-export function parseAmount(text: string) {
-  const fraction = /^(\d+)\s*\/\s*(\d+)$/.exec(text.trim());
-  const percent = fraction
-    ? Math.floor((Number(fraction[1]) * 100) / Number(fraction[2]))
-    : Number(text);
-  return Number.isInteger(percent) && percent >= 1 && percent <= 100 ? percent : null;
+// Ten shares of 1/10 add up to 0.9999999999999999, so shares this close to the whole prep
+// count as all of it. The SQL checks use the same number.
+export const wholePrep = 1 - 1e-9;
+
+// What a piece took of a prep, typed as a whole percent ("13" or "13%") or a fraction ("1/8"),
+// or null for anything else. It's kept as typed, so eight shares of 1/8 add up to exactly the prep.
+export function parseAmount(text: string): Share | null {
+  const match = /^(\d+)(?:\s*\/\s*(\d+)|\s*%)?$/.exec(text.trim());
+  if (!match) return null;
+  const share = {
+    share_numerator: Number(match[1]),
+    share_denominator: match[2] === undefined ? 100 : Number(match[2]),
+  };
+  return share.share_numerator >= 1 && share.share_numerator <= share.share_denominator
+    ? share
+    : null;
+}
+
+export function getShareValue(share: Share) {
+  return share.share_numerator / share.share_denominator;
+}
+
+// A share out of 100 shows as a percent, anything else as the fraction it was entered as.
+export function formatShare(share: Share) {
+  return share.share_denominator === 100
+    ? `${share.share_numerator}%`
+    : `${share.share_numerator}/${share.share_denominator}`;
+}
+
+// A worked-out share, such as what's left or an actual share, as a whole percent.
+export function formatPercent(value: number) {
+  return `${Math.round(value * 100)}%`;
+}
+
+export function usesUpPrep(sharesTotal: number) {
+  return sharesTotal >= wholePrep;
 }
 
 // Times show as whole minutes, rounded down.
@@ -29,25 +61,19 @@ function wholeMinutes(milliseconds: number) {
   return Math.floor(milliseconds / minute) * minute;
 }
 
-// The share of a prep a piece really took. Until the prep is used up it's the estimate. After,
-// the estimates scale to add up to 100%, so all of the prep's time lands on the pieces that
-// used it, waste included.
-export function getActualPercent(share: PrepShare) {
-  if (!share.prep_used_up) return share.estimated_percent;
-  return (share.estimated_percent * 100) / share.estimates_total;
+export function getActualShare(share: PrepShare) {
+  const estimate = getShareValue(share);
+  return share.prep_used_up ? estimate / share.shares_total : estimate;
 }
 
-// A piece's share of each prep's worked time (the prep's time times its actual percent), the
-// prep total, and the piece's worked time plus prep. Each part is cut to whole minutes before
-// it's added, so the lines shown add up to the totals shown.
 export function getPrepTime<Use extends PrepTimeShare>(worked: number, uses: Use[]) {
   const lines = uses.map((use) => {
-    const percent = getActualPercent(use);
+    const share = getActualShare(use);
     return {
       ...use,
-      percent,
+      share,
       estimated: !use.prep_used_up,
-      milliseconds: wholeMinutes((use.prep_worked_milliseconds * percent) / 100),
+      milliseconds: wholeMinutes(use.prep_worked_milliseconds * share),
     };
   });
   const prep = lines.reduce((total, line) => total + line.milliseconds, 0);
