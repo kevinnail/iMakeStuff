@@ -223,11 +223,12 @@ describe('addPastWork', () => {
   // Otherwise a forgotten day's work could not be recorded at all.
   it('creates a new piece with its work on the chosen day', async () => {
     await addPastWork({
-      piece: { name: 'Red cup', category: 'piece' },
+      piece: { name: 'Red cup', category: 'piece', templateId: null },
       startedAt,
       endedAt,
       photoFileName: null,
       finish: null,
+      prepUses: [],
     });
 
     expect(
@@ -250,11 +251,12 @@ describe('addPastWork', () => {
   // Otherwise prep made on a forgotten day would be saved as a piece and counted as output.
   it('creates new prep with its category', async () => {
     await addPastWork({
-      piece: { name: 'Dichroic cane', category: 'prep' },
+      piece: { name: 'Dichroic cane', category: 'prep', templateId: null },
       startedAt,
       endedAt,
       photoFileName: null,
       finish: null,
+      prepUses: [],
     });
 
     expect(
@@ -262,23 +264,15 @@ describe('addPastWork', () => {
     ).toEqual([{ category: 'prep' }]);
   });
 
-  // Otherwise a forgotten sitting on a piece already in the list would need a duplicate piece.
-  it('adds the work to an existing piece', async () => {
-    await addPastWork({ piece: { id: 2 }, startedAt, endedAt, photoFileName: null, finish: null });
-
-    expect(await database.getAllAsync<SegmentRow>(segmentsSql)).toEqual([
-      { piece_id: 2, started_at: startedAt, ended_at: endedAt },
-    ]);
-  });
-
   // Otherwise a piece made entirely on a forgotten day could never be finished.
   it('finishes the piece at the end of the work', async () => {
     await addPastWork({
-      piece: { name: 'Red cup', category: 'piece' },
+      piece: { name: 'Red cup', category: 'piece', templateId: null },
       startedAt,
       endedAt,
       photoFileName: null,
       finish: { notes: 'Copper red', lost: false },
+      prepUses: [],
     });
 
     expect(
@@ -289,11 +283,12 @@ describe('addPastWork', () => {
   // Otherwise a piece that broke on a forgotten day would count as output once caught up.
   it('saves a lost finish', async () => {
     await addPastWork({
-      piece: { name: 'Red cup', category: 'piece' },
+      piece: { name: 'Red cup', category: 'piece', templateId: null },
       startedAt,
       endedAt,
       photoFileName: null,
       finish: { notes: 'Cracked in the kiln', lost: true },
+      prepUses: [],
     });
 
     expect(
@@ -305,11 +300,12 @@ describe('addPastWork', () => {
   it('rejects finishing with neither a photo nor notes and saves nothing', async () => {
     await expect(
       addPastWork({
-        piece: { name: 'Red cup', category: 'piece' },
+        piece: { name: 'Red cup', category: 'piece', templateId: null },
         startedAt,
         endedAt,
         photoFileName: null,
         finish: { notes: null, lost: false },
+        prepUses: [],
       }),
     ).rejects.toThrow(/CHECK constraint/);
 
@@ -321,11 +317,12 @@ describe('addPastWork', () => {
   it('rejects an end before its start and saves nothing', async () => {
     await expect(
       addPastWork({
-        piece: { name: 'Red cup', category: 'piece' },
+        piece: { name: 'Red cup', category: 'piece', templateId: null },
         startedAt: endedAt,
         endedAt: startedAt,
         photoFileName: null,
         finish: null,
+        prepUses: [],
       }),
     ).rejects.toThrow(/CHECK constraint/);
 
@@ -340,7 +337,14 @@ describe('addPastWork', () => {
     `);
 
     await expect(
-      addPastWork({ piece: { id: 2 }, startedAt, endedAt, photoFileName: null, finish: null }),
+      addPastWork({
+        piece: { name: 'Red cup', category: 'piece', templateId: null },
+        startedAt,
+        endedAt,
+        photoFileName: null,
+        finish: null,
+        prepUses: [],
+      }),
     ).rejects.toThrow('That overlaps another entry.');
     expect(await database.getAllAsync(segmentsSql)).toHaveLength(1);
   });
@@ -348,11 +352,12 @@ describe('addPastWork', () => {
   // Otherwise a photo added for a new piece that isn't finished yet would be thrown away.
   it('keeps the photo on a new piece that is not finished', async () => {
     await addPastWork({
-      piece: { name: 'Red cup', category: 'piece' },
+      piece: { name: 'Red cup', category: 'piece', templateId: null },
       startedAt,
       endedAt,
       photoFileName: 'cup.jpg',
       finish: null,
+      prepUses: [],
     });
 
     expect(
@@ -362,21 +367,72 @@ describe('addPastWork', () => {
     ).toEqual([{ photo_file_name: 'cup.jpg', finished_at: null }]);
   });
 
-  // Otherwise finishing a piece here would wipe the photo taken on the Work screen before Done.
-  it('keeps the photo an existing piece has when finishing it without one', async () => {
-    await database.execAsync("UPDATE pieces SET photo_file_name = 'vase.jpg' WHERE id = 1");
+  // Otherwise making another from a template would change the template or lose its prep.
+  it('saves a new piece from a template with its prep and leaves the template unchanged', async () => {
+    await database.execAsync(`
+      INSERT INTO pieces (id, name, category, notes, photo_file_name, finished_at, is_template) VALUES
+        (3, 'Dichroic cane', 'prep', 'Blue', NULL, '2026-10-28T12:00:00.000Z', 0),
+        (4, 'Blue vase', 'piece', NULL, 'vase.jpg', '2026-10-29T12:00:00.000Z', 1);
+      INSERT INTO work_segments (piece_id, started_at, ended_at) VALUES
+        (4, '2026-10-29T09:00:00.000Z', '2026-10-29T12:00:00.000Z');
+      INSERT INTO prep_uses (piece_id, prep_id, estimated_percent) VALUES (4, 3, 25);
+    `);
 
     await addPastWork({
-      piece: { id: 1 },
+      piece: { name: 'Blue vase', category: 'piece', templateId: 4 },
       startedAt,
       endedAt,
-      photoFileName: null,
-      finish: { notes: null, lost: false },
+      photoFileName: 'second.jpg',
+      finish: null,
+      prepUses: [{ prepId: 3, estimatedPercent: 25 }],
     });
 
     expect(
-      await database.getAllAsync('SELECT photo_file_name, finished_at FROM pieces WHERE id = 1'),
-    ).toEqual([{ photo_file_name: 'vase.jpg', finished_at: endedAt }]);
+      await database.getAllAsync(
+        'SELECT id, template_id, photo_file_name, finished_at FROM pieces WHERE id >= 4 ORDER BY id',
+      ),
+    ).toEqual([
+      {
+        id: 4,
+        template_id: null,
+        photo_file_name: 'vase.jpg',
+        finished_at: '2026-10-29T12:00:00.000Z',
+      },
+      { id: 5, template_id: 4, photo_file_name: 'second.jpg', finished_at: null },
+    ]);
+    expect(
+      await database.getAllAsync(
+        'SELECT piece_id, prep_id, estimated_percent FROM prep_uses ORDER BY id',
+      ),
+    ).toEqual([
+      { piece_id: 4, prep_id: 3, estimated_percent: 25 },
+      { piece_id: 5, prep_id: 3, estimated_percent: 25 },
+    ]);
+    expect(await database.getAllAsync<SegmentRow>(segmentsSql)).toEqual([
+      { piece_id: 4, started_at: '2026-10-29T09:00:00.000Z', ended_at: '2026-10-29T12:00:00.000Z' },
+      { piece_id: 5, started_at: startedAt, ended_at: endedAt },
+    ]);
+  });
+
+  // Otherwise a prep used up while the form was open could be used past its end.
+  it('rejects a prep that was used up in the meantime and saves nothing', async () => {
+    await database.execAsync(`
+      INSERT INTO pieces (id, name, category, notes, finished_at, used_up_at) VALUES
+        (3, 'Dichroic cane', 'prep', 'Blue', '2026-10-28T12:00:00.000Z', '2026-10-29T12:00:00.000Z');
+    `);
+
+    await expect(
+      addPastWork({
+        piece: { name: 'Red cup', category: 'piece', templateId: null },
+        startedAt,
+        endedAt,
+        photoFileName: null,
+        finish: null,
+        prepUses: [{ prepId: 3, estimatedPercent: 25 }],
+      }),
+    ).rejects.toThrow("Only finished prep that isn't used up or lost can be used.");
+    expect(await database.getAllAsync("SELECT id FROM pieces WHERE name = 'Red cup'")).toEqual([]);
+    expect(await database.getAllAsync(segmentsSql)).toEqual([]);
   });
 });
 
