@@ -26,6 +26,11 @@ export default function RootLayout() {
           name="add-work"
           options={{ title: 'Add Work', headerBackButtonDisplayMode: 'minimal' }}
         />
+        <Stack.Screen
+          name="supplies"
+          options={{ title: 'Supplies', headerBackButtonDisplayMode: 'minimal' }}
+        />
+        <Stack.Screen name="supply/[id]" options={{ headerBackButtonDisplayMode: 'minimal' }} />
       </Stack>
     </ThemeProvider>
   );

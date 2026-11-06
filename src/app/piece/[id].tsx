@@ -1,7 +1,8 @@
 import { router, Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { Children, useCallback, useState, type ReactNode } from 'react';
+import { useCallback, useState } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 
+import { Card } from '@/components/Card';
 import { Chevron } from '@/components/Chevron';
 import { EntryTimesPanel } from '@/components/EntryTimesPanel';
 import { PieceEditForm } from '@/components/PieceEditForm';
@@ -87,20 +88,6 @@ function sumDays(days: WorkDay[], field: DayField) {
 function getLastHour(runningSince: string | null) {
   const endedAt = runningSince ? Date.parse(runningSince) : Date.now();
   return { startedAt: endedAt - 60 * 60 * 1000, endedAt };
-}
-
-// A card's rows with a thin line between each, the way Add Work's cards are laid out. Rows that
-// aren't shown (false or null) are left out, so the lines only go between the ones that are.
-function Card({ children }: { children: ReactNode }) {
-  return (
-    <View style={styles.card}>
-      {Children.toArray(children).map((row, index) => (
-        <View key={index} style={index > 0 && styles.separator}>
-          {row}
-        </View>
-      ))}
-    </View>
-  );
 }
 
 // The whole piece: its total time large (its own time plus its share of prep), when it was
@@ -525,20 +512,11 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   // A group of rows, the same as Add Work's cards.
-  card: {
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    backgroundColor: colors.surface,
-  },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
     paddingVertical: 12,
-  },
-  separator: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.separator,
   },
   fill: {
     flex: 1,

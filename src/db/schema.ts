@@ -66,4 +66,15 @@ export const SCHEMA_SQL = `
     share_denominator INTEGER NOT NULL CHECK (share_denominator >= share_numerator),
     UNIQUE (piece_id, prep_id)
   );
+
+  -- Raw material bought at a known cost, like a 5 ft tube at $40. Not a piece: no time, no
+  -- photo, no finish. The cost is what was paid for the whole thing, in cents.
+  CREATE TABLE IF NOT EXISTS supplies (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    name       TEXT NOT NULL CHECK (trim(name) <> ''),
+    cost_cents INTEGER NOT NULL CHECK (cost_cents >= 0),
+    bought_at  TEXT NOT NULL,
+    used_up_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (${SQL_NOW})
+  );
 `;

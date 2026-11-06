@@ -69,20 +69,29 @@ export default function PiecesScreen() {
       contentContainerStyle={styles.list}
       ItemSeparatorComponent={() => <View style={styles.separator} />}
       ListHeaderComponent={
-        <View style={styles.filterRow}>
-          <View style={styles.pieceFilters}>
-            <JoinedButtons options={pieceFilters} selected={filter} onSelect={setFilter} />
-          </View>
-          <Pressable
-            style={[styles.prepFilter, filter === 'prep' && styles.prepFilterSelected]}
-            onPress={() => setFilter('prep')}
-          >
-            <Text
-              style={[styles.prepFilterText, filter === 'prep' && styles.prepFilterTextSelected]}
+        <View style={styles.header}>
+          <JoinedButtons options={pieceFilters} selected={filter} onSelect={setFilter} />
+          <View style={styles.secondRow}>
+            <Pressable
+              style={[styles.halfButton, filter === 'prep' && styles.prepFilterSelected]}
+              onPress={() => setFilter('prep')}
             >
-              Prep
-            </Text>
-          </Pressable>
+              <Text style={[styles.buttonText, filter === 'prep' && styles.prepFilterTextSelected]}>
+                Prep
+              </Text>
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [
+                styles.halfButton,
+                styles.suppliesButton,
+                pressed && styles.rowPressed,
+              ]}
+              onPress={() => router.push('/supplies')}
+            >
+              <Text style={styles.buttonText}>Supplies</Text>
+              <Chevron />
+            </Pressable>
+          </View>
         </View>
       }
       ListEmptyComponent={<Text style={styles.detailText}>{emptyText}</Text>}
@@ -163,24 +172,32 @@ const styles = StyleSheet.create({
     padding: 16,
     gap: 12,
   },
-  filterRow: {
+  header: {
+    gap: 12,
+  },
+  secondRow: {
     flexDirection: 'row',
     gap: 12,
   },
-  pieceFilters: {
+  // As tall as the joined buttons above: their 6 of padding plus the row's 2, around 18 of text.
+  halfButton: {
     flex: 1,
-  },
-  // Sized to match a joined button: its 6 of padding plus the row's 2.
-  prepFilter: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
     paddingVertical: 8,
-    paddingHorizontal: 16,
     borderRadius: 8,
     backgroundColor: colors.surface,
+  },
+  // The arrow's 24 line height takes 6 off the padding, so it stays as tall as Prep.
+  suppliesButton: {
+    paddingVertical: 5,
   },
   prepFilterSelected: {
     backgroundColor: colors.prep,
   },
-  prepFilterText: {
+  buttonText: {
     fontSize: 14,
     lineHeight: 18,
     color: colors.text,
