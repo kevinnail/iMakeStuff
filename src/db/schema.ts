@@ -77,4 +77,15 @@ export const SCHEMA_SQL = `
     used_up_at TEXT,
     created_at TEXT NOT NULL DEFAULT (${SQL_NOW})
   );
+
+  -- How much of a supply a piece or prep took, as the fraction entered, the same as prep_uses.
+  -- The insert itself only matches a supply that isn't used up.
+  CREATE TABLE IF NOT EXISTS supply_uses (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    piece_id          INTEGER NOT NULL REFERENCES pieces(id),
+    supply_id         INTEGER NOT NULL REFERENCES supplies(id),
+    share_numerator   INTEGER NOT NULL CHECK (share_numerator > 0),
+    share_denominator INTEGER NOT NULL CHECK (share_denominator >= share_numerator),
+    UNIQUE (piece_id, supply_id)
+  );
 `;
