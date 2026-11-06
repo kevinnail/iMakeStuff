@@ -3,6 +3,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import { getDb } from '@/db/database';
 import type { PieceCategory } from '@/db/queries/pieceQueries';
 import { insertPrepUse, type NewPrepUse } from '@/db/queries/prepQueries';
+import { insertSupplyUse, type NewSupplyUse } from '@/db/queries/supplyQueries';
 import { getLastTouch } from '@/utils/stillWorking';
 
 export type EntryKind = 'segment' | 'break';
@@ -40,6 +41,7 @@ export interface PastWork {
   photoFileName: string | null;
   finish: { notes: string | null; lost: boolean } | null;
   prepUses: NewPrepUse[];
+  supplyUses: NewSupplyUse[];
 }
 
 const tableByKind = { segment: 'work_segments', break: 'breaks' } as const;
@@ -154,6 +156,7 @@ export async function addPastWork({
   photoFileName,
   finish,
   prepUses,
+  supplyUses,
 }: PastWork): Promise<void> {
   const database = await getDb();
   const now = new Date().toISOString();
@@ -180,6 +183,7 @@ export async function addPastWork({
       endedAt,
     );
     for (const use of prepUses) await insertPrepUse(database, pieceId, use);
+    for (const use of supplyUses) await insertSupplyUse(database, pieceId, use);
   });
 }
 
