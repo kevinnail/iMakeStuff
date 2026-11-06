@@ -3,8 +3,8 @@ import {
   getActualShare,
   getPrepTime,
   parseAmount,
-  usesUpPrep,
-  type PrepShare,
+  isUsedUp,
+  type UseShare,
 } from '@/utils/prepTime';
 
 const hour = 60 * 60 * 1000;
@@ -12,7 +12,7 @@ const minute = 60 * 1000;
 const second = 1000;
 
 // A prep's uses as the database returns them, from shares written as "1/8" or "25".
-function getShares(amounts: string[], usedUp: boolean): PrepShare[] {
+function getShares(amounts: string[], usedUp: boolean): UseShare[] {
   const shares = amounts.map((amount) => parseAmount(amount)!);
   const sharesTotal = shares.reduce(
     (total, share) => total + share.share_numerator / share.share_denominator,
@@ -20,7 +20,7 @@ function getShares(amounts: string[], usedUp: boolean): PrepShare[] {
   );
   return shares.map((share) => ({
     ...share,
-    prep_used_up: usedUp ? 1 : 0,
+    used_up: usedUp ? 1 : 0,
     shares_total: sharesTotal,
   }));
 }
@@ -153,17 +153,17 @@ describe('parseAmount and formatShare', () => {
   });
 });
 
-describe('usesUpPrep', () => {
+describe('isUsedUp', () => {
   // Otherwise ten pieces at 1/10 would add to 0.9999999999999999 and leave the cane in use.
   it('counts shares that add to the whole prep in floating point as all of it', () => {
     const tenths = Array.from({ length: 10 }, () => 1 / 10).reduce((total, tenth) => total + tenth);
 
     expect(tenths).toBeLessThan(1);
-    expect(usesUpPrep(tenths)).toBe(true);
+    expect(isUsedUp(tenths)).toBe(true);
   });
 
   // Otherwise a cane with one eighth still on the bench would read as used up.
   it('leaves seven eighths in use', () => {
-    expect(usesUpPrep(7 / 8)).toBe(false);
+    expect(isUsedUp(7 / 8)).toBe(false);
   });
 });
