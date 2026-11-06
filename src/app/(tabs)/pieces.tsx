@@ -31,7 +31,7 @@ function isUsable(prep: PieceListItem) {
 function PrepLeft({ prep }: { prep: PieceListItem }) {
   if (!prep.finished_at) return <Text style={styles.detailText}>Unfinished</Text>;
   if (prep.lost) return null;
-  return <PrepLeftBar usedPercent={prep.used_percent} usedUp={prep.used_up === 1} />;
+  return <PrepLeftBar usedShare={prep.used_share} usedUp={prep.used_up === 1} />;
 }
 
 export default function PiecesScreen() {
