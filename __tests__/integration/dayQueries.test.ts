@@ -45,6 +45,7 @@ describe('getWorkRecords', () => {
           photo_file_name: null,
           finished_at: '2026-10-31T10:00:00.000Z',
           lost: 0,
+          no_prep: 0,
         },
       ],
     });
@@ -96,5 +97,26 @@ describe('getWorkRecords', () => {
       breaks: [],
       finishedPieces: [],
     });
+  });
+});
+
+describe('the No prep tag on getWorkRecords', () => {
+  // Otherwise Days would list a piece that skipped its template's prep with no sign of it.
+  it('marks a finished piece from a template with prep and none of its own', async () => {
+    await database.execAsync(`
+      INSERT INTO pieces (id, name, category, notes, finished_at, is_template, template_id) VALUES
+        (1, 'Dichroic cane', 'prep', 'Blue', '2026-10-28T12:00:00.000Z', 0, NULL),
+        (2, 'Blue vase', 'piece', 'Cobalt', '2026-10-29T12:00:00.000Z', 1, NULL),
+        (3, 'Blue vase', 'piece', 'Second', '2026-10-31T10:00:00.000Z', 0, 2),
+        (4, 'Red cup', 'piece', 'Plain', '2026-10-31T11:00:00.000Z', 0, NULL);
+      INSERT INTO prep_uses (piece_id, prep_id, estimated_percent) VALUES (2, 1, 25);
+    `);
+
+    const { finishedPieces } = await getWorkRecords('2026-10-31T00:00:00.000Z');
+
+    expect(finishedPieces.map(({ name, no_prep }) => ({ name, no_prep }))).toEqual([
+      { name: 'Blue vase', no_prep: 1 },
+      { name: 'Red cup', no_prep: 0 },
+    ]);
   });
 });
