@@ -12,61 +12,107 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Dropdown } from '@/components/Dropdown';
-import type { AvailablePrep } from '@/db/queries/prepQueries';
 import { colors } from '@/theme';
 import {
   formatPercent,
   formatShare,
   getShareValue,
+  isUsedUp,
   parseAmount,
-  usesUpPrep,
   type Share,
+  type UseShare,
 } from '@/utils/prepTime';
 
-export interface PrepUseChoice {
-  // otherPiecesShare: every other piece's share of it added together, 1 being all of it.
-  prep: { id: number; name: string; otherPiecesShare: number; usedUp: boolean };
+// What a piece uses a share of: prep, or a supply.
+export type UseKind = 'prep' | 'supply';
+
+export const useLabels = {
+  prep: {
+    heading: 'Prep used',
+    add: 'Add prep',
+    noneAdded: 'No prep added',
+    noneToUse: 'No finished prep to use.',
+    choose: 'Choose prep',
+  },
+  supply: {
+    heading: 'Supplies used',
+    add: 'Add supply',
+    noneAdded: 'No supplies added',
+    noneToUse: 'No supplies to use.',
+    choose: 'Choose a supply',
+  },
+};
+
+// A prep or supply that can be picked, with every piece's share of it added together.
+export interface AvailableItem {
+  id: number;
+  name: string;
+  used_share: number;
+}
+
+export interface UseChoice {
+  // otherUsesShare: every other piece's share of it added together, 1 being all of it.
+  item: { id: number; name: string; otherUsesShare: number; usedUp: boolean };
   share: Share;
   note?: string;
   useId?: number;
   fromTemplate?: boolean;
 }
 
-interface PrepUsePanelProps {
-  // Adding a use: the prep to choose from. Changing one: null.
-  prepList: AvailablePrep[] | null;
+// A use already saved on the piece, as a choice the panel can change or remove.
+export function getSavedChoice(
+  use: UseShare & { id: number },
+  item: { id: number; name: string },
+): UseChoice {
+  return {
+    item: {
+      ...item,
+      otherUsesShare: use.shares_total - getShareValue(use),
+      usedUp: use.used_up === 1,
+    },
+    share: { share_numerator: use.share_numerator, share_denominator: use.share_denominator },
+    useId: use.id,
+  };
+}
+
+interface UsePanelProps {
+  kind: UseKind;
+  // Adding a use: the prep or supplies to choose from. Changing one: null.
+  itemList: AvailableItem[] | null;
   // Changing a use: it as saved. Adding one: null.
-  initial: PrepUseChoice | null;
+  initial: UseChoice | null;
   onCancel: () => void;
-  onSave: (choice: PrepUseChoice) => void;
+  onSave: (choice: UseChoice) => void;
   onRemove?: () => void;
 }
 
-export function PrepUsePanel({ prepList, initial, onCancel, onSave, onRemove }: PrepUsePanelProps) {
+// Slides up from the bottom to add a use of a prep or supply, or change one: which one, and how
+// much of it this piece took.
+export function UsePanel({ kind, itemList, initial, onCancel, onSave, onRemove }: UsePanelProps) {
   const insets = useSafeAreaInsets();
-  const [chosenPrep, setChosenPrep] = useState(initial?.prep ?? null);
+  const labels = useLabels[kind];
+  const [chosenItem, setChosenItem] = useState(initial?.item ?? null);
   const [amountText, setAmountText] = useState(initial ? formatShare(initial.share) : '');
   const typedShare = parseAmount(amountText);
-  // A bare number typed in is a percent, so it gets "%" after it. An empty box, a fraction, or a
-  // typed % gets none, so a fraction never sits beside a percent likesign.
+
   const unitText = amountText !== '' && !/[/%]/.test(amountText) ? '%' : '';
-  const canSave = chosenPrep !== null && amountText !== '';
+  const canSave = chosenItem !== null && amountText !== '';
 
   function handleSave() {
-    if (chosenPrep === null) return;
+    if (chosenItem === null) return;
     if (typedShare === null) {
       Alert.alert('Enter a percent from 1 to 100, or a fraction like 1/8.');
       return;
     }
-    const choice = { prep: chosenPrep, share: typedShare };
-    const total = chosenPrep.otherPiecesShare + getShareValue(typedShare);
-    if (chosenPrep.usedUp || !usesUpPrep(total)) {
+    const choice = { item: chosenItem, share: typedShare };
+    const total = chosenItem.otherUsesShare + getShareValue(typedShare);
+    if (chosenItem.usedUp || !isUsedUp(total)) {
       onSave(choice);
       return;
     }
     const totalText = formatPercent(total);
     Alert.alert(
-      `Use up ${chosenPrep.name}?`,
+      `Use up ${chosenItem.name}?`,
       totalText === '100%'
         ? 'This brings it to 100%, so saving marks it used up.'
         : `This brings it to ${totalText}. Saving marks it used up and scales every piece's share to add up to 100%.`,
@@ -81,31 +127,31 @@ export function PrepUsePanel({ prepList, initial, onCancel, onSave, onRemove }: 
     <Modal visible transparent animationType="slide" onRequestClose={onCancel}>
       <KeyboardAvoidingView style={styles.overlay} behavior="padding">
         <View style={[styles.panel, { paddingBottom: insets.bottom + 16 }]}>
-          <Text style={styles.title}>{initial ? initial.prep.name : 'Add prep'}</Text>
-          {prepList && prepList.length === 0 && (
-            <Text style={styles.secondaryText}>No finished prep to use.</Text>
+          <Text style={styles.title}>{initial ? initial.item.name : labels.add}</Text>
+          {itemList && itemList.length === 0 && (
+            <Text style={styles.secondaryText}>{labels.noneToUse}</Text>
           )}
-          {prepList && prepList.length > 0 && (
+          {itemList && itemList.length > 0 && (
             <Dropdown
-              options={prepList.map((prep) => ({
-                key: prep.id,
-                label: prep.name,
-                detail: `${formatPercent(Math.max(0, 1 - prep.used_share))} left`,
-                prep,
+              options={itemList.map((item) => ({
+                key: item.id,
+                label: item.name,
+                detail: `${formatPercent(Math.max(0, 1 - item.used_share))} left`,
+                item,
               }))}
-              selectedKey={chosenPrep?.id ?? null}
-              placeholder="Choose prep"
-              onSelect={({ prep }) =>
-                setChosenPrep({
-                  id: prep.id,
-                  name: prep.name,
-                  otherPiecesShare: prep.used_share,
+              selectedKey={chosenItem?.id ?? null}
+              placeholder={labels.choose}
+              onSelect={({ item }) =>
+                setChosenItem({
+                  id: item.id,
+                  name: item.name,
+                  otherUsesShare: item.used_share,
                   usedUp: false,
                 })
               }
             />
           )}
-          {chosenPrep && (
+          {chosenItem && (
             <>
               <View style={styles.fieldRow}>
                 <Text style={[styles.label, styles.amountLabel]}>How much this piece took</Text>
