@@ -142,9 +142,7 @@ export default function AddWorkScreen() {
         endedAt: new Date(endedAt).toISOString(),
         photoFileName,
         finish: finishing ? { notes: trimmedNotes || null, lost: outcome === 'lost' } : null,
-        prepUses: usesPrep
-          ? chosenPrep.map(({ prep, estimatedPercent }) => ({ prepId: prep.id, estimatedPercent }))
-          : [],
+        prepUses: usesPrep ? chosenPrep.map(({ prep, share }) => ({ prepId: prep.id, share })) : [],
       }),
     )
       .then(() => router.back())

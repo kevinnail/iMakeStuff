@@ -35,6 +35,7 @@ import {
 import { useWorkStore } from '@/store/workStore';
 import { formatClockTime, formatDuration } from '@/utils/formatTime';
 import { getPhotoUri, takePhoto } from '@/utils/photoStorage';
+import { getShareValue } from '@/utils/prepTime';
 import { getLastTouch, isQuestionDue } from '@/utils/stillWorking';
 import { colors } from '@/theme';
 import { getWholeDays, startOfDay } from '@/utils/workDays';
@@ -101,10 +102,10 @@ async function loadFinishPrep(piece: UnfinishedPiece) {
     prep: {
       id: use.prep_id,
       name: use.prep_name,
-      otherPiecesPercent: use.estimates_total - use.estimated_percent,
+      otherPiecesShare: use.shares_total - getShareValue(use),
       usedUp: use.prep_used_up === 1,
     },
-    estimatedPercent: use.estimated_percent,
+    share: { share_numerator: use.share_numerator, share_denominator: use.share_denominator },
     useId: use.id,
   }));
   const template = getTemplateChoices(

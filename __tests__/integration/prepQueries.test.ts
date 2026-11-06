@@ -15,7 +15,7 @@ import {
   removePrepUse,
   setPrepUsedUp,
 } from '@/db/queries/prepQueries';
-import { getActualPercent } from '@/utils/prepTime';
+import { getActualShare } from '@/utils/prepTime';
 import { createTestDb } from '../setup';
 
 jest.mock('@/db/database', () => ({
@@ -57,8 +57,13 @@ const finish = {
 
 let database: ReturnType<typeof createTestDb>;
 
-function use(prepId: number, estimatedPercent: number) {
-  return { prepId, estimatedPercent };
+// A share as saved: use(caneId, 25) is 25%, use(caneId, 1, 8) is 1/8.
+function share(numerator: number, denominator = 100) {
+  return { share_numerator: numerator, share_denominator: denominator };
+}
+
+function use(prepId: number, numerator: number, denominator = 100) {
+  return { prepId, share: share(numerator, denominator) };
 }
 
 async function getUsedUpAt(prepId: number) {
@@ -80,10 +85,10 @@ async function getUseId(pieceId: number, prepId: number) {
 
 async function getActualPercents(prepId: number) {
   const usedBy = (await getPieceDetail(prepId))?.usedBy ?? [];
-  return usedBy.map((row) => getActualPercent(row));
+  return usedBy.map((row) => getActualShare(row) * 100);
 }
 
-// Used up as every screen sees it: Used up tapped on, or its estimates reaching 100%.
+// Used up as every screen sees it: Used up tapped on, or its shares reaching 100%.
 async function isUsedUp(prepId: number) {
   const usedBy = (await getPieceDetail(prepId))?.usedBy ?? [];
   return usedBy.some((row) => row.prep_used_up === 1);
@@ -97,7 +102,7 @@ beforeEach(async () => {
 
 describe('finishPiece with prep', () => {
   // Otherwise the prep picked in the panel after Done would be lost when the piece is saved.
-  it('saves each prep used with its percent and the prep worked time', async () => {
+  it('saves each prep used with its share and the prep worked time', async () => {
     await finishPiece(vaseId, { ...finish, prepUses: [use(caneId, 25), use(fritId, 10)] });
 
     const detail = await getPieceDetail(vaseId);
@@ -108,9 +113,9 @@ describe('finishPiece with prep', () => {
         piece_id: vaseId,
         prep_id: caneId,
         prep_name: 'Dichroic cane',
-        estimated_percent: 25,
+        ...share(25),
         prep_used_up: 0,
-        estimates_total: 25,
+        shares_total: 0.25,
         prep_worked_milliseconds: 4 * hour + 40 * minute,
       },
       {
@@ -118,9 +123,9 @@ describe('finishPiece with prep', () => {
         piece_id: vaseId,
         prep_id: fritId,
         prep_name: 'Frit mix',
-        estimated_percent: 10,
+        ...share(10),
         prep_used_up: 0,
-        estimates_total: 10,
+        shares_total: 0.1,
         prep_worked_milliseconds: 2 * hour,
       },
     ]);
@@ -139,11 +144,25 @@ describe('finishPiece with prep', () => {
 });
 
 describe('addPrepUse', () => {
-  // Otherwise a mistyped percent would put no share, or more than the whole prep, on a piece.
-  it.each([0, 101])('rejects a percent of %i', async (estimatedPercent) => {
-    await expect(addPrepUse(vaseId, use(caneId, estimatedPercent))).rejects.toThrow(
+  // Otherwise a mistyped amount would put no share, or more than the whole prep, on a piece.
+  it.each([
+    [0, 100],
+    [101, 100],
+    [9, 8],
+    [1, 0],
+  ])('rejects a share of %i/%i', async (numerator, denominator) => {
+    await expect(addPrepUse(vaseId, use(caneId, numerator, denominator))).rejects.toThrow(
       /CHECK constraint/,
     );
+  });
+
+  // Otherwise a cane cut in eighths would be saved rounded and show a percent nobody typed.
+  it('saves a fraction as it was entered', async () => {
+    await addPrepUse(vaseId, use(caneId, 1, 8));
+
+    expect((await getPieceDetail(vaseId))?.usedPrep).toEqual([
+      expect.objectContaining({ prep_id: caneId, ...share(1, 8), shares_total: 0.125 }),
+    ]);
   });
 
   // Otherwise one piece could carry the same prep twice and count its share twice.
@@ -183,7 +202,7 @@ describe('lost prep and lost pieces', () => {
       "Only finished prep that isn't used up or lost can be used.",
     );
     expect(await getAvailablePrep(vaseId)).toEqual([
-      { id: fritId, name: 'Frit mix', used_percent: 0 },
+      { id: fritId, name: 'Frit mix', used_share: 0 },
     ]);
   });
 
@@ -194,7 +213,7 @@ describe('lost prep and lost pieces', () => {
     await setPieceLost(bowlId, true);
 
     expect((await getPieceDetail(bowlId))?.usedPrep).toEqual([
-      expect.objectContaining({ prep_id: caneId, estimated_percent: 25 }),
+      expect.objectContaining({ prep_id: caneId, ...share(25) }),
     ]);
   });
 });
@@ -205,9 +224,9 @@ describe('changePrepUse and removePrepUse', () => {
     await addPrepUse(vaseId, use(caneId, 25));
     const useId = await getUseId(vaseId, caneId);
 
-    await changePrepUse(useId, 40);
+    await changePrepUse(useId, share(40));
     expect((await getPieceDetail(vaseId))?.usedPrep).toEqual([
-      expect.objectContaining({ id: useId, estimated_percent: 40 }),
+      expect.objectContaining({ id: useId, ...share(40) }),
     ]);
 
     await removePrepUse(useId);
@@ -216,7 +235,7 @@ describe('changePrepUse and removePrepUse', () => {
 
   // Otherwise a stale page could report a change to a removed use as saved.
   it('fails for a use that no longer exists', async () => {
-    await expect(changePrepUse(999, 40)).rejects.toThrow('That prep use no longer exists.');
+    await expect(changePrepUse(999, share(40))).rejects.toThrow('That prep use no longer exists.');
     await expect(removePrepUse(999)).rejects.toThrow('That prep use no longer exists.');
   });
 });
@@ -243,8 +262,8 @@ describe('setPrepUsedUp', () => {
     expect(await getUsedUpAt(caneId)).toBeNull();
     expect(await getActualPercents(caneId)).toEqual([25]);
     expect(await getAvailablePrep(bowlId)).toEqual([
-      { id: fritId, name: 'Frit mix', used_percent: 0 },
-      { id: caneId, name: 'Dichroic cane', used_percent: 25 },
+      { id: fritId, name: 'Frit mix', used_share: 0 },
+      { id: caneId, name: 'Dichroic cane', used_share: 0.25 },
     ]);
   });
 
@@ -269,15 +288,15 @@ describe('getAvailablePrep', () => {
     await addPrepUse(vaseId, use(fritId, 10));
 
     expect(await getAvailablePrep(vaseId)).toEqual([
-      { id: caneId, name: 'Dichroic cane', used_percent: 30 },
+      { id: caneId, name: 'Dichroic cane', used_share: 0.3 },
     ]);
     expect(await getAvailablePrep(bowlId)).toEqual([
-      { id: fritId, name: 'Frit mix', used_percent: 10 },
+      { id: fritId, name: 'Frit mix', used_share: 0.1 },
     ]);
   });
 });
 
-describe('estimates reaching 100%', () => {
+describe('shares reaching 100%', () => {
   const cupId = 6;
 
   beforeEach(async () => {
@@ -295,7 +314,7 @@ describe('estimates reaching 100%', () => {
     expect(await isUsedUp(caneId)).toBe(true);
     expect(await getActualPercents(caneId)).toEqual([25, 25, 50]);
     expect(await getAvailablePrep(cupId)).toEqual([
-      { id: fritId, name: 'Frit mix', used_percent: 0 },
+      { id: fritId, name: 'Frit mix', used_share: 0 },
     ]);
   });
 
@@ -323,7 +342,7 @@ describe('estimates reaching 100%', () => {
     await addPrepUse(vaseId, use(caneId, 50));
     await addPrepUse(bowlId, use(caneId, 25));
 
-    await changePrepUse(await getUseId(bowlId, caneId), 50);
+    await changePrepUse(await getUseId(bowlId, caneId), share(50));
 
     expect(await isUsedUp(caneId)).toBe(true);
     expect(await getActualPercents(caneId)).toEqual([50, 50]);
@@ -337,6 +356,45 @@ describe('estimates reaching 100%', () => {
 
     expect(await isUsedUp(caneId)).toBe(true);
     expect(await isUsedUp(fritId)).toBe(false);
+  });
+
+  // Otherwise a cane cut in eighths would never reach used up, since 1/8 used to round down to 12%.
+  it('makes the prep used up on the eighth use of 1/8 and not the seventh', async () => {
+    const firstPieceId = 10;
+    await database.execAsync(`
+      INSERT INTO pieces (id, name, category)
+      SELECT ${firstPieceId} + value, 'Bead', 'piece' FROM json_each('[0,1,2,3,4,5,6,7]');
+    `);
+
+    for (let index = 0; index < 7; index++) {
+      await addPrepUse(firstPieceId + index, use(caneId, 1, 8));
+    }
+    expect(await isUsedUp(caneId)).toBe(false);
+
+    await addPrepUse(firstPieceId + 7, use(caneId, 1, 8));
+    expect(await isUsedUp(caneId)).toBe(true);
+    expect(await getActualPercents(caneId)).toEqual(Array(8).fill(12.5));
+  });
+
+  // Otherwise ten uses of 1/10 would add to just under the whole prep in floating point and leave it in use.
+  it('makes the prep used up after ten uses of 1/10', async () => {
+    const firstPieceId = 10;
+    await database.execAsync(`
+      INSERT INTO pieces (id, name, category)
+      SELECT ${firstPieceId} + value, 'Bead', 'piece' FROM json_each('[0,1,2,3,4,5,6,7,8,9]');
+    `);
+
+    for (let index = 0; index < 10; index++) {
+      await addPrepUse(firstPieceId + index, use(caneId, 1, 10));
+    }
+
+    expect(await isUsedUp(caneId)).toBe(true);
+    expect(await getAvailablePrep(cupId)).toEqual([
+      { id: fritId, name: 'Frit mix', used_share: 0 },
+    ]);
+    await expect(setPrepUsedUp(caneId, false)).rejects.toThrow(
+      'Its uses add up to 100%. Lower one to put it back in use.',
+    );
   });
 
   // Otherwise turning Used up off would look like it worked on a prep still at 100%.
@@ -355,7 +413,7 @@ describe('estimates reaching 100%', () => {
     await addPrepUse(vaseId, use(caneId, 50));
     await addPrepUse(bowlId, use(caneId, 50));
 
-    await changePrepUse(await getUseId(bowlId, caneId), 25);
+    await changePrepUse(await getUseId(bowlId, caneId), share(25));
 
     expect(await isUsedUp(caneId)).toBe(false);
     expect(await getActualPercents(caneId)).toEqual([50, 25]);
@@ -371,8 +429,8 @@ describe('estimates reaching 100%', () => {
     expect(await isUsedUp(caneId)).toBe(false);
     expect(await getActualPercents(caneId)).toEqual([50]);
     expect(await getAvailablePrep(cupId)).toEqual([
-      { id: fritId, name: 'Frit mix', used_percent: 0 },
-      { id: caneId, name: 'Dichroic cane', used_percent: 50 },
+      { id: fritId, name: 'Frit mix', used_share: 0 },
+      { id: caneId, name: 'Dichroic cane', used_share: 0.5 },
     ]);
   });
 
@@ -402,7 +460,7 @@ describe('estimates reaching 100%', () => {
 
 describe('getPieceDetail for prep', () => {
   // Otherwise the prep's page couldn't show which pieces used it or how much is gone.
-  it('lists the pieces that used the prep with their percents', async () => {
+  it('lists the pieces that used the prep with their shares', async () => {
     await addPrepUse(vaseId, use(caneId, 25));
     await addPrepUse(bowlId, use(caneId, 35));
 
@@ -411,17 +469,17 @@ describe('getPieceDetail for prep', () => {
         id: expect.any(Number),
         piece_id: vaseId,
         piece_name: 'Blue vase',
-        estimated_percent: 25,
+        ...share(25),
         prep_used_up: 0,
-        estimates_total: 60,
+        shares_total: 0.6,
       },
       {
         id: expect.any(Number),
         piece_id: bowlId,
         piece_name: 'Green bowl',
-        estimated_percent: 35,
+        ...share(35),
         prep_used_up: 0,
-        estimates_total: 60,
+        shares_total: 0.6,
       },
     ]);
   });
@@ -453,7 +511,7 @@ describe('getPieces with prep', () => {
   });
 
   // Otherwise the Prep list's bars couldn't show how much of each prep is left.
-  it("gives each prep its estimates added together and whether it's used up", async () => {
+  it("gives each prep its shares added together and whether it's used up", async () => {
     await addPrepUse(vaseId, use(caneId, 25));
     await addPrepUse(bowlId, use(caneId, 35));
     await addPrepUse(vaseId, use(fritId, 60));
@@ -461,11 +519,11 @@ describe('getPieces with prep', () => {
 
     const pieces = await getPieces();
     expect(pieces.find((piece) => piece.id === caneId)).toMatchObject({
-      used_percent: 60,
+      used_share: 0.6,
       used_up: 0,
     });
     expect(pieces.find((piece) => piece.id === fritId)).toMatchObject({
-      used_percent: 100,
+      used_share: 1,
       used_up: 1,
     });
   });
@@ -477,11 +535,11 @@ describe('getPieces with prep', () => {
 
     const pieces = await getPieces();
     expect(pieces.find((piece) => piece.id === caneId)).toMatchObject({
-      used_percent: 25,
+      used_share: 0.25,
       used_up: 1,
     });
     expect(pieces.find((piece) => piece.id === vaseId)).toMatchObject({
-      used_percent: 0,
+      used_share: 0,
       used_up: 0,
     });
   });
@@ -509,15 +567,15 @@ describe('getTemplatePrep', () => {
         prep_id: caneId,
         prep_name: 'Dichroic cane',
         prep_lost: 0,
-        estimated_percent: 30,
-        replacement: { id: newCaneId, name: 'Dichroic cane', used_percent: 0 },
+        ...share(30),
+        replacement: { id: newCaneId, name: 'Dichroic cane', used_share: 0 },
       },
       {
         prep_id: fritId,
         prep_name: 'Frit mix',
         prep_lost: 0,
-        estimated_percent: 20,
-        replacement: { id: fritId, name: 'Frit mix', used_percent: 20 },
+        ...share(20),
+        replacement: { id: fritId, name: 'Frit mix', used_share: 0.2 },
       },
     ]);
   });
@@ -563,9 +621,9 @@ describe('startFromTemplate', () => {
     ).toEqual([{ piece_id: pieceId }]);
     expect(
       await database.getAllAsync(
-        'SELECT piece_id, prep_id, estimated_percent FROM prep_uses ORDER BY id',
+        'SELECT piece_id, prep_id, share_numerator, share_denominator FROM prep_uses ORDER BY id',
       ),
-    ).toEqual([{ piece_id: bowlId, prep_id: caneId, estimated_percent: 30 }]);
+    ).toEqual([{ piece_id: bowlId, prep_id: caneId, ...share(30) }]);
     expect(await database.getFirstAsync(templateSql, bowlId)).toEqual({
       id: bowlId,
       name: 'Green bowl',
@@ -599,10 +657,10 @@ describe('finishPiece with prep already on the piece', () => {
 
     expect(
       await database.getAllAsync(
-        'SELECT id, prep_id, estimated_percent FROM prep_uses WHERE piece_id = ? ORDER BY id',
+        'SELECT id, prep_id, share_numerator, share_denominator FROM prep_uses WHERE piece_id = ? ORDER BY id',
         vaseId,
       ),
-    ).toEqual([{ id: caneUseId, prep_id: caneId, estimated_percent: 40 }]);
+    ).toEqual([{ id: caneUseId, prep_id: caneId, ...share(40) }]);
   });
 
   // Otherwise a new prep added at Done next to copied ones would be dropped.
@@ -617,12 +675,12 @@ describe('finishPiece with prep already on the piece', () => {
 
     expect(
       await database.getAllAsync(
-        'SELECT prep_id, estimated_percent FROM prep_uses WHERE piece_id = ? ORDER BY id',
+        'SELECT prep_id, share_numerator, share_denominator FROM prep_uses WHERE piece_id = ? ORDER BY id',
         vaseId,
       ),
     ).toEqual([
-      { prep_id: caneId, estimated_percent: 30 },
-      { prep_id: fritId, estimated_percent: 10 },
+      { prep_id: caneId, ...share(30) },
+      { prep_id: fritId, ...share(10) },
     ]);
   });
 });

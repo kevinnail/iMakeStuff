@@ -63,9 +63,9 @@ export function FinishPiecePanel({
 
   function save() {
     setSaving(true);
-    const prepUses = chosenPrep.map(({ prep, estimatedPercent, useId }) => ({
+    const prepUses = chosenPrep.map(({ prep, share, useId }) => ({
       prepId: prep.id,
-      estimatedPercent,
+      share,
       ...(useId === undefined ? {} : { useId }),
     }));
     onSave(trimmedNotes || null, outcome === 'lost', prepUses).catch((error: Error) => {

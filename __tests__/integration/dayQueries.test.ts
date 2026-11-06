@@ -109,7 +109,8 @@ describe('the No prep tag on getWorkRecords', () => {
         (2, 'Blue vase', 'piece', 'Cobalt', '2026-10-29T12:00:00.000Z', 1, NULL),
         (3, 'Blue vase', 'piece', 'Second', '2026-10-31T10:00:00.000Z', 0, 2),
         (4, 'Red cup', 'piece', 'Plain', '2026-10-31T11:00:00.000Z', 0, NULL);
-      INSERT INTO prep_uses (piece_id, prep_id, estimated_percent) VALUES (2, 1, 25);
+      INSERT INTO prep_uses (piece_id, prep_id, share_numerator, share_denominator)
+      VALUES (2, 1, 25, 100);
     `);
 
     const { finishedPieces } = await getWorkRecords('2026-10-31T00:00:00.000Z');

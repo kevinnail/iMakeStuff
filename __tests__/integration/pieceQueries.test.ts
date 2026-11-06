@@ -478,7 +478,7 @@ describe('getPieces', () => {
         worked_milliseconds: 30 * 60 * 1000,
         prep_milliseconds: null,
         prep_estimated: false,
-        used_percent: 0,
+        used_share: 0,
         used_up: 0,
         no_prep: 0,
       },
@@ -492,7 +492,7 @@ describe('getPieces', () => {
         worked_milliseconds: 2 * 60 * 60 * 1000,
         prep_milliseconds: null,
         prep_estimated: false,
-        used_percent: 0,
+        used_share: 0,
         used_up: 0,
         no_prep: 0,
       },
@@ -506,7 +506,7 @@ describe('getPieces', () => {
         worked_milliseconds: 60 * 60 * 1000,
         prep_milliseconds: null,
         prep_estimated: false,
-        used_percent: 0,
+        used_share: 0,
         used_up: 0,
         no_prep: 0,
       },
@@ -586,7 +586,8 @@ const editFixturesSql = `
     (2, '2026-10-30T10:00:00.000Z', '2026-10-30T11:00:00.000Z'),
     (3, '2026-10-28T09:00:00.000Z', '2026-10-28T13:00:00.000Z'),
     (4, '2026-10-29T09:00:00.000Z', '2026-10-29T11:00:00.000Z');
-  INSERT INTO prep_uses (piece_id, prep_id, estimated_percent) VALUES (2, 3, 25);
+  INSERT INTO prep_uses (piece_id, prep_id, share_numerator, share_denominator)
+      VALUES (2, 3, 25, 100);
 `;
 
 const vaseChanges = {
@@ -795,7 +796,8 @@ describe('the No prep tag on getPieces', () => {
       (6, 'Green bowl', 'piece', 'Second', '2026-10-30T14:00:00.000Z', 0, 3),
       (7, 'Red cup', 'piece', 'Plain', '2026-10-30T15:00:00.000Z', 0, NULL);
     INSERT INTO pieces (id, name, category, template_id) VALUES (8, 'Blue vase', 'piece', 2);
-    INSERT INTO prep_uses (piece_id, prep_id, estimated_percent) VALUES (2, 1, 25), (5, 1, 25);
+    INSERT INTO prep_uses (piece_id, prep_id, share_numerator, share_denominator)
+      VALUES (2, 1, 25, 100), (5, 1, 25, 100);
     INSERT INTO work_segments (piece_id, started_at, ended_at) VALUES
       (1, '2026-10-28T09:00:00.000Z', '2026-10-28T12:00:00.000Z'),
       (2, '2026-10-29T09:00:00.000Z', '2026-10-29T12:00:00.000Z'),

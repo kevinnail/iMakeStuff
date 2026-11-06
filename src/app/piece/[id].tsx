@@ -26,7 +26,14 @@ import {
   type UsedPrep,
 } from '@/db/queries/prepQueries';
 import { formatClockTime, formatDay, formatDuration } from '@/utils/formatTime';
-import { getActualPercent, getPrepTime } from '@/utils/prepTime';
+import {
+  formatPercent,
+  formatShare,
+  getActualShare,
+  getPrepTime,
+  getShareValue,
+  usesUpPrep,
+} from '@/utils/prepTime';
 import { getWorkDays, type WorkDay } from '@/utils/workDays';
 import { getPhotoUri } from '@/utils/photoStorage';
 import { colors } from '@/theme';
@@ -97,14 +104,17 @@ function Card({ children }: { children: ReactNode }) {
 }
 
 // The whole piece: its total time large (its own time plus its share of prep), when it was
-// worked, then a card of what the total is made of and where the rest of the time went.
+// worked, then a card of what the total is made of and where the rest of the time went. A piece
+// whose only entry ended at its own start (I stopped at, or a time fix) has no days, so no when.
 function Totals({ days, prepTime, tag }: TotalsProps) {
   const firstDay = days[0];
   const lastDay = days[days.length - 1];
   const when =
-    days.length === 1
-      ? `${formatDay(firstDay.dayStart)}, ${formatClockTime(firstDay.firstStart)} to ${formatClockTime(firstDay.lastStop)}`
-      : `${formatDay(firstDay.dayStart)} to ${formatDay(lastDay.dayStart)}, ${days.length} days`;
+    days.length === 0
+      ? null
+      : days.length === 1
+        ? `${formatDay(firstDay.dayStart)}, ${formatClockTime(firstDay.firstStart)} to ${formatClockTime(firstDay.lastStop)}`
+        : `${formatDay(firstDay.dayStart)} to ${formatDay(lastDay.dayStart)}, ${days.length} days`;
   const usedPrep = prepTime.lines.length > 0;
   const prepRows = [
     { label: 'On the piece', milliseconds: sumDays(days, 'worked') },
@@ -126,7 +136,7 @@ function Totals({ days, prepTime, tag }: TotalsProps) {
           </Text>
           {tag && <Tag label={tag} />}
         </View>
-        <Text style={styles.secondaryText}>{when}</Text>
+        {when && <Text style={styles.secondaryText}>{when}</Text>}
       </View>
       <Card>
         {rows.map(({ label, milliseconds }) => (
@@ -166,7 +176,7 @@ function DayTable({ days }: { days: WorkDay[] }) {
   );
 }
 
-// The heading, then the prep as one card: a row per prep with its percent and time, tapped to
+// The heading, then the prep as one card: a row per prep with its share and time, tapped to
 // change or remove it, and Add prep as the last row, the same as Prep used on Add Work.
 function PrepUsed({ pieceId, lines, onChange }: PrepUsedProps) {
   const [prepList, setPrepList] = useState<AvailablePrep[] | null>(null);
@@ -182,8 +192,8 @@ function PrepUsed({ pieceId, lines, onChange }: PrepUsedProps) {
     getAvailablePrep(pieceId).then(setPrepList).catch(showError('Could not load your prep'));
   }
 
-  function addPrep({ prep, estimatedPercent }: PrepUseChoice) {
-    save(addPrepUse(pieceId, { prepId: prep.id, estimatedPercent }));
+  function addPrep({ prep, share }: PrepUseChoice) {
+    save(addPrepUse(pieceId, { prepId: prep.id, share }));
   }
 
   return (
@@ -205,7 +215,9 @@ function PrepUsed({ pieceId, lines, onChange }: PrepUsedProps) {
               <Text style={styles.text}>{line.prep_name}</Text>
               <Text style={styles.note}>{line.estimated ? 'Estimated' : 'Used up'}</Text>
             </View>
-            <Text style={styles.value}>{Math.round(line.percent)}%</Text>
+            <Text style={styles.value}>
+              {line.estimated ? formatShare(line) : formatPercent(line.share)}
+            </Text>
             <Text style={[styles.value, styles.numberColumn, styles.prepTimeColumn]}>
               {formatDuration(line.milliseconds)}
             </Text>
@@ -234,13 +246,16 @@ function PrepUsed({ pieceId, lines, onChange }: PrepUsedProps) {
             prep: {
               id: changingLine.prep_id,
               name: changingLine.prep_name,
-              otherPiecesPercent: changingLine.estimates_total - changingLine.estimated_percent,
+              otherPiecesShare: changingLine.shares_total - getShareValue(changingLine),
               usedUp: changingLine.prep_used_up === 1,
             },
-            estimatedPercent: changingLine.estimated_percent,
+            share: {
+              share_numerator: changingLine.share_numerator,
+              share_denominator: changingLine.share_denominator,
+            },
           }}
           onCancel={() => setChangingLine(null)}
-          onSave={({ estimatedPercent }) => save(changePrepUse(changingLine.id, estimatedPercent))}
+          onSave={({ share }) => save(changePrepUse(changingLine.id, share))}
           onRemove={() => save(removePrepUse(changingLine.id))}
         />
       )}
@@ -250,9 +265,9 @@ function PrepUsed({ pieceId, lines, onChange }: PrepUsedProps) {
 
 // A prep's uses: each piece's estimate, and once the prep is used up, what it really took.
 function UsedBy({ usedBy, usedUp }: UsedByProps) {
-  const rows = usedBy.map((use) => ({ ...use, actual_percent: getActualPercent(use) }));
-  const estimatedTotal = rows.reduce((total, row) => total + row.estimated_percent, 0);
-  const actualTotal = rows.reduce((total, row) => total + row.actual_percent, 0);
+  const rows = usedBy.map((use) => ({ ...use, actual_share: getActualShare(use) }));
+  const estimatedTotal = rows.reduce((total, row) => total + getShareValue(row), 0);
+  const actualTotal = rows.reduce((total, row) => total + row.actual_share, 0);
 
   return (
     <View style={styles.section}>
@@ -285,11 +300,11 @@ function UsedBy({ usedBy, usedUp }: UsedByProps) {
             >
               <Text style={[styles.tableValue, styles.fill]}>{row.piece_name}</Text>
               <Text style={[styles.tableValue, styles.numberColumn, styles.estimatedColumn]}>
-                {row.estimated_percent}%
+                {formatShare(row)}
               </Text>
               {usedUp && (
                 <Text style={[styles.tableValue, styles.numberColumn, styles.actualColumn]}>
-                  {Math.round(row.actual_percent)}%
+                  {formatPercent(row.actual_share)}
                 </Text>
               )}
               <View style={styles.chevronColumn}>
@@ -300,11 +315,11 @@ function UsedBy({ usedBy, usedUp }: UsedByProps) {
           <View style={styles.row}>
             <Text style={[styles.secondaryText, styles.fill]}>Total</Text>
             <Text style={[styles.tableValue, styles.numberColumn, styles.estimatedColumn]}>
-              {estimatedTotal}%
+              {formatPercent(estimatedTotal)}
             </Text>
             {usedUp && (
               <Text style={[styles.tableValue, styles.numberColumn, styles.actualColumn]}>
-                {Math.round(actualTotal)}%
+                {formatPercent(actualTotal)}
               </Text>
             )}
             <View style={styles.chevronColumn} />
@@ -356,8 +371,8 @@ export default function PieceScreen() {
   const { piece, days, runningSince, usedPrep, usedBy } = page;
   const prepTime = getPrepTime(sumDays(days, 'worked'), usedPrep);
   const finishedPrep = piece.category === 'prep' && piece.finished_at !== null;
-  const usedPercent = usedBy.reduce((total, use) => total + use.estimated_percent, 0);
-  const usedUp = piece.used_up_at !== null || usedPercent >= 100;
+  const usedShare = usedBy.reduce((total, use) => total + getShareValue(use), 0);
+  const usedUp = piece.used_up_at !== null || usesUpPrep(usedShare);
 
   async function saveAddedTime(startedAt: number, endedAt: number | null) {
     await addPieceTime(
@@ -435,7 +450,7 @@ export default function PieceScreen() {
         {finishedPrep && !piece.lost && (
           <View style={styles.row}>
             <View style={styles.fill}>
-              <PrepLeftBar usedPercent={usedPercent} usedUp={usedUp} />
+              <PrepLeftBar usedShare={usedShare} usedUp={usedUp} />
             </View>
           </View>
         )}

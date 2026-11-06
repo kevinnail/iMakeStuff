@@ -13,6 +13,7 @@ import { Chevron } from '@/components/Chevron';
 import { PrepUsePanel, type PrepUseChoice } from '@/components/PrepUsePanel';
 import type { AvailablePrep, TemplatePrepUse } from '@/db/queries/prepQueries';
 import { colors } from '@/theme';
+import { formatShare, getShareValue, usesUpPrep } from '@/utils/prepTime';
 
 // A template's prep that's used up or lost with no newer batch, shown so it's clear nothing was added for it.
 export interface MissingPrep {
@@ -34,22 +35,23 @@ interface PrepChoicesProps {
 // template's amount (a newer batch swapped in where the template's own is gone), and the rest
 // as missing lines.
 export function getTemplateChoices(uses: TemplatePrepUse[]) {
-  const chosen = uses.flatMap(({ prep_id, estimated_percent, replacement }): PrepUseChoice[] =>
-    replacement
-      ? [
-          {
-            prep: {
-              id: replacement.id,
-              name: replacement.name,
-              otherPiecesPercent: replacement.used_percent,
-              usedUp: false,
+  const chosen = uses.flatMap(
+    ({ prep_id, share_numerator, share_denominator, replacement }): PrepUseChoice[] =>
+      replacement
+        ? [
+            {
+              prep: {
+                id: replacement.id,
+                name: replacement.name,
+                otherPiecesShare: replacement.used_share,
+                usedUp: false,
+              },
+              share: { share_numerator, share_denominator },
+              fromTemplate: true,
+              ...(replacement.id === prep_id ? {} : { note: 'Newer batch' }),
             },
-            estimatedPercent: estimated_percent,
-            fromTemplate: true,
-            ...(replacement.id === prep_id ? {} : { note: 'Newer batch' }),
-          },
-        ]
-      : [],
+          ]
+        : [],
   );
   const missing = uses
     .filter((use) => !use.replacement)
@@ -65,8 +67,8 @@ export function getTemplateChoices(uses: TemplatePrepUse[]) {
 // so the form's Save asks instead when one would use its prep up.
 export function confirmTemplateUseUp(chosen: PrepUseChoice[], save: () => void) {
   const usingUp = chosen.filter(
-    ({ prep, estimatedPercent, fromTemplate }) =>
-      fromTemplate && prep.otherPiecesPercent + estimatedPercent >= 100,
+    ({ prep, share, fromTemplate }) =>
+      fromTemplate && usesUpPrep(prep.otherPiecesShare + getShareValue(share)),
   );
   if (usingUp.length === 0) {
     save();
@@ -83,7 +85,7 @@ export function confirmTemplateUseUp(chosen: PrepUseChoice[], save: () => void) 
 }
 
 // Prep used on a piece: the heading, then the list as one card. Each chosen prep is a row with its
-// percent, tapped to change or remove it. A template prep that's gone is a row saying so, with
+// share, tapped to change or remove it. A template prep that's gone is a row saying so, with
 // nothing added for it, and isn't saved. The last row adds prep. Nothing is saved until the
 // form it's in is.
 export function PrepChoices({ availablePrep, chosen, missing, onChange, style }: PrepChoicesProps) {
@@ -99,12 +101,12 @@ export function PrepChoices({ availablePrep, chosen, missing, onChange, style }:
     setPickingPrep(false);
   }
 
-  // Keeps the line's note and saved use, since only the percent changes. The panel has asked
+  // Keeps the line's note and saved use, since only the share changes. The panel has asked
   // about using it up, so it's no longer the template's amount.
-  function changePrep({ prep, estimatedPercent }: PrepUseChoice) {
+  function changePrep({ prep, share }: PrepUseChoice) {
     onChange(
       chosen.map((choice) =>
-        choice.prep.id === prep.id ? { ...choice, estimatedPercent, fromTemplate: false } : choice,
+        choice.prep.id === prep.id ? { ...choice, share, fromTemplate: false } : choice,
       ),
     );
     setChangingPrep(null);
@@ -138,7 +140,7 @@ export function PrepChoices({ availablePrep, chosen, missing, onChange, style }:
               <Text style={styles.text}>{choice.prep.name}</Text>
               {choice.note ? <Text style={styles.note}>{choice.note}</Text> : null}
             </View>
-            <Text style={styles.text}>{choice.estimatedPercent}%</Text>
+            <Text style={styles.text}>{formatShare(choice.share)}</Text>
             <Chevron />
           </Pressable>
         ))}

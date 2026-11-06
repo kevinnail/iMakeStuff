@@ -375,7 +375,8 @@ describe('addPastWork', () => {
         (4, 'Blue vase', 'piece', NULL, 'vase.jpg', '2026-10-29T12:00:00.000Z', 1);
       INSERT INTO work_segments (piece_id, started_at, ended_at) VALUES
         (4, '2026-10-29T09:00:00.000Z', '2026-10-29T12:00:00.000Z');
-      INSERT INTO prep_uses (piece_id, prep_id, estimated_percent) VALUES (4, 3, 25);
+      INSERT INTO prep_uses (piece_id, prep_id, share_numerator, share_denominator)
+      VALUES (4, 3, 25, 100);
     `);
 
     await addPastWork({
@@ -384,7 +385,7 @@ describe('addPastWork', () => {
       endedAt,
       photoFileName: 'second.jpg',
       finish: null,
-      prepUses: [{ prepId: 3, estimatedPercent: 25 }],
+      prepUses: [{ prepId: 3, share: { share_numerator: 25, share_denominator: 100 } }],
     });
 
     expect(
@@ -402,11 +403,11 @@ describe('addPastWork', () => {
     ]);
     expect(
       await database.getAllAsync(
-        'SELECT piece_id, prep_id, estimated_percent FROM prep_uses ORDER BY id',
+        'SELECT piece_id, prep_id, share_numerator, share_denominator FROM prep_uses ORDER BY id',
       ),
     ).toEqual([
-      { piece_id: 4, prep_id: 3, estimated_percent: 25 },
-      { piece_id: 5, prep_id: 3, estimated_percent: 25 },
+      { piece_id: 4, prep_id: 3, share_numerator: 25, share_denominator: 100 },
+      { piece_id: 5, prep_id: 3, share_numerator: 25, share_denominator: 100 },
     ]);
     expect(await database.getAllAsync<SegmentRow>(segmentsSql)).toEqual([
       { piece_id: 4, started_at: '2026-10-29T09:00:00.000Z', ended_at: '2026-10-29T12:00:00.000Z' },
@@ -428,7 +429,7 @@ describe('addPastWork', () => {
         endedAt,
         photoFileName: null,
         finish: null,
-        prepUses: [{ prepId: 3, estimatedPercent: 25 }],
+        prepUses: [{ prepId: 3, share: { share_numerator: 25, share_denominator: 100 } }],
       }),
     ).rejects.toThrow("Only finished prep that isn't used up or lost can be used.");
     expect(await database.getAllAsync("SELECT id FROM pieces WHERE name = 'Red cup'")).toEqual([]);
