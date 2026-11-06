@@ -55,13 +55,15 @@ export const SCHEMA_SQL = `
   CREATE UNIQUE INDEX IF NOT EXISTS work_segments_one_running
     ON work_segments(ended_at IS NULL) WHERE ended_at IS NULL;
 
-  -- How much of a prep a piece took. Only the estimate is stored; a check can't look at
-  -- another table, so the insert itself only matches finished prep that isn't used up.
+  -- How much of a prep a piece took, as the fraction entered: 1/8, or 25/100 for 25%. Only
+  -- the estimate is stored; a check can't look at another table, so the insert itself only
+  -- matches finished prep that isn't used up.
   CREATE TABLE IF NOT EXISTS prep_uses (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
     piece_id          INTEGER NOT NULL REFERENCES pieces(id),
     prep_id           INTEGER NOT NULL REFERENCES pieces(id),
-    estimated_percent INTEGER NOT NULL CHECK (estimated_percent > 0 AND estimated_percent <= 100),
+    share_numerator   INTEGER NOT NULL CHECK (share_numerator > 0),
+    share_denominator INTEGER NOT NULL CHECK (share_denominator >= share_numerator),
     UNIQUE (piece_id, prep_id)
   );
 `;
