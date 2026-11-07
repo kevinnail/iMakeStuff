@@ -1,4 +1,3 @@
-import DateTimePicker from '@react-native-community/datetimepicker';
 import { useState } from 'react';
 import {
   Alert,
@@ -25,9 +24,6 @@ interface SupplyPanelProps {
 export function SupplyPanel({ initial, onCancel, onSave }: SupplyPanelProps) {
   const [name, setName] = useState(initial?.name ?? '');
   const [costText, setCostText] = useState(initial ? (initial.cost_cents / 100).toFixed(2) : '');
-  const [boughtAt, setBoughtAt] = useState(() =>
-    initial ? Date.parse(initial.bought_at) : Date.now(),
-  );
   const [saving, setSaving] = useState(false);
   const trimmedName = name.trim();
   const canSave = !saving && trimmedName !== '' && costText.trim() !== '';
@@ -39,12 +35,10 @@ export function SupplyPanel({ initial, onCancel, onSave }: SupplyPanelProps) {
       return;
     }
     setSaving(true);
-    onSave({ name: trimmedName, costCents, boughtAt: new Date(boughtAt).toISOString() }).catch(
-      (error: Error) => {
-        setSaving(false);
-        Alert.alert('Could not save', error.message);
-      },
-    );
+    onSave({ name: trimmedName, costCents }).catch((error: Error) => {
+      setSaving(false);
+      Alert.alert('Could not save', error.message);
+    });
   }
 
   return (
@@ -68,16 +62,6 @@ export function SupplyPanel({ initial, onCancel, onSave }: SupplyPanelProps) {
               value={costText}
               onChangeText={setCostText}
               keyboardType="decimal-pad"
-            />
-          </View>
-          <View style={styles.fieldRow}>
-            <Text style={[styles.label, styles.fill]}>Bought</Text>
-            <DateTimePicker
-              value={new Date(boughtAt)}
-              mode="date"
-              display="compact"
-              accentColor={colors.primary}
-              onValueChange={(_event, date) => setBoughtAt(date.getTime())}
             />
           </View>
           <View style={styles.buttonRow}>
