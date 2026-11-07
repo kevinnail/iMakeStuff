@@ -10,15 +10,15 @@ import {
   type UseKind,
 } from '@/components/UsePanel';
 import type { PieceCategory } from '@/db/queries/pieceQueries';
-import type { TemplatePrepUse } from '@/db/queries/prepQueries';
+import type { TemplateUse } from '@/db/queries/prepQueries';
 import { colors } from '@/theme';
 import { formatAmount } from '@/utils/prepTime';
 
-// A template's prep with nothing to add for it, shown so it's clear nothing was added: a by eye
-// prep all used or lost with no newer batch, or a counted prep whose template is lost or is no
-// longer a template.
-export interface MissingPrep {
-  prepId: number;
+// A template's prep or supply with nothing to add for it, shown so it's clear nothing was added: a
+// by eye one all used or lost with nothing open of its kind, or a counted prep whose template is
+// lost or is no longer a template.
+export interface MissingUse {
+  batchId: number;
   name: string;
   reason: 'All used' | 'Lost' | 'Not a template';
 }
@@ -29,19 +29,20 @@ interface UseChoicesProps {
   usedBy: PieceCategory;
   availableItems: AvailableItem[];
   chosen: UseChoice[];
-  // A template's prep with nothing to add for it. Supplies have none.
-  missing?: MissingPrep[];
+  // A template's lines with nothing to add for them.
+  missing: MissingUse[];
   onChange: (chosen: UseChoice[]) => void;
   // Sets the card's color where it sits on a panel the color of the page's cards.
   style?: StyleProp<ViewStyle>;
 }
 
-// A template's prep as a form starts with it: each one with a batch available, filled in at the
-// template's amount (a newer by eye batch swapped in where the template's own is gone), and the
-// rest as missing lines.
-export function getTemplateChoices(uses: TemplatePrepUse[]) {
+// A template's prep or supplies as a form starts with them: what's already saved on the piece,
+// then each template line with a batch available, filled in at the template's amount (the newest
+// open one of its kind swapped in where the template's own is closed), and the rest as missing
+// lines. A line of a kind already saved is left out by getTemplateUses.
+export function getTemplateChoices(uses: TemplateUse<AvailableItem>[], saved: UseChoice[] = []) {
   const chosen = uses.flatMap(
-    ({ prep_id, share_numerator, share_denominator, replacement }): UseChoice[] =>
+    ({ batch_id, share_numerator, share_denominator, replacement }): UseChoice[] =>
       replacement
         ? [
             {
@@ -53,19 +54,19 @@ export function getTemplateChoices(uses: TemplatePrepUse[]) {
                 size_unit: replacement.size_unit,
               },
               share: { share_numerator, share_denominator },
-              ...(replacement.id === prep_id ? {} : { note: 'Newer batch' }),
+              ...(replacement.id === batch_id ? {} : { note: 'Newer batch' }),
             },
           ]
         : [],
   );
   const missing = uses
     .filter((use) => !use.replacement)
-    .map((use): MissingPrep => ({
-      prepId: use.prep_id,
-      name: use.prep_name,
-      reason: use.prep_lost ? 'Lost' : use.counted ? 'Not a template' : 'All used',
+    .map((use): MissingUse => ({
+      batchId: use.batch_id,
+      name: use.batch_name,
+      reason: use.batch_lost ? 'Lost' : use.counted ? 'Not a template' : 'All used',
     }));
-  return { chosen, missing };
+  return { chosen: [...saved, ...chosen], missing };
 }
 
 // Prep or supplies used on a piece: the heading, then the list as one card. Each chosen one is
@@ -77,16 +78,21 @@ export function UseChoices({
   usedBy,
   availableItems,
   chosen,
-  missing = [],
+  missing,
   onChange,
   style,
 }: UseChoicesProps) {
   const labels = useLabels[kind];
   const [picking, setPicking] = useState(false);
   const [changing, setChanging] = useState<UseChoice | null>(null);
-  // Supplies added from the empty list after the form loaded.
+  // Supplies added from the empty list, and every batch as it was last repriced, which only
+  // replaces one already in the list.
   const [addedItems, setAddedItems] = useState<AvailableItem[]>([]);
-  const unchosenItems = [...availableItems, ...addedItems].filter(
+  const [repricedItems, setRepricedItems] = useState<AvailableItem[]>([]);
+  const items = [...availableItems, ...addedItems].map(
+    (item) => repricedItems.find((repriced) => repriced.id === item.id) ?? item,
+  );
+  const unchosenItems = items.filter(
     (item) => !chosen.some((choice) => choice.item.id === item.id),
   );
   const isEmpty = chosen.length === 0 && missing.length === 0;
@@ -100,6 +106,10 @@ export function UseChoices({
   function change({ item, share }: UseChoice) {
     onChange(chosen.map((choice) => (choice.item.id === item.id ? { ...choice, share } : choice)));
     setChanging(null);
+  }
+
+  function keepAdded(item: AvailableItem) {
+    setAddedItems([...addedItems, item]);
   }
 
   function remove(itemId: number) {
@@ -136,7 +146,7 @@ export function UseChoices({
         ))}
         {missing.map((line, index) => (
           <View
-            key={line.prepId}
+            key={line.batchId}
             style={[styles.row, (chosen.length > 0 || index > 0) && styles.separator]}
           >
             <View style={styles.name}>
@@ -161,7 +171,8 @@ export function UseChoices({
           initial={null}
           onCancel={() => setPicking(false)}
           onSave={add}
-          onItemAdded={(item) => setAddedItems([...addedItems, item])}
+          onSupplyAdded={keepAdded}
+          onRepriced={setRepricedItems}
         />
       )}
       {changing && (
@@ -173,6 +184,7 @@ export function UseChoices({
           onCancel={() => setChanging(null)}
           onSave={change}
           onRemove={() => remove(changing.item.id)}
+          onRepriced={setRepricedItems}
         />
       )}
     </View>
