@@ -166,11 +166,13 @@ export async function addPastWork({
     const overlapping = await getOverlappingEntries(database, startedAt, endedAt, now);
     if (overlapping.length > 0) throw new Error('That overlaps another entry.');
     const { lastInsertRowId: pieceId } = await database.runAsync(
-      `INSERT INTO pieces (name, category, template_id, photo_file_name, created_at, finished_at,
-         notes, lost, is_template, size_amount, size_unit)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO pieces (name, category, template_id, kind_id, photo_file_name, created_at,
+         finished_at, notes, lost, is_template, size_amount, size_unit)
+       VALUES (?, ?, ?, (SELECT coalesce(kind_id, id) FROM pieces WHERE id = ?), ?, ?, ?, ?, ?, ?,
+         ?, ?)`,
       piece.name,
       piece.category,
+      piece.templateId,
       piece.templateId,
       photoFileName,
       startedAt,
