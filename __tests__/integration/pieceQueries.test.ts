@@ -538,7 +538,7 @@ describe('getPieces', () => {
         used_share: 0,
         used_up: 0,
         usable: 0,
-        no_prep: 0,
+        no_cost: 0,
         cost_cents: null,
         cost_estimated: false,
       },
@@ -557,7 +557,7 @@ describe('getPieces', () => {
         used_share: 0,
         used_up: 0,
         usable: 0,
-        no_prep: 0,
+        no_cost: 1,
         cost_cents: null,
         cost_estimated: false,
       },
@@ -576,7 +576,7 @@ describe('getPieces', () => {
         used_share: 0,
         used_up: 0,
         usable: 0,
-        no_prep: 0,
+        no_cost: 1,
         cost_cents: null,
         cost_estimated: false,
       },
@@ -625,6 +625,7 @@ describe('getPieceDetail', () => {
         is_template: 0,
         size_amount: null,
         size_unit: null,
+        no_cost: 0,
       },
       segments: [
         { started_at: '2026-10-31T09:00:00.000Z', ended_at: '2026-10-31T10:00:00.000Z' },
@@ -942,60 +943,94 @@ describe('deleting a template', () => {
   });
 });
 
-describe('the No prep tag on getPieces', () => {
-  // A prep, a template that used it, a template that used none, and pieces made from each.
-  const noPrepFixturesSql = `
-    INSERT INTO pieces (id, name, category, notes, finished_at, is_template, template_id) VALUES
-      (1, 'Dichroic cane', 'prep', 'Blue', '2026-10-28T12:00:00.000Z', 0, NULL),
-      (2, 'Blue vase', 'piece', 'Cobalt', '2026-10-29T12:00:00.000Z', 1, NULL),
-      (3, 'Green bowl', 'piece', 'Lime', '2026-10-29T13:00:00.000Z', 1, NULL),
-      (4, 'Blue vase', 'piece', 'Second', '2026-10-30T12:00:00.000Z', 0, 2),
-      (5, 'Blue vase', 'piece', 'Third', '2026-10-30T13:00:00.000Z', 0, 2),
-      (6, 'Green bowl', 'piece', 'Second', '2026-10-30T14:00:00.000Z', 0, 3),
-      (7, 'Red cup', 'piece', 'Plain', '2026-10-30T15:00:00.000Z', 0, NULL);
-    INSERT INTO pieces (id, name, category, template_id) VALUES (8, 'Blue vase', 'piece', 2);
+describe('the No cost tag', () => {
+  // A cane with a tube behind it, a frit mix with none, and pieces made from them.
+  const noCostFixturesSql = `
+    INSERT INTO supplies (id, name, cost_cents) VALUES (1, '5 ft tube', 4000);
+    INSERT INTO pieces (id, name, category, notes, finished_at) VALUES
+      (1, 'Dichroic cane', 'prep', 'Blue', '2026-10-28T12:00:00.000Z'),
+      (2, 'Frit mix', 'prep', 'Green', '2026-10-28T13:00:00.000Z'),
+      (3, 'Blue vase', 'piece', 'Cobalt', '2026-10-29T12:00:00.000Z'),
+      (4, 'Green bowl', 'piece', 'Lime', '2026-10-29T13:00:00.000Z'),
+      (5, 'Red cup', 'piece', 'Plain', '2026-10-29T14:00:00.000Z'),
+      (6, 'Pendant', 'piece', 'Silver', '2026-10-29T15:00:00.000Z');
+    INSERT INTO pieces (id, name, category) VALUES (7, 'Gray mug', 'piece');
+    INSERT INTO supply_uses (piece_id, supply_id, share_numerator, share_denominator)
+      VALUES (1, 1, 1, 1), (6, 1, 1, 8);
     INSERT INTO prep_uses (piece_id, prep_id, share_numerator, share_denominator)
-      VALUES (2, 1, 25, 100), (5, 1, 25, 100);
+      VALUES (3, 1, 25, 100), (4, 2, 25, 100);
     INSERT INTO work_segments (piece_id, started_at, ended_at) VALUES
       (1, '2026-10-28T09:00:00.000Z', '2026-10-28T12:00:00.000Z'),
-      (2, '2026-10-29T09:00:00.000Z', '2026-10-29T12:00:00.000Z'),
-      (3, '2026-10-29T12:00:00.000Z', '2026-10-29T13:00:00.000Z'),
-      (4, '2026-10-30T09:00:00.000Z', '2026-10-30T12:00:00.000Z'),
-      (5, '2026-10-30T12:00:00.000Z', '2026-10-30T13:00:00.000Z'),
-      (6, '2026-10-30T13:00:00.000Z', '2026-10-30T14:00:00.000Z'),
-      (7, '2026-10-30T14:00:00.000Z', '2026-10-30T15:00:00.000Z'),
-      (8, '2026-10-30T15:00:00.000Z', '2026-10-30T16:00:00.000Z');
+      (2, '2026-10-28T12:00:00.000Z', '2026-10-28T13:00:00.000Z'),
+      (3, '2026-10-29T09:00:00.000Z', '2026-10-29T12:00:00.000Z'),
+      (4, '2026-10-29T12:00:00.000Z', '2026-10-29T13:00:00.000Z'),
+      (5, '2026-10-29T13:00:00.000Z', '2026-10-29T14:00:00.000Z'),
+      (6, '2026-10-29T14:00:00.000Z', '2026-10-29T15:00:00.000Z'),
+      (7, '2026-10-29T15:00:00.000Z', '2026-10-29T16:00:00.000Z');
   `;
 
-  async function getNoPrep(pieceId: number) {
+  async function getNoCost(pieceId: number) {
     const pieces = await getPieces();
-    return pieces.find((piece) => piece.id === pieceId)?.no_prep;
+    return pieces.find((piece) => piece.id === pieceId)?.no_cost;
   }
 
-  beforeEach(() => database.execAsync(noPrepFixturesSql));
+  beforeEach(() => database.execAsync(noCostFixturesSql));
 
-  // Otherwise a piece that skipped its template's cane would show no sign its cost is missing.
-  it('tags a finished piece whose template has prep and that has none', async () => {
-    expect(await getNoPrep(4)).toBe(1);
+  // Otherwise a piece saved with nothing behind its cost would look like a complete record.
+  it('tags a finished piece with no supply behind it', async () => {
+    expect(await getNoCost(5)).toBe(1);
   });
 
-  // Otherwise the tag would stay on a piece after its prep was added.
-  it('does not tag a piece from that template once it has prep', async () => {
-    expect(await getNoPrep(5)).toBe(0);
+  // Otherwise a pendant with its own supply would still be flagged as missing a cost.
+  it('does not tag a piece with a supply of its own', async () => {
+    expect(await getNoCost(6)).toBe(0);
   });
 
-  // Otherwise a piece that never takes prep would be nagged every time it's made.
-  it('does not tag a piece whose template has no prep', async () => {
-    expect(await getNoPrep(6)).toBe(0);
+  // Otherwise a piece costed through its cane would be flagged as if it had no cost.
+  it('does not tag a piece whose prep has a supply', async () => {
+    expect(await getNoCost(3)).toBe(0);
   });
 
-  // Otherwise every piece made from scratch would carry the tag.
-  it('does not tag a piece with no template', async () => {
-    expect(await getNoPrep(7)).toBe(0);
+  // Otherwise the fix would only be pointed at on the piece, when it belongs on the prep.
+  it('tags a piece whose only prep has no supplies, and that prep too', async () => {
+    expect(await getNoCost(4)).toBe(1);
+    expect(await getNoCost(2)).toBe(1);
+    expect(await getNoCost(1)).toBe(0);
   });
 
-  // Otherwise a piece still being made would be tagged before Done has filled in its prep.
-  it('does not tag an unfinished piece from a template with prep', async () => {
-    expect(await getNoPrep(8)).toBe(0);
+  // Otherwise a piece whose supply was deleted after it was made would show its saved cost and No cost together.
+  it("does not tag a piece with a counted prep's cost saved on its use", async () => {
+    await database.execAsync(`
+      INSERT INTO prep_uses (piece_id, prep_id, share_numerator, share_denominator, prep_cost_cents)
+        VALUES (5, 2, 1, 8, 188);
+    `);
+
+    expect(await getNoCost(5)).toBe(0);
+  });
+
+  // Otherwise every later batch of points would be flagged, with no way to give it a supply.
+  it('does not tag a batch of a counted template', async () => {
+    await database.execAsync(`
+      INSERT INTO pieces (id, name, category, notes, finished_at, is_template, size_amount, size_unit)
+        VALUES (8, 'Points', 'prep', 'Clear', '2026-10-30T12:00:00.000Z', 1, 8, 'points');
+      INSERT INTO pieces (id, name, category, notes, finished_at, template_id, size_amount, size_unit)
+        VALUES (9, 'Points', 'prep', 'Clear', '2026-10-31T12:00:00.000Z', 8, 8, 'points');
+      INSERT INTO work_segments (piece_id, started_at, ended_at) VALUES
+        (8, '2026-10-30T11:00:00.000Z', '2026-10-30T12:00:00.000Z'),
+        (9, '2026-10-31T11:00:00.000Z', '2026-10-31T12:00:00.000Z');
+    `);
+
+    expect(await getNoCost(9)).toBe(0);
+  });
+
+  // Otherwise a piece still being made would be tagged before Done has filled in its supplies.
+  it('does not tag an unfinished piece', async () => {
+    expect(await getNoCost(7)).toBe(0);
+  });
+
+  // Otherwise a piece's page wouldn't show the tag the list shows.
+  it('carries the tag on the piece page', async () => {
+    expect((await getPieceDetail(5))?.piece.no_cost).toBe(1);
+    expect((await getPieceDetail(6))?.piece.no_cost).toBe(0);
   });
 });
