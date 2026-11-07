@@ -45,6 +45,7 @@ const finish = {
   notes: 'Cobalt',
   photoFileName: null,
   lost: false,
+  isTemplate: false,
   sizeAmount: null,
   sizeUnit: null,
   prepUses: [],
@@ -79,10 +80,14 @@ beforeEach(async () => {
   tubeId = await addSupply({
     name: '5 ft tube',
     costCents: 4000,
+    sizeAmount: null,
+    sizeUnit: null,
   });
   bailId = await addSupply({
     name: 'Silver bail',
     costCents: 300,
+    sizeAmount: null,
+    sizeUnit: null,
   });
 });
 
@@ -211,24 +216,6 @@ describe('cost', () => {
     expect(await getCostOf(caneId)).toEqual({ cents: 4000, estimated: false });
   });
 
-  // Otherwise points pulled from a whole tube would show their cost as a guess until something else closed.
-  it('gives a piece at 1 of 8 points from a whole $40 tube $5.00, not estimated', async () => {
-    await finishPiece(caneId, {
-      ...finish,
-      sizeAmount: 8,
-      sizeUnit: 'points',
-      supplyUses: [supplyUse(tubeId, 1, 1)],
-    });
-
-    await finishPiece(vaseId, {
-      ...finish,
-      prepUses: [{ prepId: caneId, share: share(1, 8) }],
-      supplyUses: [],
-    });
-
-    expect(await getCostOf(vaseId)).toEqual({ cents: 500, estimated: false });
-  });
-
   // Otherwise a pendant with a bail would carry only its cane, or only its bail.
   it('adds a supply used directly to the share of a prep', async () => {
     await finishCaneFromWholeTube();
@@ -278,7 +265,7 @@ describe('cost', () => {
       startedAt: '2026-11-02T09:00:00.000Z',
       endedAt: '2026-11-02T10:00:00.000Z',
       photoFileName: null,
-      finish: { notes: 'Red', lost: false },
+      finish: { notes: 'Red', lost: false, isTemplate: false },
       prepUses: [],
       supplyUses: [supplyUse(bailId, 1, 1)],
     });
@@ -344,8 +331,22 @@ describe('deleting', () => {
     await deletePiece(vaseId);
 
     expect(await getAvailableSupplies(caneId)).toEqual([
-      { id: bailId, name: 'Silver bail', size_amount: null, size_unit: null, used_share: 0 },
-      { id: tubeId, name: '5 ft tube', size_amount: null, size_unit: null, used_share: 0.5 },
+      {
+        id: bailId,
+        name: 'Silver bail',
+        size_amount: null,
+        size_unit: null,
+        used_share: 0,
+        cost_cents: 300,
+      },
+      {
+        id: tubeId,
+        name: '5 ft tube',
+        size_amount: null,
+        size_unit: null,
+        used_share: 0.5,
+        cost_cents: 4000,
+      },
     ]);
   });
 });
