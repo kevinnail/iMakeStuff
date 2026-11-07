@@ -25,14 +25,18 @@ const filters: { value: PieceFilter; label: string; emptyText: string }[] = [
 // All covers pieces only, so Prep sits apart from the joined buttons.
 const pieceFilters = filters.filter(({ value }) => value !== 'prep');
 
-function isUsable(prep: PieceListItem) {
-  return prep.finished_at !== null && !prep.used_up && !prep.lost;
-}
-
+// A counted prep shows what it made; a by eye one, how much of its cost is assigned.
 function PrepLeft({ prep }: { prep: PieceListItem }) {
   if (!prep.finished_at) return <Text style={styles.detailText}>Unfinished</Text>;
+  if (prep.size_amount !== null) {
+    return (
+      <Text style={styles.detailText}>
+        {prep.size_amount} {prep.size_unit}
+      </Text>
+    );
+  }
   if (prep.lost) return null;
-  return <AssignedBar usedShare={prep.used_share} usedUp={prep.used_up === 1} size={prep} />;
+  return <AssignedBar usedShare={prep.used_share} usedUp={prep.used_up === 1} />;
 }
 
 export default function PiecesScreen() {
@@ -49,7 +53,7 @@ export default function PiecesScreen() {
   });
   const listedPieces =
     filter === 'prep'
-      ? [...shownPieces].sort((first, second) => Number(isUsable(second)) - Number(isUsable(first)))
+      ? [...shownPieces].sort((first, second) => second.usable - first.usable)
       : shownPieces;
   const emptyText = filters.find(({ value }) => value === filter)?.emptyText;
 
