@@ -1,14 +1,17 @@
 import { getActualShare, isEstimated, type UseShare } from '@/utils/prepTime';
 
-// A use of a supply by a piece or a prep, with the supply's cost.
+// A use of a supply by a piece or a prep, with the supply's cost: as saved with a counted use,
+// otherwise as it is now.
 export interface SupplyCostShare extends UseShare {
   piece_id: number;
   supply_cost_cents: number;
 }
 
-// A use of a prep by a piece.
+// A use of a prep by a piece. A counted use saved the prep's whole cost, unless that cost held a
+// guess; otherwise it's null and the cost comes from the prep's supplies as they are now.
 export interface PrepCostShare extends UseShare {
   prep_id: number;
+  prep_cost_cents: number | null;
 }
 
 // A cost typed as dollars ("40", "40.00", "$40", "12.5") in cents, or null for anything else.
@@ -53,11 +56,14 @@ export function getCost<SupplyUse extends SupplyCostShare, PrepUse extends PrepC
   const supplyLines = getSupplyLines(pieceId, supplyUses);
   const prepLines = prepUses.map((use) => {
     const prepSupplies = getSupplyLines(use.prep_id, supplyUses);
-    const hasSupplies = prepSupplies.length > 0;
+    const savedCost = use.prep_cost_cents !== null;
+    const hasSupplies = savedCost || prepSupplies.length > 0;
     return {
       ...use,
-      cents: Math.round(sumCents(prepSupplies) * getActualShare(use)),
-      estimated: hasSupplies && (isEstimated(use) || prepSupplies.some((line) => line.estimated)),
+      cents: Math.round((use.prep_cost_cents ?? sumCents(prepSupplies)) * getActualShare(use)),
+      estimated:
+        hasSupplies &&
+        (isEstimated(use) || (!savedCost && prepSupplies.some((line) => line.estimated))),
       hasSupplies,
     };
   });
