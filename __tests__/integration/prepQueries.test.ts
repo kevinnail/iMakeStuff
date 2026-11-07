@@ -91,7 +91,7 @@ async function getActualPercents(prepId: number) {
   return usedBy.map((row) => getActualShare(row) * 100);
 }
 
-// Used up as every screen sees it: Used up tapped on, or its shares reaching 100%.
+// All used as every screen sees it: the switch, or uses that close it.
 async function isUsedUp(prepId: number) {
   const usedBy = (await getPieceDetail(prepId))?.usedBy ?? [];
   return usedBy.some((row) => row.used_up === 1);
@@ -137,6 +137,7 @@ describe('finishPiece with prep', () => {
         size_unit: null,
         ...share(25),
         used_up: 0,
+        measured: 0,
         shares_total: 0.25,
         prep_worked_milliseconds: 4 * hour + 40 * minute,
       },
@@ -149,6 +150,7 @@ describe('finishPiece with prep', () => {
         size_unit: null,
         ...share(10),
         used_up: 0,
+        measured: 0,
         shares_total: 0.1,
         prep_worked_milliseconds: 2 * hour,
       },
@@ -320,8 +322,26 @@ describe('getAvailablePrep', () => {
   });
 });
 
-describe('shares reaching 100%', () => {
+describe('closing a batch', () => {
   const cupId = 6;
+  const firstBeadId = 10;
+
+  // Prep with a size is measured: the cane becomes 8 points.
+  async function measureCane(sizeAmount = 8) {
+    await database.runAsync(
+      "UPDATE pieces SET size_amount = ?, size_unit = 'points' WHERE id = ?",
+      sizeAmount,
+      caneId,
+    );
+  }
+
+  async function addBeads(count: number) {
+    await database.execAsync(`
+      INSERT INTO pieces (id, name, category)
+      SELECT ${firstBeadId} + value, 'Bead', 'piece'
+      FROM json_each('[${Array.from({ length: count }, (_unused, index) => index).join(',')}]');
+    `);
+  }
 
   beforeEach(async () => {
     await database.execAsync(
@@ -329,148 +349,153 @@ describe('shares reaching 100%', () => {
     );
   });
 
-  // Otherwise a cane split 25, 25, 50 would read 0% left but stay in Add prep, not used up.
-  it('makes the prep used up when a new use brings it to exactly 100%', async () => {
+  // Otherwise guesses on a cane that runs long would close it at 100% and refuse the next piece.
+  it('leaves prep with no size open at 100% and past it, taking another use', async () => {
     await addPrepUse(vaseId, use(caneId, 25));
     await addPrepUse(bowlId, use(caneId, 25));
     await addPrepUse(cupId, use(caneId, 50));
+    await addBeads(1);
+    await addPrepUse(firstBeadId, use(caneId, 25));
 
-    expect(await isUsedUp(caneId)).toBe(true);
-    expect(await getActualPercents(caneId)).toEqual([25, 25, 50]);
-    expect(await getAvailablePrep(cupId)).toEqual([
-      { id: fritId, name: 'Frit mix', size_amount: null, size_unit: null, used_share: 0 },
-    ]);
+    expect(await isUsedUp(caneId)).toBe(false);
+    expect(await getActualPercents(caneId)).toEqual([25, 25, 50, 25]);
   });
 
-  // Otherwise a use confirmed past 100% would put more than the prep's time on its pieces.
-  it('makes the prep used up past 100% and scales the shares to 100%', async () => {
+  // Otherwise closing a cane that ran past its guesses would put more than its time on its pieces.
+  it('scales the shares of prep with no size to 100% when its switch closes it', async () => {
     await addPrepUse(vaseId, use(caneId, 75));
     await addPrepUse(bowlId, use(caneId, 50));
 
-    expect(await isUsedUp(caneId)).toBe(true);
+    await setPrepUsedUp(caneId, true);
+
     expect(await getActualPercents(caneId)).toEqual([60, 40]);
   });
 
-  // Otherwise a prep could be used up while part of it is still on the bench.
-  it('leaves the prep in use below 100%', async () => {
-    await addPrepUse(vaseId, use(caneId, 33));
-    await addPrepUse(bowlId, use(caneId, 33));
-    await addPrepUse(cupId, use(caneId, 33));
+  // Otherwise a cane past 100% could never be opened again for one more piece.
+  it('turns All used off on prep with no size past 100%', async () => {
+    await addPrepUse(vaseId, use(caneId, 75));
+    await addPrepUse(bowlId, use(caneId, 50));
+    await setPrepUsedUp(caneId, true);
+
+    await setPrepUsedUp(caneId, false);
 
     expect(await isUsedUp(caneId)).toBe(false);
-    expect(await getActualPercents(caneId)).toEqual([33, 33, 33]);
   });
 
-  // Otherwise raising a piece's estimate on its page to finish the prep would leave it in use.
-  it('makes the prep used up when a changed use brings it to 100%', async () => {
-    await addPrepUse(vaseId, use(caneId, 50));
-    await addPrepUse(bowlId, use(caneId, 25));
-
-    await changePrepUse(await getUseId(bowlId, caneId), share(50));
+  // Otherwise a cane one piece took all of would stay open and keep its cost marked estimated.
+  it('closes prep with no size on one use of all of it, and refuses to turn it off', async () => {
+    await addPrepUse(vaseId, use(caneId, 100));
 
     expect(await isUsedUp(caneId)).toBe(true);
-    expect(await getActualPercents(caneId)).toEqual([50, 50]);
+    await expect(setPrepUsedUp(caneId, false)).rejects.toThrow(
+      'Its uses take all of it. Lower one to turn All used off.',
+    );
   });
 
-  // Otherwise finishing the piece that took the last of a prep, the usual way, would leave it in use.
-  it('makes the prep used up when finishing a piece brings it to 100%', async () => {
-    await addPrepUse(bowlId, use(caneId, 50));
-
-    await finishPiece(vaseId, { ...finish, prepUses: [use(caneId, 50), use(fritId, 10)] });
-
-    expect(await isUsedUp(caneId)).toBe(true);
-    expect(await isUsedUp(fritId)).toBe(false);
-  });
-
-  // Otherwise a cane cut in eighths would never reach used up, since 1/8 used to round down to 12%.
-  it('makes the prep used up on the eighth use of 1/8 and not the seventh', async () => {
-    const firstPieceId = 10;
-    await database.execAsync(`
-      INSERT INTO pieces (id, name, category)
-      SELECT ${firstPieceId} + value, 'Bead', 'piece' FROM json_each('[0,1,2,3,4,5,6,7]');
-    `);
+  // Otherwise points pulled from a tube would never close, or close a point early.
+  it('closes a measured prep on the eighth point and not the seventh', async () => {
+    await measureCane();
+    await addBeads(8);
 
     for (let index = 0; index < 7; index++) {
-      await addPrepUse(firstPieceId + index, use(caneId, 1, 8));
+      await addPrepUse(firstBeadId + index, use(caneId, 1, 8));
     }
     expect(await isUsedUp(caneId)).toBe(false);
 
-    await addPrepUse(firstPieceId + 7, use(caneId, 1, 8));
+    await addPrepUse(firstBeadId + 7, use(caneId, 1, 8));
     expect(await isUsedUp(caneId)).toBe(true);
     expect(await getActualPercents(caneId)).toEqual(Array(8).fill(12.5));
   });
 
-  // Otherwise ten uses of 1/10 would add to just under the whole prep in floating point and leave it in use.
-  it('makes the prep used up after ten uses of 1/10', async () => {
-    const firstPieceId = 10;
-    await database.execAsync(`
-      INSERT INTO pieces (id, name, category)
-      SELECT ${firstPieceId} + value, 'Bead', 'piece' FROM json_each('[0,1,2,3,4,5,6,7,8,9]');
-    `);
+  // Otherwise ten uses of 1/10 would add to just under the whole prep in floating point and leave it open.
+  it('closes a measured prep after ten uses of 1/10', async () => {
+    await measureCane(10);
+    await addBeads(10);
 
     for (let index = 0; index < 10; index++) {
-      await addPrepUse(firstPieceId + index, use(caneId, 1, 10));
+      await addPrepUse(firstBeadId + index, use(caneId, 1, 10));
     }
 
     expect(await isUsedUp(caneId)).toBe(true);
     expect(await getAvailablePrep(cupId)).toEqual([
       { id: fritId, name: 'Frit mix', size_amount: null, size_unit: null, used_share: 0 },
     ]);
-    await expect(setPrepUsedUp(caneId, false)).rejects.toThrow(
-      'Its uses add up to 100%. Lower one to turn All used off.',
-    );
   });
 
-  // Otherwise turning Used up off would look like it worked on a prep still at 100%.
-  it('refuses to turn Used up off while the uses add up to 100%', async () => {
-    await addPrepUse(vaseId, use(caneId, 50));
-    await addPrepUse(bowlId, use(caneId, 50));
+  // Otherwise scrapping the short end of a batch of points would raise every piece's cost.
+  it('leaves the shares of a measured prep closed by hand as they were', async () => {
+    await measureCane();
+    await addPrepUse(vaseId, use(caneId, 2, 8));
+    await addPrepUse(bowlId, use(caneId, 2, 8));
+    await addPrepUse(cupId, use(caneId, 2, 8));
+
+    await setPrepUsedUp(caneId, true);
+
+    expect(await getActualPercents(caneId)).toEqual([25, 25, 25]);
+  });
+
+  // Otherwise a piece's share of points would change when another piece entered more than were made.
+  it('keeps every share of a measured prep as entered past its size', async () => {
+    await measureCane();
+    await addPrepUse(vaseId, use(caneId, 6, 8));
+    await addPrepUse(bowlId, use(caneId, 1, 8));
+
+    await addPrepUse(cupId, use(caneId, 2, 8));
+
+    expect(await getActualPercents(caneId)).toEqual([75, 12.5, 25]);
+  });
+
+  // Otherwise turning All used off would look like it worked on points that are all used.
+  it('refuses to turn All used off while a measured prep uses reach its size', async () => {
+    await measureCane();
+    await addPrepUse(vaseId, use(caneId, 4, 8));
+    await addPrepUse(bowlId, use(caneId, 4, 8));
 
     await expect(setPrepUsedUp(caneId, false)).rejects.toThrow(
-      'Its uses add up to 100%. Lower one to turn All used off.',
+      'Its uses take all of it. Lower one to turn All used off.',
     );
     expect(await isUsedUp(caneId)).toBe(true);
   });
 
-  // Otherwise lowering a guess that reached 100% would leave the rest of the cane out of Add prep.
-  it('puts the prep back in use when a use is lowered below 100%', async () => {
-    await addPrepUse(vaseId, use(caneId, 50));
-    await addPrepUse(bowlId, use(caneId, 50));
+  // Otherwise lowering a use on full points would leave the rest out of Add prep.
+  it('puts a measured prep back in use when a use is lowered below its size', async () => {
+    await measureCane();
+    await addPrepUse(vaseId, use(caneId, 4, 8));
+    await addPrepUse(bowlId, use(caneId, 4, 8));
 
-    await changePrepUse(await getUseId(bowlId, caneId), share(25));
+    await changePrepUse(await getUseId(bowlId, caneId), share(2, 8));
 
     expect(await isUsedUp(caneId)).toBe(false);
-    expect(await getActualPercents(caneId)).toEqual([50, 25]);
   });
 
-  // Otherwise the remaining piece would carry the whole cane's time after the other use was removed.
-  it('puts the prep back in use when a use is removed', async () => {
-    await addPrepUse(vaseId, use(caneId, 50));
-    await addPrepUse(bowlId, use(caneId, 50));
+  // Otherwise the remaining piece would keep points the removed one gave back.
+  it('puts a measured prep back in use when a use is removed', async () => {
+    await measureCane();
+    await addPrepUse(vaseId, use(caneId, 4, 8));
+    await addPrepUse(bowlId, use(caneId, 4, 8));
 
     await removePrepUse(await getUseId(bowlId, caneId));
 
     expect(await isUsedUp(caneId)).toBe(false);
-    expect(await getActualPercents(caneId)).toEqual([50]);
     expect(await getAvailablePrep(cupId)).toEqual([
       { id: fritId, name: 'Frit mix', size_amount: null, size_unit: null, used_share: 0 },
-      { id: caneId, name: 'Dichroic cane', size_amount: null, size_unit: null, used_share: 0.5 },
+      { id: caneId, name: 'Dichroic cane', size_amount: 8, size_unit: 'points', used_share: 0.5 },
     ]);
   });
 
-  // Otherwise deleting a piece that used half a cane would put all of it on the other piece.
-  it('puts the prep back in use when a piece that used it is deleted', async () => {
-    await addPrepUse(vaseId, use(caneId, 50));
-    await addPrepUse(bowlId, use(caneId, 50));
+  // Otherwise deleting a piece that used half the points would leave the rest out of Add prep.
+  it('puts a measured prep back in use when a piece that used it is deleted', async () => {
+    await measureCane();
+    await addPrepUse(vaseId, use(caneId, 4, 8));
+    await addPrepUse(bowlId, use(caneId, 4, 8));
 
     await deletePiece(bowlId);
 
     expect(await isUsedUp(caneId)).toBe(false);
-    expect(await getActualPercents(caneId)).toEqual([50]);
   });
 
-  // Otherwise removing a use would undo a Used up the maker tapped on for a cane that's gone.
-  it('keeps Used up tapped on when a use is removed', async () => {
+  // Otherwise removing a use would undo an All used the maker tapped on for a cane that's gone.
+  it('keeps All used tapped on when a use is removed', async () => {
     await addPrepUse(vaseId, use(caneId, 25));
     await addPrepUse(bowlId, use(caneId, 25));
     await setPrepUsedUp(caneId, true);
@@ -495,6 +520,7 @@ describe('getPieceDetail for prep', () => {
         piece_name: 'Blue vase',
         ...share(25),
         used_up: 0,
+        measured: 0,
         shares_total: 0.6,
       },
       {
@@ -503,6 +529,7 @@ describe('getPieceDetail for prep', () => {
         piece_name: 'Green bowl',
         ...share(35),
         used_up: 0,
+        measured: 0,
         shares_total: 0.6,
       },
     ]);
@@ -534,12 +561,11 @@ describe('getPieces with prep', () => {
     });
   });
 
-  // Otherwise the Prep list's bars couldn't show how much of each prep is left.
+  // Otherwise the Prep list's bars couldn't show how much of each prep is assigned.
   it("gives each prep its shares added together and whether it's used up", async () => {
     await addPrepUse(vaseId, use(caneId, 25));
     await addPrepUse(bowlId, use(caneId, 35));
-    await addPrepUse(vaseId, use(fritId, 60));
-    await addPrepUse(bowlId, use(fritId, 40));
+    await addPrepUse(vaseId, use(fritId, 100));
 
     const pieces = await getPieces();
     expect(pieces.find((piece) => piece.id === caneId)).toMatchObject({
