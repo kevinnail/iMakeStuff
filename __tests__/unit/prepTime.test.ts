@@ -1,4 +1,5 @@
 import {
+  defaultsToTemplate,
   formatAmount,
   formatShare,
   formatUnitAmount,
@@ -6,6 +7,7 @@ import {
   getActualShare,
   getPrepTime,
   parseAmount,
+  rescaleShare,
   type UseShare,
 } from '@/utils/prepTime';
 
@@ -13,8 +15,25 @@ const hour = 60 * 60 * 1000;
 const minute = 60 * 1000;
 const second = 1000;
 
-// A prep's uses as the database returns them, from shares written as "1/8" or "25". A measured
-// prep is one with a size.
+describe('defaultsToTemplate', () => {
+  // Otherwise counted prep couldn't be picked by any piece until its page was opened.
+  it('is on for counted prep that came out good', () => {
+    expect(defaultsToTemplate(true, false)).toBe(true);
+  });
+
+  // Otherwise a cracked batch would be offered on the Work screen as something to make again.
+  it('is off for lost counted prep', () => {
+    expect(defaultsToTemplate(true, true)).toBe(false);
+  });
+
+  // Otherwise every piece and by eye prep would fill the template list.
+  it('is off for anything not counted prep', () => {
+    expect(defaultsToTemplate(false, false)).toBe(false);
+  });
+});
+
+// A prep's uses as the database returns them, from shares written as "1/8" or "25". A counted
+// prep is one made as parts, like 8 points.
 function getShares(amounts: string[], usedUp: boolean, measured = false): UseShare[] {
   const shares = amounts.map((amount) => parseAmount(amount)!);
   const sharesTotal = shares.reduce(
@@ -72,8 +91,8 @@ describe('getActualShare', () => {
     expect(getActualPercents(['25', '1/8'], false)).toEqual([25, 12.5]);
   });
 
-  // Otherwise scrapping the last points of a batch would raise the cost of every piece made from it.
-  it('keeps the shares of a measured prep once it is all used', () => {
+  // Otherwise the points other pieces took would change the share of every piece made from them.
+  it('keeps the shares of a counted prep as entered, whatever they add up to', () => {
     const shares = getShares(['1/8', '1/8', '1/4'], true, true);
 
     expect(shares.map((share) => getActualShare(share) * 100)).toEqual([12.5, 12.5, 25]);
@@ -109,7 +128,7 @@ describe('getPrepTime', () => {
   });
 
   // Otherwise a piece made from points would show its prep time as a guess when it's exact.
-  it('marks a share of an open measured prep as not estimated', () => {
+  it('marks a share of a counted prep as not estimated', () => {
     const { lines, estimated } = getPrepTime(hour, [timeShare('1/8', 8 * hour, false, true)]);
 
     expect(lines).toEqual([
@@ -215,10 +234,24 @@ describe('amounts in a batch unit', () => {
     ).toBe('1/8');
   });
 
-  // Otherwise a use could claim more of a batch than it holds, or none of it.
-  it('rejects more than the size, zero, and text', () => {
-    expect(parseAmount('9', 8)).toBeNull();
+  // Otherwise a bubbler on 1 1/2 points couldn't be entered without working out 3/16 by hand.
+  it('reads "1 1/2" as 3/2 of a part, and shows "2 1/3" back the way it was typed', () => {
+    expect(parseAmount('1 1/2', 1)).toEqual({ share_numerator: 3, share_denominator: 2 });
+
+    const share = parseAmount('2 1/3', 8);
+    expect(share).toEqual({ share_numerator: 7, share_denominator: 24 });
+    expect(formatAmount(share!, { size_amount: 8, size_unit: 'points' })).toBe('2 1/3 points');
+  });
+
+  // Otherwise a big piece that took more points than one tube made would be refused.
+  it('takes more parts than the count, since the count only divides the cost', () => {
+    expect(parseAmount('12', 8)).toEqual({ share_numerator: 3, share_denominator: 2 });
+  });
+
+  // Otherwise a use could claim none of a batch, or save text as an amount.
+  it('rejects zero, a fraction with 0 at the bottom, and text', () => {
     expect(parseAmount('0', 8)).toBeNull();
+    expect(parseAmount('1 1/0', 8)).toBeNull();
     expect(parseAmount('half', 8)).toBeNull();
   });
 
@@ -227,5 +260,17 @@ describe('amounts in a batch unit', () => {
     expect(parseSize('2.5')).toBe(2.5);
     expect(parseSize('0')).toBeNull();
     expect(parseSize('lots')).toBeNull();
+  });
+
+  // Otherwise correcting a count would change how many parts each piece entered.
+  it('keeps the parts entered when a count is corrected, decimals included', () => {
+    expect(rescaleShare({ share_numerator: 1, share_denominator: 8 }, 8, 10)).toEqual({
+      share_numerator: 1,
+      share_denominator: 10,
+    });
+
+    const third = parseAmount('1/3', 8)!;
+    const corrected = rescaleShare(third, 8, 2.5);
+    expect(formatAmount(corrected, { size_amount: 2.5, size_unit: 'lb' })).toBe('1/3 lb');
   });
 });
