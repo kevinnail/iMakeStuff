@@ -210,7 +210,7 @@ export default function DaysScreen() {
               <Text style={styles.pieceName}>{piece.name}</Text>
               {piece.category === 'prep' && <Tag label="Prep" />}
               {piece.lost === 1 && <Tag label="Lost" />}
-              {piece.no_prep === 1 && <Tag label="No prep" />}
+              {piece.no_cost === 1 && <Tag label="No cost" warning />}
               <View style={styles.rowEnd}>
                 <Chevron />
               </View>
