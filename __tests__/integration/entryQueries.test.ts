@@ -15,6 +15,9 @@ jest.mock('@/db/database', () => ({
   getDb: jest.fn(),
 }));
 
+const addPrepError =
+  "Only finished prep that isn't all used or lost can be added, and counted prep only by its template.";
+
 interface SegmentRow {
   piece_id: number;
   started_at: string;
@@ -291,7 +294,7 @@ describe('addPastWork', () => {
       startedAt,
       endedAt,
       photoFileName: null,
-      finish: { notes: 'Copper red', lost: false },
+      finish: { notes: 'Copper red', lost: false, isTemplate: false },
       supplyUses: [],
       prepUses: [],
     });
@@ -314,7 +317,7 @@ describe('addPastWork', () => {
       startedAt,
       endedAt,
       photoFileName: null,
-      finish: { notes: 'Cracked in the kiln', lost: true },
+      finish: { notes: 'Cracked in the kiln', lost: true, isTemplate: false },
       supplyUses: [],
       prepUses: [],
     });
@@ -338,7 +341,7 @@ describe('addPastWork', () => {
         startedAt,
         endedAt,
         photoFileName: null,
-        finish: { notes: null, lost: false },
+        finish: { notes: null, lost: false, isTemplate: false },
         supplyUses: [],
         prepUses: [],
       }),
@@ -533,7 +536,7 @@ describe('addPastWork', () => {
         supplyUses: [],
         prepUses: [{ prepId: 3, share: { share_numerator: 25, share_denominator: 100 } }],
       }),
-    ).rejects.toThrow("Only finished prep that isn't all used or lost can be added.");
+    ).rejects.toThrow(addPrepError);
     expect(await database.getAllAsync("SELECT id FROM pieces WHERE name = 'Red cup'")).toEqual([]);
     expect(await database.getAllAsync(segmentsSql)).toEqual([]);
   });
