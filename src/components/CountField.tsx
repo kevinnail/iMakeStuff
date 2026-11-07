@@ -1,0 +1,164 @@
+import { StyleSheet, Text, TextInput, View, type StyleProp, type ViewStyle } from 'react-native';
+
+import { JoinedButtons } from '@/components/JoinedButtons';
+import { colors } from '@/theme';
+import { parseSize, type BatchSize, type SizeInput } from '@/utils/prepTime';
+
+export interface CountTexts {
+  amountText: string;
+  unitText: string;
+}
+
+// Counted prep is made as a number of equal parts; by eye prep is one thing used by guessing.
+export type PrepKind = 'counted' | 'byEye';
+
+interface CountFieldProps {
+  label: string;
+  amountPlaceholder: string;
+  unitPlaceholder: string;
+  note?: string;
+  texts: CountTexts;
+  onChange: (texts: CountTexts) => void;
+}
+
+interface PrepKindFieldProps {
+  kind: PrepKind;
+  onChangeKind: (kind: PrepKind) => void;
+  texts: CountTexts;
+  onChangeTexts: (texts: CountTexts) => void;
+  // The joined buttons' track, where the field sits on a card the buttons' usual color.
+  trackStyle?: StyleProp<ViewStyle>;
+}
+
+const kindOptions: { value: PrepKind; label: string }[] = [
+  { value: 'counted', label: 'Counted' },
+  { value: 'byEye', label: 'By eye' },
+];
+
+export const noCount: SizeInput = { sizeAmount: null, sizeUnit: null };
+
+export const prepCountError = 'Enter how many it made, like 8 points, or pick By eye.';
+
+export function getPrepKind({ size_amount }: BatchSize): PrepKind {
+  return size_amount === null ? 'byEye' : 'counted';
+}
+
+// The boxes' starting text for a saved count, empty when there's none.
+export function getCountTexts({ size_amount, size_unit }: BatchSize): CountTexts {
+  return { amountText: size_amount === null ? '' : String(size_amount), unitText: size_unit ?? '' };
+}
+
+// A count typed as a number and a unit, like 8 points, or null unless both read.
+export function readCount({ amountText, unitText }: CountTexts): SizeInput | null {
+  const sizeAmount = parseSize(amountText);
+  const sizeUnit = unitText.trim();
+  return sizeAmount === null || sizeUnit === '' ? null : { sizeAmount, sizeUnit };
+}
+
+// The count a prep is saved with: none by eye, or null when Counted has no count typed.
+export function readPrepCount(kind: PrepKind, texts: CountTexts): SizeInput | null {
+  return kind === 'byEye' ? noCount : readCount(texts);
+}
+
+// A number and a unit the maker types: what a counted prep made, or what a counted supply holds.
+// The app never interprets the unit.
+export function CountField({
+  label,
+  amountPlaceholder,
+  unitPlaceholder,
+  note,
+  texts,
+  onChange,
+}: CountFieldProps) {
+  return (
+    <View style={styles.field}>
+      <View style={styles.row}>
+        <Text style={[styles.label, styles.fill]}>{label}</Text>
+        <TextInput
+          style={[styles.input, styles.amountInput]}
+          value={texts.amountText}
+          onChangeText={(amountText) => onChange({ ...texts, amountText })}
+          placeholder={amountPlaceholder}
+          placeholderTextColor={colors.secondaryText}
+          keyboardType="decimal-pad"
+        />
+        <TextInput
+          style={[styles.input, styles.unitInput]}
+          value={texts.unitText}
+          onChangeText={(unitText) => onChange({ ...texts, unitText })}
+          placeholder={unitPlaceholder}
+          placeholderTextColor={colors.secondaryText}
+          autoCapitalize="none"
+        />
+      </View>
+      {note && <Text style={styles.note}>{note}</Text>}
+    </View>
+  );
+}
+
+// Counted or By eye, and for counted prep, how many parts it made.
+export function PrepKindField({
+  kind,
+  onChangeKind,
+  texts,
+  onChangeTexts,
+  trackStyle,
+}: PrepKindFieldProps) {
+  return (
+    <View style={styles.field}>
+      <JoinedButtons
+        options={kindOptions}
+        selected={kind}
+        onSelect={onChangeKind}
+        style={trackStyle}
+      />
+      {kind === 'counted' && (
+        <CountField
+          label="Made"
+          amountPlaceholder="8"
+          unitPlaceholder="points"
+          texts={texts}
+          onChange={onChangeTexts}
+        />
+      )}
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  field: {
+    gap: 8,
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  fill: {
+    flex: 1,
+  },
+  label: {
+    fontSize: 18,
+    color: colors.text,
+  },
+  input: {
+    fontSize: 18,
+    padding: 8,
+    color: colors.text,
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    borderColor: colors.separator,
+    borderRadius: 8,
+  },
+  amountInput: {
+    width: 72,
+    textAlign: 'right',
+  },
+  unitInput: {
+    width: 110,
+  },
+  note: {
+    fontSize: 16,
+    color: colors.secondaryText,
+  },
+});
