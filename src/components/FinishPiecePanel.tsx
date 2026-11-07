@@ -15,7 +15,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { JoinedButtons } from '@/components/JoinedButtons';
 import { getSizeTexts, readSize, SizeField, sizeError } from '@/components/SizeField';
-import { confirmTemplateUseUp, UseChoices, type MissingPrep } from '@/components/UseChoices';
+import { UseChoices, type MissingPrep } from '@/components/UseChoices';
 import type { AvailableItem, UseChoice } from '@/components/UsePanel';
 import type { FinishPrepUse } from '@/db/queries/prepQueries';
 import type { FinishSupplyUse } from '@/db/queries/supplyQueries';
@@ -167,7 +167,7 @@ export function FinishPiecePanel({
             </Pressable>
             <Pressable
               style={[styles.saveButton, !canSave && styles.buttonDisabled]}
-              onPress={() => confirmTemplateUseUp(chosenPrep, save)}
+              onPress={save}
               disabled={!canSave}
             >
               <Text style={styles.saveButtonText}>Save</Text>
