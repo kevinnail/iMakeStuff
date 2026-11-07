@@ -19,7 +19,7 @@ import { Dropdown } from '@/components/Dropdown';
 import { FinishPiecePanel } from '@/components/FinishPiecePanel';
 import { getDeleteMessage } from '@/components/PieceEditForm';
 import { JoinedButtons } from '@/components/JoinedButtons';
-import { getTemplateChoices, type MissingPrep } from '@/components/UseChoices';
+import { getTemplateChoices, type MissingUse } from '@/components/UseChoices';
 import { getSavedChoice, type UseChoice } from '@/components/UsePanel';
 import { StopTimePanel } from '@/components/StopTimePanel';
 import { Tag } from '@/components/Tag';
@@ -29,7 +29,7 @@ import type { PieceCategory, Template, UnfinishedPiece } from '@/db/queries/piec
 import {
   getAvailablePrep,
   getPiecePrep,
-  getTemplatePrep,
+  getTemplateUses,
   type AvailablePrep,
 } from '@/db/queries/prepQueries';
 import {
@@ -50,9 +50,10 @@ interface Finishing {
   cameraPhotoUri: string | null;
   availablePrep: AvailablePrep[] | null;
   initialPrep: UseChoice[];
-  missingPrep: MissingPrep[];
+  missingPrep: MissingUse[];
   availableSupplies: AvailableSupply[];
   initialSupplies: UseChoice[];
+  missingSupplies: MissingUse[];
 }
 
 interface RunningTimeProps {
@@ -97,43 +98,39 @@ function confirmDelete(piece: UnfinishedPiece, remove: (pieceId: number) => Prom
   );
 }
 
-async function loadFinishPrep(piece: UnfinishedPiece) {
-  if (piece.category === 'prep') return { availablePrep: null, initialPrep: [], missingPrep: [] };
-  const [availablePrep, usedPrep, templateUses] = await Promise.all([
-    getAvailablePrep(piece.id),
-    getPiecePrep(piece.id),
-    piece.template_id === null ? [] : getTemplatePrep(piece.template_id),
-  ]);
-  const savedPrep = usedPrep.map((use) =>
-    getSavedChoice(use, {
-      id: use.prep_id,
-      name: use.prep_name,
-      size_amount: use.size_amount,
-      size_unit: use.size_unit,
-    }),
-  );
-  const template = getTemplateChoices(
-    templateUses.filter((use) => !usedPrep.some((saved) => saved.prep_name === use.prep_name)),
-  );
-  return {
-    availablePrep,
-    initialPrep: [...savedPrep, ...template.chosen],
-    missingPrep: template.missing,
-  };
-}
-
 // What the panel after Done starts with: the prep (for a piece) and the supplies already on it,
-// and what can be added.
+// then its template's (Decisions: Record once, then just make), and what can be added. Prep
+// takes no prep, and a batch of a counted template takes no supplies from it, since the template
+// knows them.
 async function loadFinishUses(piece: UnfinishedPiece) {
-  const [prep, availableSupplies, usedSupplies] = await Promise.all([
-    loadFinishPrep(piece),
+  const usesPrep = piece.category === 'piece';
+  const [availablePrep, usedPrep, availableSupplies, usedSupplies] = await Promise.all([
+    usesPrep ? getAvailablePrep(piece.id) : null,
+    usesPrep ? getPiecePrep(piece.id) : [],
     getAvailableSupplies(piece.id),
     getPieceSupplies(piece.id),
   ]);
-  return {
-    ...prep,
-    availableSupplies,
-    initialSupplies: usedSupplies.map((use) =>
+  const template =
+    piece.template_id === null
+      ? null
+      : await getTemplateUses(piece.template_id, piece.id, {
+          prep: availablePrep ?? [],
+          supplies: availableSupplies,
+        });
+  const prep = getTemplateChoices(
+    usesPrep ? (template?.prep ?? []) : [],
+    usedPrep.map((use) =>
+      getSavedChoice(use, {
+        id: use.prep_id,
+        name: use.prep_name,
+        size_amount: use.size_amount,
+        size_unit: use.size_unit,
+      }),
+    ),
+  );
+  const supplies = getTemplateChoices(
+    piece.template_counted ? [] : (template?.supplies ?? []),
+    usedSupplies.map((use) =>
       getSavedChoice(use, {
         id: use.supply_id,
         name: use.supply_name,
@@ -141,6 +138,14 @@ async function loadFinishUses(piece: UnfinishedPiece) {
         size_unit: use.size_unit,
       }),
     ),
+  );
+  return {
+    availablePrep,
+    initialPrep: prep.chosen,
+    missingPrep: prep.missing,
+    availableSupplies,
+    initialSupplies: supplies.chosen,
+    missingSupplies: supplies.missing,
   };
 }
 
@@ -333,6 +338,7 @@ export default function WorkScreen() {
       missingPrep={finishing.missingPrep}
       availableSupplies={finishing.availableSupplies}
       initialSupplies={finishing.initialSupplies}
+      missingSupplies={finishing.missingSupplies}
       initialSize={finishing.piece}
       laterBatch={finishing.piece.template_counted === 1}
       fromTemplate={finishing.piece.template_id !== null}
