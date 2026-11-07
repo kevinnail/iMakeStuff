@@ -2,12 +2,11 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { getDb } from '@/db/database';
 import {
+  availableSql,
   getPiecesUsingPrep,
   getUsedPrep,
   insertPrepUse,
   noPrepSql,
-  shareSql,
-  usedUpSql,
   type FinishPrepUse,
   type PieceUsingPrep,
   type UsedPrep,
@@ -15,9 +14,11 @@ import {
 import {
   getUsedSupplies,
   insertSupplyUse,
+  rescaleUses,
   type FinishSupplyUse,
   type UsedSupply,
 } from '@/db/queries/supplyQueries';
+import { shareSql, usedUpSql } from '@/db/schema';
 import { getCost } from '@/utils/cost';
 import { getPrepTime, type BatchSize, type Share, type SizeInput } from '@/utils/prepTime';
 import type { TimeRange } from '@/utils/workDays';
@@ -30,6 +31,8 @@ export interface UnfinishedPiece extends BatchSize {
   category: PieceCategory;
   photo_file_name: string | null;
   template_id: number | null;
+  // 1 for a batch of a counted prep that's still a template, whose Done needs only a photo or notes.
+  template_counted: number;
   worked_milliseconds: number;
   running_since: string | null;
 }
@@ -53,6 +56,8 @@ export interface PieceListItem extends BatchSize {
   // Every piece's share of this prep added together, 1 being all of it.
   used_share: number;
   used_up: number;
+  // 1 when Add prep can pick it.
+  usable: number;
   no_prep: number;
 }
 
@@ -92,6 +97,8 @@ export interface FinishDetails extends SizeInput {
   notes: string | null;
   photoFileName: string | null;
   lost: boolean;
+  // Save as template, at Done.
+  isTemplate: boolean;
   // Every prep and supply the piece ends up with. Uses already on it that aren't listed are removed.
   prepUses: FinishPrepUse[];
   supplyUses: FinishSupplyUse[];
@@ -205,7 +212,8 @@ async function saveUses<Use extends { useId?: number; share: Share }>(
   }
 }
 
-// Prep gets its size here, when it's made; a piece's is always null.
+// Counted prep gets its count here, when it's made; a piece's is always null. Save as template
+// makes it a template in the same write.
 export async function finishPiece(
   pieceId: number,
   {
@@ -213,6 +221,7 @@ export async function finishPiece(
     notes,
     photoFileName,
     lost,
+    isTemplate,
     prepUses,
     supplyUses,
     sizeAmount,
@@ -227,13 +236,14 @@ export async function finishPiece(
       pieceId,
     );
     const result = await database.runAsync(
-      `UPDATE pieces SET finished_at = ?, notes = ?, photo_file_name = ?, lost = ?, size_amount = ?,
-         size_unit = ?
+      `UPDATE pieces SET finished_at = ?, notes = ?, photo_file_name = ?, lost = ?, is_template = ?,
+         size_amount = ?, size_unit = ?
        WHERE id = ? AND finished_at IS NULL`,
       endedAt,
       notes,
       photoFileName,
       lost ? 1 : 0,
+      isTemplate ? 1 : 0,
       sizeAmount,
       sizeUnit,
       pieceId,
@@ -248,15 +258,18 @@ export async function finishPiece(
   });
 }
 
+// Counted or By eye can't change once a piece has used the prep, since its uses were saved as one
+// or the other. A corrected count keeps each use's parts (rescaleUses).
 export async function updatePiece(pieceId: number, changes: PieceChanges): Promise<void> {
   const database = await getDb();
   await database.withTransactionAsync(async () => {
     const current = await database.getFirstAsync<{
       used_up_at: string | null;
+      size_amount: number | null;
       uses_prep: number;
       used_by_pieces: number;
     }>(
-      `SELECT used_up_at,
+      `SELECT used_up_at, size_amount,
          EXISTS (SELECT 1 FROM prep_uses WHERE piece_id = pieces.id) AS uses_prep,
          EXISTS (SELECT 1 FROM prep_uses WHERE prep_id = pieces.id) AS used_by_pieces
        FROM pieces WHERE id = ?`,
@@ -268,6 +281,12 @@ export async function updatePiece(pieceId: number, changes: PieceChanges): Promi
     }
     if (changes.category === 'piece' && (current.used_by_pieces || current.used_up_at)) {
       throw new Error("Prep that pieces used, or that's all used, can't become a piece.");
+    }
+    if (
+      current.used_by_pieces &&
+      (changes.sizeAmount === null) !== (current.size_amount === null)
+    ) {
+      throw new Error("Counted or By eye can't change once a piece used it.");
     }
     await database.runAsync(
       `UPDATE pieces SET name = ?, category = ?, notes = ?, photo_file_name = ?, size_amount = ?,
@@ -281,6 +300,11 @@ export async function updatePiece(pieceId: number, changes: PieceChanges): Promi
       changes.sizeUnit,
       pieceId,
     );
+    const { size_amount: oldCount } = current;
+    const newCount = changes.sizeAmount;
+    if (oldCount !== null && newCount !== null && newCount !== oldCount) {
+      await rescaleUses(database, 'prep_uses', 'prep_id', pieceId, oldCount, newCount);
+    }
   });
 }
 
@@ -354,6 +378,8 @@ export async function getUnfinishedPieces(): Promise<UnfinishedPiece[]> {
   return database.getAllAsync<UnfinishedPiece>(
     `SELECT pieces.id, pieces.name, pieces.category, pieces.photo_file_name, pieces.template_id,
        pieces.size_amount, pieces.size_unit,
+       coalesce((SELECT template.is_template = 1 AND template.size_amount IS NOT NULL
+         FROM pieces AS template WHERE template.id = pieces.template_id), 0) AS template_counted,
        round(total(julianday(work_segments.ended_at) - julianday(work_segments.started_at))
          * 86400000) AS worked_milliseconds,
        max(CASE WHEN work_segments.ended_at IS NULL THEN work_segments.started_at END)
@@ -381,7 +407,8 @@ export async function getPieces(): Promise<PieceListItem[]> {
          round(total(julianday(coalesce(work_segments.ended_at, 'now'))
            - julianday(work_segments.started_at)) * 86400000) AS worked_milliseconds,
          ${usedShareSql} AS used_share,
-         ${usedUpSql('pieces', usedShareSql)} AS used_up,
+         ${usedUpSql('pieces', 'prep_uses', 'prep_id')} AS used_up,
+         ${availableSql('pieces')} AS usable,
          ${noPrepSql} AS no_prep
        FROM pieces
        JOIN work_segments ON work_segments.piece_id = pieces.id
