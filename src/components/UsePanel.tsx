@@ -17,11 +17,15 @@ import type { PieceCategory } from '@/db/queries/pieceQueries';
 import { addSupply, type SupplyDetails } from '@/db/queries/supplyQueries';
 import { colors } from '@/theme';
 import {
+  formatAmount,
   formatPercent,
   formatShare,
+  formatUnitAmount,
+  formatUsedAmount,
   getShareValue,
   isPastWhole,
   parseAmount,
+  type BatchSize,
   type Share,
   type UseShare,
 } from '@/utils/prepTime';
@@ -50,7 +54,7 @@ export const useLabels = {
 };
 
 // A prep or supply that can be picked, with every piece's share of it added together.
-export interface AvailableItem {
+export interface AvailableItem extends BatchSize {
   id: number;
   name: string;
   used_share: number;
@@ -58,7 +62,7 @@ export interface AvailableItem {
 
 export interface UseChoice {
   // otherUsesShare: every other piece's share of it added together, 1 being all of it.
-  item: { id: number; name: string; otherUsesShare: number; usedUp: boolean };
+  item: { id: number; name: string; otherUsesShare: number; usedUp: boolean } & BatchSize;
   share: Share;
   note?: string;
   useId?: number;
@@ -68,7 +72,7 @@ export interface UseChoice {
 // A use already saved on the piece, as a choice the panel can change or remove.
 export function getSavedChoice(
   use: UseShare & { id: number },
-  item: { id: number; name: string },
+  item: { id: number; name: string } & BatchSize,
 ): UseChoice {
   return {
     item: {
@@ -79,6 +83,10 @@ export function getSavedChoice(
     share: { share_numerator: use.share_numerator, share_denominator: use.share_denominator },
     useId: use.id,
   };
+}
+
+function getAmountText(share: Share, sizeAmount: number | null) {
+  return sizeAmount === null ? formatShare(share) : formatUnitAmount(share, sizeAmount);
 }
 
 interface UsePanelProps {
@@ -112,20 +120,52 @@ export function UsePanel({
   const labels = useLabels[kind];
   const [items, setItems] = useState(itemList);
   const [chosenItem, setChosenItem] = useState(initial?.item ?? null);
-  // A prep starts at all of the supply, the usual case (a whole tube pulled into points).
   const [amountText, setAmountText] = useState(
-    initial ? formatShare(initial.share) : usedBy === 'prep' ? '100' : '',
+    initial ? getAmountText(initial.share, initial.item.size_amount) : '',
   );
   const [addingSupply, setAddingSupply] = useState(false);
-  const typedShare = parseAmount(amountText);
+  const sizeAmount = chosenItem?.size_amount ?? null;
+  const sizeUnit = chosenItem?.size_unit ?? null;
+  const typedPercent = amountText.includes('%');
+  const typedShare = parseAmount(amountText, sizeAmount);
 
-  const unitText = amountText !== '' && !/[/%]/.test(amountText) ? '%' : '';
+  // After the box: the batch's unit, or % for a bare number on a batch with no size.
+  const unitText =
+    sizeUnit !== null && !typedPercent
+      ? sizeUnit
+      : amountText !== '' && !/[/%]/.test(amountText)
+        ? '%'
+        : '';
+  // Under the box: how to enter an amount, or for a batch with a size, what it saves as.
+  const helpText =
+    chosenItem === null || sizeAmount === null
+      ? '(Enter a number or fraction)'
+      : typedShare && !typedPercent
+        ? `${formatAmount(typedShare, chosenItem)} = ${formatShare(typedShare)} of the batch`
+        : `In ${sizeUnit}, like 1 or 1/3, or a percent like 25%.`;
   const canSave = chosenItem !== null && amountText !== '';
+
+  function choose(item: AvailableItem) {
+    setChosenItem({
+      id: item.id,
+      name: item.name,
+      otherUsesShare: item.used_share,
+      usedUp: false,
+      size_amount: item.size_amount,
+      size_unit: item.size_unit,
+    });
+    // A prep usually takes all of a supply. A piece starts empty.
+    setAmountText(usedBy === 'prep' ? '100' : '');
+  }
 
   function handleSave() {
     if (chosenItem === null) return;
     if (typedShare === null) {
-      Alert.alert('Enter a percent from 1 to 100, or a fraction like 1/8.');
+      Alert.alert(
+        sizeAmount === null
+          ? 'Enter a percent from 1 to 100, or a fraction like 1/8.'
+          : `Enter up to ${sizeAmount} ${sizeUnit}, like 1 or 1/3, or a percent like 25%.`,
+      );
       return;
     }
     const choice = { item: chosenItem, share: typedShare };
@@ -149,9 +189,9 @@ export function UsePanel({
   // The new supply is saved now, whatever happens to this piece, and picked in the list.
   async function saveNewSupply(details: SupplyDetails) {
     const id = await addSupply(details);
-    const item = { id, name: details.name, used_share: 0 };
+    const item = { id, name: details.name, used_share: 0, size_amount: null, size_unit: null };
     setItems([...(items ?? []), item]);
-    setChosenItem({ id, name: details.name, otherUsesShare: 0, usedUp: false });
+    choose(item);
     setAddingSupply(false);
     onItemAdded?.(item);
   }
@@ -182,26 +222,26 @@ export function UsePanel({
               options={items.map((item) => ({
                 key: item.id,
                 label: item.name,
-                detail: `${formatPercent(item.used_share)} assigned`,
+                detail:
+                  item.size_amount === null
+                    ? `${formatPercent(item.used_share)} assigned`
+                    : `${formatUsedAmount(item.used_share, item.size_amount)} of ${item.size_amount} used`,
                 item,
               }))}
               selectedKey={chosenItem?.id ?? null}
               placeholder={labels.choose}
-              onSelect={({ item }) =>
-                setChosenItem({
-                  id: item.id,
-                  name: item.name,
-                  otherUsesShare: item.used_share,
-                  usedUp: false,
-                })
-              }
+              onSelect={({ item }) => choose(item)}
             />
           )}
           {chosenItem && (
             <>
               <View style={styles.fieldRow}>
                 <Text style={[styles.label, styles.amountLabel]}>
-                  {usedBy === 'prep' ? 'How much of it this prep used' : 'How much this piece took'}
+                  {usedBy === 'prep'
+                    ? 'How much of it this prep used'
+                    : sizeUnit !== null
+                      ? `How many ${sizeUnit} this piece used`
+                      : 'How much this piece took'}
                 </Text>
                 <TextInput
                   style={styles.amountInput}
@@ -212,7 +252,7 @@ export function UsePanel({
                 />
                 <Text style={[styles.label, styles.unitText]}>{unitText}</Text>
               </View>
-              <Text style={styles.secondaryText}>(Enter a number or fraction)</Text>
+              <Text style={styles.secondaryText}>{helpText}</Text>
             </>
           )}
           <View style={styles.buttonRow}>
@@ -293,7 +333,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   unitText: {
-    width: 20,
+    minWidth: 20,
   },
   buttonRow: {
     flexDirection: 'row',
