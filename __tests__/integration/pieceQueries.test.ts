@@ -677,7 +677,7 @@ describe('updatePiece', () => {
   ])('rejects changing %s to a piece', async (_kind, prepId, name, notes) => {
     await expect(
       updatePiece(prepId, { name, category: 'piece', notes, photoFileName: null }),
-    ).rejects.toThrow("Prep that pieces used, or that's used up, can't become a piece.");
+    ).rejects.toThrow("Prep that pieces used, or that's all used, can't become a piece.");
     expect(await database.getFirstAsync(pieceRowSql, prepId)).toMatchObject({ category: 'prep' });
   });
 });
