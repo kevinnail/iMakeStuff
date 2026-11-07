@@ -5,6 +5,7 @@ import {
   formatPercent,
   isUsedUp,
   wholeShare,
+  type BatchSize,
   type PrepTimeShare,
   type Share,
   type UseShare,
@@ -19,14 +20,14 @@ export interface FinishPrepUse extends NewPrepUse {
   useId?: number;
 }
 
-export interface AvailablePrep {
+export interface AvailablePrep extends BatchSize {
   id: number;
   name: string;
   // Every piece's share of it added together, 1 being all of it.
   used_share: number;
 }
 
-export interface UsedPrep extends PrepTimeShare {
+export interface UsedPrep extends PrepTimeShare, BatchSize {
   id: number;
   piece_id: number;
   prep_id: number;
@@ -98,7 +99,7 @@ export async function insertPrepUse(
 export function getUsedPrep(database: SQLiteDatabase, pieceId: number | null) {
   return database.getAllAsync<UsedPrep>(
     `SELECT prep_uses.id, prep_uses.piece_id, prep_uses.prep_id, pieces.name AS prep_name,
-       ${shareColumnsSql},
+       pieces.size_amount, pieces.size_unit, ${shareColumnsSql},
        round(total(julianday(work_segments.ended_at) - julianday(work_segments.started_at))
          * 86400000) AS prep_worked_milliseconds
      FROM prep_uses
@@ -132,7 +133,8 @@ export function getPiecesUsingPrep(database: SQLiteDatabase, prepId: number) {
 export async function getAvailablePrep(pieceId: number | null): Promise<AvailablePrep[]> {
   const database = await getDb();
   return database.getAllAsync<AvailablePrep>(
-    `SELECT pieces.id, pieces.name, total(${shareSql}) AS used_share
+    `SELECT pieces.id, pieces.name, pieces.size_amount, pieces.size_unit,
+       total(${shareSql}) AS used_share
      FROM pieces
      LEFT JOIN prep_uses ON prep_uses.prep_id = pieces.id
      WHERE pieces.category = 'prep' AND pieces.finished_at IS NOT NULL
