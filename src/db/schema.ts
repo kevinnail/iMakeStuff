@@ -11,12 +11,16 @@ export function wholeUseSql(useTable: string, batchColumn: string, batchIdSql: s
     WHERE ${batchColumn} = ${batchIdSql} AND share_numerator = share_denominator)`;
 }
 
-// A by eye batch closes by its All used switch or one use of all of it. Uses that add up to 100%
-// are guesses, so they leave it open until the switch closes it. A counted batch never closes.
+// A supply closes by its All used switch or one use of all of it. Uses that add up to 100% are
+// guesses, so they leave it open until the switch closes it.
 export function usedUpSql(batchTable: string, useTable: string, batchColumn: string) {
-  return `(${batchTable}.size_amount IS NULL
-    AND (${batchTable}.used_up_at IS NOT NULL
-      OR ${wholeUseSql(useTable, batchColumn, `${batchTable}.id`)}))`;
+  return `(${batchTable}.used_up_at IS NOT NULL
+    OR ${wholeUseSql(useTable, batchColumn, `${batchTable}.id`)})`;
+}
+
+// By eye prep closes the same way. Counted prep never closes.
+export function prepUsedUpSql(prepTable: string) {
+  return `(${prepTable}.size_amount IS NULL AND ${usedUpSql(prepTable, 'prep_uses', 'prep_id')})`;
 }
 
 export const SCHEMA_SQL = `
@@ -34,8 +38,12 @@ export const SCHEMA_SQL = `
     lost            INTEGER NOT NULL DEFAULT 0 CHECK (lost IN (0, 1)),
     -- A finished piece offered on Add Work's Existing, to make another one like it.
     is_template     INTEGER NOT NULL DEFAULT 0 CHECK (is_template IN (0, 1)),
-    -- The template this piece was made from.
+    -- The template this piece was made from. Null once that template is deleted.
     template_id     INTEGER REFERENCES pieces(id),
+    -- The first piece of its kind, through copies of copies, so a template's line for a cane
+    -- that's all used fills in the newest open cane of its kind. Null on the first one. Not a
+    -- reference: the kind stays together when its first piece is deleted.
+    kind_id         INTEGER,
     -- A counted prep's count in the maker's own unit, like 8 points, so uses are entered in
     -- it. By eye prep has none.
     size_amount     REAL,
@@ -86,31 +94,29 @@ export const SCHEMA_SQL = `
     prep_id           INTEGER NOT NULL REFERENCES pieces(id),
     share_numerator   INTEGER NOT NULL CHECK (share_numerator > 0),
     share_denominator INTEGER NOT NULL CHECK (share_denominator > 0),
-    -- A counted prep's whole cost and worked time when the use was saved, so the piece keeps
-    -- them when prices change. Null on a by eye use, and the cost is null when no supply was
-    -- behind the prep.
+    -- A counted prep's whole cost when the use was saved, so the piece keeps it when prices
+    -- change. Null on a by eye use, and when no supply was behind the prep. Its time isn't
+    -- saved: it only changes when the prep's time is fixed, and a fix reaches every piece. A
+    -- counted use can take more parts than the batch made, so the share has no upper limit
+    -- here; a by eye amount is read as at most all of it (parseAmount).
     prep_cost_cents   INTEGER,
-    prep_milliseconds INTEGER,
-    -- A by eye share is a guess at part of one thing, so at most all of it. A counted use can
-    -- take more parts than the batch made.
-    CHECK (share_numerator <= share_denominator OR prep_milliseconds IS NOT NULL),
     UNIQUE (piece_id, prep_id)
   );
 
   -- Raw material bought at a known cost, like a 5 ft tube at $40. Not a piece: no time, no
-  -- photo, no finish. The cost is what was paid for the whole thing, in cents. created_at is
-  -- when it was added, which keeps each price's date, so prices can be compared over time.
+  -- photo, no finish. The cost is what was paid for the whole thing, in cents.
   CREATE TABLE IF NOT EXISTS supplies (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     name        TEXT NOT NULL CHECK (trim(name) <> ''),
     cost_cents  INTEGER NOT NULL CHECK (cost_cents >= 0),
     used_up_at  TEXT,
     created_at  TEXT NOT NULL DEFAULT (${SQL_NOW}),
-    -- A counted supply's count, like a box that holds 16 tubes. A by eye supply has none.
-    size_amount REAL,
-    size_unit   TEXT,
-    CHECK ((size_amount IS NULL) = (size_unit IS NULL)),
-    CHECK (size_amount IS NULL OR (size_amount > 0 AND trim(size_unit) <> ''))
+    -- When the cost was entered or last changed.
+    priced_at   TEXT NOT NULL DEFAULT (${SQL_NOW}),
+    -- The first supply of its kind, picked with Same as, so a template's line for a rod that's
+    -- all used fills in the newest open rod of its kind. Null on the first one. Not a reference:
+    -- the kind stays together when its first supply is deleted.
+    kind_id     INTEGER
   );
 
   -- How much of a supply a piece or prep took, as the fraction entered, the same as prep_uses.
@@ -121,10 +127,7 @@ export const SCHEMA_SQL = `
     supply_id         INTEGER NOT NULL REFERENCES supplies(id),
     share_numerator   INTEGER NOT NULL CHECK (share_numerator > 0),
     share_denominator INTEGER NOT NULL CHECK (share_denominator > 0),
-    -- A counted supply's cost when the use was saved, so the piece keeps it when the price
-    -- changes. Null on a by eye use.
-    supply_cost_cents INTEGER,
-    CHECK (share_numerator <= share_denominator OR supply_cost_cents IS NOT NULL),
+    CHECK (share_numerator <= share_denominator),
     UNIQUE (piece_id, supply_id)
   );
 `;
