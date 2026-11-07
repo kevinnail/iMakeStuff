@@ -6,7 +6,7 @@ import {
   getPiecesUsingPrep,
   getUsedPrep,
   insertPrepUse,
-  noPrepSql,
+  noCostSql,
   type FinishPrepUse,
   type PieceUsingPrep,
   type UsedPrep,
@@ -14,13 +14,18 @@ import {
 import {
   getUsedSupplies,
   insertSupplyUse,
-  rescaleUses,
   type FinishSupplyUse,
   type UsedSupply,
 } from '@/db/queries/supplyQueries';
-import { shareSql, usedUpSql } from '@/db/schema';
+import { prepUsedUpSql, shareSql } from '@/db/schema';
 import { getCost } from '@/utils/cost';
-import { getPrepTime, type BatchSize, type Share, type SizeInput } from '@/utils/prepTime';
+import {
+  getPrepTime,
+  rescaleShare,
+  type BatchSize,
+  type Share,
+  type SizeInput,
+} from '@/utils/prepTime';
 import type { TimeRange } from '@/utils/workDays';
 
 export type PieceCategory = 'piece' | 'prep';
@@ -58,7 +63,7 @@ export interface PieceListItem extends BatchSize {
   used_up: number;
   // 1 when Add prep can pick it.
   usable: number;
-  no_prep: number;
+  no_cost: number;
 }
 
 export interface PieceRecord extends BatchSize {
@@ -71,6 +76,7 @@ export interface PieceRecord extends BatchSize {
   used_up_at: string | null;
   lost: number;
   is_template: number;
+  no_cost: number;
 }
 
 export interface Template extends BatchSize {
@@ -157,8 +163,8 @@ export async function startFromTemplate(templateId: number): Promise<number> {
   let pieceId = 0;
   await database.withTransactionAsync(async () => {
     const result = await database.runAsync(
-      `INSERT INTO pieces (name, category, template_id, size_amount, size_unit)
-       SELECT name, category, id, size_amount, size_unit FROM pieces
+      `INSERT INTO pieces (name, category, template_id, kind_id, size_amount, size_unit)
+       SELECT name, category, id, coalesce(kind_id, id), size_amount, size_unit FROM pieces
        WHERE id = ? AND is_template = 1`,
       templateId,
     );
@@ -258,6 +264,29 @@ export async function finishPiece(
   });
 }
 
+// A counted prep's count corrected after it was used: each use keeps the parts it entered (1 point
+// stays 1 point), so its share is worked out again against the new count.
+async function rescaleUses(
+  database: SQLiteDatabase,
+  prepId: number,
+  oldCount: number,
+  newCount: number,
+) {
+  const uses = await database.getAllAsync<Share & { id: number }>(
+    'SELECT id, share_numerator, share_denominator FROM prep_uses WHERE prep_id = ?',
+    prepId,
+  );
+  for (const use of uses) {
+    const share = rescaleShare(use, oldCount, newCount);
+    await database.runAsync(
+      'UPDATE prep_uses SET share_numerator = ?, share_denominator = ? WHERE id = ?',
+      share.share_numerator,
+      share.share_denominator,
+      use.id,
+    );
+  }
+}
+
 // Counted or By eye can't change once a piece has used the prep, since its uses were saved as one
 // or the other. A corrected count keeps each use's parts (rescaleUses).
 export async function updatePiece(pieceId: number, changes: PieceChanges): Promise<void> {
@@ -303,11 +332,12 @@ export async function updatePiece(pieceId: number, changes: PieceChanges): Promi
     const { size_amount: oldCount } = current;
     const newCount = changes.sizeAmount;
     if (oldCount !== null && newCount !== null && newCount !== oldCount) {
-      await rescaleUses(database, 'prep_uses', 'prep_id', pieceId, oldCount, newCount);
+      await rescaleUses(database, pieceId, oldCount, newCount);
     }
   });
 }
 
+// The pieces made from it are left with no template, and keep its kind.
 export async function deletePiece(pieceId: number): Promise<string | null> {
   const database = await getDb();
   let photoFileName: string | null = null;
@@ -319,7 +349,6 @@ export async function deletePiece(pieceId: number): Promise<string | null> {
     );
     await database.runAsync('DELETE FROM supply_uses WHERE piece_id = ?', pieceId);
     await database.runAsync('DELETE FROM work_segments WHERE piece_id = ?', pieceId);
-
     await database.runAsync('UPDATE pieces SET template_id = NULL WHERE template_id = ?', pieceId);
     const deleted = await database.getFirstAsync<{ photo_file_name: string | null }>(
       'DELETE FROM pieces WHERE id = ? RETURNING photo_file_name',
@@ -407,9 +436,9 @@ export async function getPieces(): Promise<PieceListItem[]> {
          round(total(julianday(coalesce(work_segments.ended_at, 'now'))
            - julianday(work_segments.started_at)) * 86400000) AS worked_milliseconds,
          ${usedShareSql} AS used_share,
-         ${usedUpSql('pieces', 'prep_uses', 'prep_id')} AS used_up,
+         ${prepUsedUpSql('pieces')} AS used_up,
          ${availableSql('pieces')} AS usable,
-         ${noPrepSql} AS no_prep
+         ${noCostSql} AS no_cost
        FROM pieces
        JOIN work_segments ON work_segments.piece_id = pieces.id
        LEFT JOIN (
@@ -439,7 +468,7 @@ export async function getPieceDetail(pieceId: number): Promise<PieceDetail | nul
   const database = await getDb();
   const piece = await database.getFirstAsync<PieceRecord>(
     `SELECT id, name, category, notes, photo_file_name, finished_at, used_up_at, lost,
-       is_template, size_amount, size_unit
+       is_template, size_amount, size_unit, ${noCostSql} AS no_cost
      FROM pieces WHERE id = ?`,
     pieceId,
   );
