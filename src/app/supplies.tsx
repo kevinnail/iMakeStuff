@@ -16,7 +16,7 @@ import { formatCost } from '@/utils/cost';
 import { formatDay } from '@/utils/formatTime';
 import { showError } from '@/utils/showError';
 
-// Every supply with how much of its cost is assigned, the day it was bought, and its cost. Add supply in the
+// Every supply with how much of its cost is assigned, the day it was added, and its cost. Add supply in the
 // header; a row opens the supply's page.
 export default function SuppliesScreen() {
   const [supplies, setSupplies] = useState<SupplyRecord[]>([]);
@@ -72,7 +72,7 @@ export default function SuppliesScreen() {
               />
               <View style={styles.bottomRow}>
                 <Text style={[styles.detailText, styles.fill]}>
-                  Bought {formatDay(Date.parse(supply.bought_at))}
+                  Added {formatDay(Date.parse(supply.created_at))}
                 </Text>
                 <Text style={styles.cost}>{formatCost(supply.cost_cents)}</Text>
               </View>
