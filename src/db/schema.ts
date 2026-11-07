@@ -19,11 +19,16 @@ export const SCHEMA_SQL = `
     is_template     INTEGER NOT NULL DEFAULT 0 CHECK (is_template IN (0, 1)),
     -- The template this piece was made from.
     template_id     INTEGER REFERENCES pieces(id),
+    -- A prep's size in the maker's own unit, like 8 points, so uses are entered in it.
+    size_amount     REAL,
+    size_unit       TEXT,
     -- A finished piece must be identifiable later: it needs a photo or a description.
     CHECK (finished_at IS NULL OR photo_file_name IS NOT NULL OR trim(coalesce(notes, '')) <> ''),
     CHECK (used_up_at IS NULL OR category = 'prep'),
     CHECK (lost = 0 OR finished_at IS NOT NULL),
-    CHECK (is_template = 0 OR finished_at IS NOT NULL)
+    CHECK (is_template = 0 OR finished_at IS NOT NULL),
+    CHECK ((size_amount IS NULL) = (size_unit IS NULL)),
+    CHECK (size_amount IS NULL OR (size_amount > 0 AND trim(size_unit) <> '' AND category = 'prep'))
   );
 
   CREATE TABLE IF NOT EXISTS breaks (
@@ -68,12 +73,12 @@ export const SCHEMA_SQL = `
   );
 
   -- Raw material bought at a known cost, like a 5 ft tube at $40. Not a piece: no time, no
-  -- photo, no finish. The cost is what was paid for the whole thing, in cents.
+  -- photo, no finish. The cost is what was paid for the whole thing, in cents. created_at is
+  -- when it was added, which keeps each price's date, so prices can be compared over time.
   CREATE TABLE IF NOT EXISTS supplies (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     name       TEXT NOT NULL CHECK (trim(name) <> ''),
     cost_cents INTEGER NOT NULL CHECK (cost_cents >= 0),
-    bought_at  TEXT NOT NULL,
     used_up_at TEXT,
     created_at TEXT NOT NULL DEFAULT (${SQL_NOW})
   );

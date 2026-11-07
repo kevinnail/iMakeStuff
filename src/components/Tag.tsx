@@ -12,7 +12,7 @@ interface TagProps {
 export function Tag({ label, onFill = false }: TagProps) {
   return (
     <View style={[styles.tag, onFill && styles.tagOnFill]}>
-      <Text style={[styles.text, onFill && styles.textOnFill]}>{label}</Text>
+      <Text style={[styles.text, onFill && styles.textOnFill]}> - {label} -</Text>
     </View>
   );
 }
@@ -21,10 +21,10 @@ const styles = StyleSheet.create({
   tag: {
     paddingVertical: 2,
     paddingHorizontal: 8,
-    borderWidth: 1,
     borderRadius: 6,
     borderColor: colors.secondaryText,
   },
+
   tagOnFill: {
     borderColor: colors.textOnFill,
   },

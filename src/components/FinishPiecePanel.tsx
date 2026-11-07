@@ -11,14 +11,16 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { JoinedButtons } from '@/components/JoinedButtons';
+import { getSizeTexts, readSize, SizeField, sizeError } from '@/components/SizeField';
 import { confirmTemplateUseUp, UseChoices, type MissingPrep } from '@/components/UseChoices';
 import type { AvailableItem, UseChoice } from '@/components/UsePanel';
 import type { FinishPrepUse } from '@/db/queries/prepQueries';
 import type { FinishSupplyUse } from '@/db/queries/supplyQueries';
 import { colors } from '@/theme';
+import type { BatchSize, SizeInput } from '@/utils/prepTime';
 
 interface FinishPiecePanelProps {
   pieceName: string;
@@ -30,12 +32,15 @@ interface FinishPiecePanelProps {
   missingPrep: MissingPrep[];
   availableSupplies: AvailableItem[];
   initialSupplies: UseChoice[];
+  // Prep's size so far, from its template if it has one.
+  initialSize: BatchSize;
   onCancel: () => void;
   onSave: (
     notes: string | null,
     lost: boolean,
     prepUses: FinishPrepUse[],
     supplyUses: FinishSupplyUse[],
+    size: SizeInput,
   ) => Promise<void>;
 }
 
@@ -61,19 +66,28 @@ export function FinishPiecePanel({
   missingPrep,
   availableSupplies,
   initialSupplies,
+  initialSize,
   onCancel,
   onSave,
 }: FinishPiecePanelProps) {
-  const insets = useSafeAreaInsets();
   const [outcome, setOutcome] = useState<Outcome>('good');
   const [notes, setNotes] = useState('');
   const [chosenPrep, setChosenPrep] = useState(initialPrep);
   const [chosenSupplies, setChosenSupplies] = useState(initialSupplies);
+  const [sizeTexts, setSizeTexts] = useState(() => getSizeTexts(initialSize));
+  const finishingPrep = availablePrep === null;
   const [saving, setSaving] = useState(false);
   const trimmedNotes = notes.trim();
   const canSave = !saving && (photoUri !== null || trimmedNotes !== '');
 
   function save() {
+    const size = finishingPrep
+      ? readSize(sizeTexts.amountText, sizeTexts.unitText)
+      : { sizeAmount: null, sizeUnit: null };
+    if (size === null) {
+      Alert.alert(sizeError);
+      return;
+    }
     setSaving(true);
     // A use already on the piece keeps its id, so it's changed rather than added again.
     const prepUses = chosenPrep.map(({ item, share, useId }) => ({
@@ -86,20 +100,28 @@ export function FinishPiecePanel({
       share,
       useId,
     }));
-    onSave(trimmedNotes || null, outcome === 'lost', prepUses, supplyUses).catch((error: Error) => {
-      setSaving(false);
-      Alert.alert('Could not save', error.message);
-    });
+    onSave(trimmedNotes || null, outcome === 'lost', prepUses, supplyUses, size).catch(
+      (error: Error) => {
+        setSaving(false);
+        Alert.alert('Could not save', error.message);
+      },
+    );
   }
 
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onCancel}>
       <KeyboardAvoidingView style={styles.overlay} behavior="padding">
-        <View style={[styles.panel, { paddingBottom: insets.bottom + 16 }]}>
-          <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        <SafeAreaView edges={{ bottom: 'additive' }} style={styles.panel}>
+          <ScrollView
+            style={styles.scroll}
+            contentContainerStyle={styles.content}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+          >
             <JoinedButtons options={outcomeOptions} selected={outcome} onSelect={setOutcome} />
             <Text style={styles.pieceName}>{pieceName}</Text>
             {photoUri && <Image source={{ uri: photoUri }} style={styles.photo} />}
+
             <TextInput
               style={styles.notesInput}
               value={notes}
@@ -107,28 +129,37 @@ export function FinishPiecePanel({
               placeholder={getNotesPlaceholder(outcome === 'lost', photoUri !== null)}
               placeholderTextColor={colors.secondaryText}
               multiline
+              returnKeyType="done"
+              submitBehavior="blurAndSubmit"
               autoFocus={!photoUri}
             />
-            {availablePrep &&
-              (availablePrep.length > 0 || chosenPrep.length > 0 || missingPrep.length > 0) && (
-                <UseChoices
-                  kind="prep"
-                  availableItems={availablePrep}
-                  chosen={chosenPrep}
-                  missing={missingPrep}
-                  onChange={setChosenPrep}
-                  style={styles.useCard}
-                />
-              )}
-            {(availableSupplies.length > 0 || chosenSupplies.length > 0) && (
+            {availablePrep && (
               <UseChoices
-                kind="supply"
-                availableItems={availableSupplies}
-                chosen={chosenSupplies}
-                onChange={setChosenSupplies}
+                kind="prep"
+                usedBy="piece"
+                availableItems={availablePrep}
+                chosen={chosenPrep}
+                missing={missingPrep}
+                onChange={setChosenPrep}
                 style={styles.useCard}
               />
             )}
+            {finishingPrep && (
+              <SizeField
+                amountText={sizeTexts.amountText}
+                unitText={sizeTexts.unitText}
+                onChangeAmount={(amountText) => setSizeTexts({ ...sizeTexts, amountText })}
+                onChangeUnit={(unitText) => setSizeTexts({ ...sizeTexts, unitText })}
+              />
+            )}
+            <UseChoices
+              kind="supply"
+              usedBy={availablePrep ? 'piece' : 'prep'}
+              availableItems={availableSupplies}
+              chosen={chosenSupplies}
+              onChange={setChosenSupplies}
+              style={styles.useCard}
+            />
           </ScrollView>
           <View style={styles.buttonRow}>
             <Pressable style={styles.cancelButton} onPress={onCancel}>
@@ -142,7 +173,7 @@ export function FinishPiecePanel({
               <Text style={styles.saveButtonText}>Save</Text>
             </Pressable>
           </View>
-        </View>
+        </SafeAreaView>
       </KeyboardAvoidingView>
     </Modal>
   );
@@ -161,6 +192,10 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
     backgroundColor: colors.surface,
+  },
+  // Shrinks to the room left above Cancel and Save, so nothing scrolls behind them.
+  scroll: {
+    flexShrink: 1,
   },
   content: {
     gap: 12,

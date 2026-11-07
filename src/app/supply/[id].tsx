@@ -3,7 +3,7 @@ import { useCallback, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 
 import { Card } from '@/components/Card';
-import { PrepLeftBar } from '@/components/PrepLeftBar';
+import { AssignedBar } from '@/components/AssignedBar';
 import { SupplyPanel } from '@/components/SupplyPanel';
 import {
   deleteSupply,
@@ -18,8 +18,8 @@ import { formatCost } from '@/utils/cost';
 import { formatDay } from '@/utils/formatTime';
 import { showError } from '@/utils/showError';
 
-// A supply's cost and the day it was bought, Edit to change them, Used up with what's left of
-// it, and Delete supply.
+// A supply's cost and the day it was added, Edit to change them, All used with how much of its
+// cost is assigned, and Delete supply.
 export default function SupplyScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const supplyId = Number(id);
@@ -97,18 +97,25 @@ export default function SupplyScreen() {
           <Text style={styles.value}>{formatCost(supply.cost_cents)}</Text>
         </View>
         <View style={styles.row}>
-          <Text style={[styles.text, styles.fill]}>Bought</Text>
-          <Text style={styles.value}>{formatDay(Date.parse(supply.bought_at))}</Text>
+          <Text style={[styles.text, styles.fill]}>Added</Text>
+          <Text style={styles.value}>{formatDay(Date.parse(supply.created_at))}</Text>
         </View>
       </Card>
       <Card>
         <View style={styles.row}>
-          <Text style={[styles.text, styles.fill]}>Used up</Text>
+          <View style={styles.fill}>
+            <Text style={styles.text}>All used</Text>
+            <Text style={styles.note}>Its full cost goes to what used it.</Text>
+          </View>
           <Switch value={usedUp} onValueChange={setUsedUp} trackColor={{ true: colors.primary }} />
         </View>
         <View style={styles.row}>
           <View style={styles.fill}>
-            <PrepLeftBar usedShare={supply.used_share} usedUp={usedUp} />
+            <AssignedBar
+              usedShare={supply.used_share}
+              usedUp={usedUp}
+              costCents={supply.cost_cents}
+            />
           </View>
         </View>
       </Card>
@@ -149,6 +156,10 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     fontVariant: ['tabular-nums'],
     color: colors.text,
+  },
+  note: {
+    fontSize: 16,
+    color: colors.secondaryText,
   },
   deleteText: {
     fontSize: 18,

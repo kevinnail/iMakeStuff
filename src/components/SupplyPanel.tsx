@@ -1,4 +1,3 @@
-import DateTimePicker from '@react-native-community/datetimepicker';
 import { useState } from 'react';
 import {
   Alert,
@@ -10,7 +9,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { SupplyDetails, SupplyRecord } from '@/db/queries/supplyQueries';
 import { colors } from '@/theme';
@@ -23,12 +22,8 @@ interface SupplyPanelProps {
 }
 
 export function SupplyPanel({ initial, onCancel, onSave }: SupplyPanelProps) {
-  const insets = useSafeAreaInsets();
   const [name, setName] = useState(initial?.name ?? '');
   const [costText, setCostText] = useState(initial ? (initial.cost_cents / 100).toFixed(2) : '');
-  const [boughtAt, setBoughtAt] = useState(() =>
-    initial ? Date.parse(initial.bought_at) : Date.now(),
-  );
   const [saving, setSaving] = useState(false);
   const trimmedName = name.trim();
   const canSave = !saving && trimmedName !== '' && costText.trim() !== '';
@@ -40,18 +35,16 @@ export function SupplyPanel({ initial, onCancel, onSave }: SupplyPanelProps) {
       return;
     }
     setSaving(true);
-    onSave({ name: trimmedName, costCents, boughtAt: new Date(boughtAt).toISOString() }).catch(
-      (error: Error) => {
-        setSaving(false);
-        Alert.alert('Could not save', error.message);
-      },
-    );
+    onSave({ name: trimmedName, costCents }).catch((error: Error) => {
+      setSaving(false);
+      Alert.alert('Could not save', error.message);
+    });
   }
 
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onCancel}>
       <KeyboardAvoidingView style={styles.overlay} behavior="padding">
-        <View style={[styles.panel, { paddingBottom: insets.bottom + 16 }]}>
+        <SafeAreaView edges={{ bottom: 'additive' }} style={styles.panel}>
           <Text style={styles.title}>{initial ? 'Change supply' : 'Add supply'}</Text>
           <TextInput
             style={styles.input}
@@ -71,16 +64,6 @@ export function SupplyPanel({ initial, onCancel, onSave }: SupplyPanelProps) {
               keyboardType="decimal-pad"
             />
           </View>
-          <View style={styles.fieldRow}>
-            <Text style={[styles.label, styles.fill]}>Bought</Text>
-            <DateTimePicker
-              value={new Date(boughtAt)}
-              mode="date"
-              display="compact"
-              accentColor={colors.primary}
-              onValueChange={(_event, date) => setBoughtAt(date.getTime())}
-            />
-          </View>
           <View style={styles.buttonRow}>
             <Pressable style={styles.textButton} onPress={onCancel}>
               <Text style={styles.textButtonText}>Cancel</Text>
@@ -93,7 +76,7 @@ export function SupplyPanel({ initial, onCancel, onSave }: SupplyPanelProps) {
               <Text style={styles.saveButtonText}>{initial ? 'Save' : 'Add'}</Text>
             </Pressable>
           </View>
-        </View>
+        </SafeAreaView>
       </KeyboardAvoidingView>
     </Modal>
   );

@@ -17,19 +17,22 @@ import {
   type UseChoice,
   type UseKind,
 } from '@/components/UsePanel';
+import type { PieceCategory } from '@/db/queries/pieceQueries';
 import type { TemplatePrepUse } from '@/db/queries/prepQueries';
 import { colors } from '@/theme';
-import { formatShare, getShareValue, isUsedUp } from '@/utils/prepTime';
+import { formatAmount, getShareValue, isPastWhole } from '@/utils/prepTime';
 
-// A template's prep that's used up or lost with no newer batch, shown so it's clear nothing was added for it.
+// A template's prep that's all used or lost with no newer batch, shown so it's clear nothing was added for it.
 export interface MissingPrep {
   prepId: number;
   name: string;
-  reason: 'Used up' | 'Lost';
+  reason: 'All used' | 'Lost';
 }
 
 interface UseChoicesProps {
   kind: UseKind;
+  // The piece or prep these are used on.
+  usedBy: PieceCategory;
   availableItems: AvailableItem[];
   chosen: UseChoice[];
   // A template's prep with nothing to add for it. Supplies have none.
@@ -53,6 +56,8 @@ export function getTemplateChoices(uses: TemplatePrepUse[]) {
                 name: replacement.name,
                 otherUsesShare: replacement.used_share,
                 usedUp: false,
+                size_amount: replacement.size_amount,
+                size_unit: replacement.size_unit,
               },
               share: { share_numerator, share_denominator },
               fromTemplate: true,
@@ -66,28 +71,28 @@ export function getTemplateChoices(uses: TemplatePrepUse[]) {
     .map((use): MissingPrep => ({
       prepId: use.prep_id,
       name: use.prep_name,
-      reason: use.prep_lost ? 'Lost' : 'Used up',
+      reason: use.prep_lost ? 'Lost' : 'All used',
     }));
   return { chosen, missing };
 }
 
-// A template's amount hasn't been through the prep panel, which asks before a use reaches 100%,
-// so the form's Save asks instead when one would use its prep up.
+// A template's amount hasn't been through the prep panel, which asks before a use goes past 100%,
+// so the form's Save asks instead when one would.
 export function confirmTemplateUseUp(chosen: UseChoice[], save: () => void) {
   const usingUp = chosen.filter(
     ({ item, share, fromTemplate }) =>
-      fromTemplate && isUsedUp(item.otherUsesShare + getShareValue(share)),
+      fromTemplate && isPastWhole(item.otherUsesShare + getShareValue(share)),
   );
   if (usingUp.length === 0) {
     save();
     return;
   }
   Alert.alert(
-    `Use up ${usingUp.map(({ item }) => item.name).join(' and ')}?`,
-    "The template's amount brings it to 100% or more, so saving marks it used up.",
+    `All of ${usingUp.map(({ item }) => item.name).join(' and ')} used?`,
+    "The template's amount brings it past 100%, so saving marks it all used and scales every share to add up to 100%.",
     [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Mark used up', onPress: save },
+      { text: 'All used', onPress: save },
     ],
   );
 }
@@ -98,6 +103,7 @@ export function confirmTemplateUseUp(chosen: UseChoice[], save: () => void) {
 // saved until the form it's in is.
 export function UseChoices({
   kind,
+  usedBy,
   availableItems,
   chosen,
   missing = [],
@@ -107,7 +113,9 @@ export function UseChoices({
   const labels = useLabels[kind];
   const [picking, setPicking] = useState(false);
   const [changing, setChanging] = useState<UseChoice | null>(null);
-  const unchosenItems = availableItems.filter(
+  // Supplies added from the empty list after the form loaded.
+  const [addedItems, setAddedItems] = useState<AvailableItem[]>([]);
+  const unchosenItems = [...availableItems, ...addedItems].filter(
     (item) => !chosen.some((choice) => choice.item.id === item.id),
   );
   const isEmpty = chosen.length === 0 && missing.length === 0;
@@ -156,7 +164,7 @@ export function UseChoices({
               <Text style={styles.text}>{choice.item.name}</Text>
               {choice.note ? <Text style={styles.note}>{choice.note}</Text> : null}
             </View>
-            <Text style={styles.text}>{formatShare(choice.share)}</Text>
+            <Text style={styles.text}>{formatAmount(choice.share, choice.item)}</Text>
             <Chevron />
           </Pressable>
         ))}
@@ -182,15 +190,18 @@ export function UseChoices({
       {picking && (
         <UsePanel
           kind={kind}
+          usedBy={usedBy}
           itemList={unchosenItems}
           initial={null}
           onCancel={() => setPicking(false)}
           onSave={add}
+          onItemAdded={(item) => setAddedItems([...addedItems, item])}
         />
       )}
       {changing && (
         <UsePanel
           kind={kind}
+          usedBy={usedBy}
           itemList={null}
           initial={changing}
           onCancel={() => setChanging(null)}

@@ -223,7 +223,13 @@ describe('addPastWork', () => {
   // Otherwise a forgotten day's work could not be recorded at all.
   it('creates a new piece with its work on the chosen day', async () => {
     await addPastWork({
-      piece: { name: 'Red cup', category: 'piece', templateId: null },
+      piece: {
+        name: 'Red cup',
+        category: 'piece',
+        templateId: null,
+        sizeAmount: null,
+        sizeUnit: null,
+      },
       startedAt,
       endedAt,
       photoFileName: null,
@@ -252,7 +258,13 @@ describe('addPastWork', () => {
   // Otherwise prep made on a forgotten day would be saved as a piece and counted as output.
   it('creates new prep with its category', async () => {
     await addPastWork({
-      piece: { name: 'Dichroic cane', category: 'prep', templateId: null },
+      piece: {
+        name: 'Dichroic cane',
+        category: 'prep',
+        templateId: null,
+        sizeAmount: null,
+        sizeUnit: null,
+      },
       startedAt,
       endedAt,
       photoFileName: null,
@@ -269,7 +281,13 @@ describe('addPastWork', () => {
   // Otherwise a piece made entirely on a forgotten day could never be finished.
   it('finishes the piece at the end of the work', async () => {
     await addPastWork({
-      piece: { name: 'Red cup', category: 'piece', templateId: null },
+      piece: {
+        name: 'Red cup',
+        category: 'piece',
+        templateId: null,
+        sizeAmount: null,
+        sizeUnit: null,
+      },
       startedAt,
       endedAt,
       photoFileName: null,
@@ -286,7 +304,13 @@ describe('addPastWork', () => {
   // Otherwise a piece that broke on a forgotten day would count as output once caught up.
   it('saves a lost finish', async () => {
     await addPastWork({
-      piece: { name: 'Red cup', category: 'piece', templateId: null },
+      piece: {
+        name: 'Red cup',
+        category: 'piece',
+        templateId: null,
+        sizeAmount: null,
+        sizeUnit: null,
+      },
       startedAt,
       endedAt,
       photoFileName: null,
@@ -304,7 +328,13 @@ describe('addPastWork', () => {
   it('rejects finishing with neither a photo nor notes and saves nothing', async () => {
     await expect(
       addPastWork({
-        piece: { name: 'Red cup', category: 'piece', templateId: null },
+        piece: {
+          name: 'Red cup',
+          category: 'piece',
+          templateId: null,
+          sizeAmount: null,
+          sizeUnit: null,
+        },
         startedAt,
         endedAt,
         photoFileName: null,
@@ -322,7 +352,13 @@ describe('addPastWork', () => {
   it('rejects an end before its start and saves nothing', async () => {
     await expect(
       addPastWork({
-        piece: { name: 'Red cup', category: 'piece', templateId: null },
+        piece: {
+          name: 'Red cup',
+          category: 'piece',
+          templateId: null,
+          sizeAmount: null,
+          sizeUnit: null,
+        },
         startedAt: endedAt,
         endedAt: startedAt,
         photoFileName: null,
@@ -344,7 +380,13 @@ describe('addPastWork', () => {
 
     await expect(
       addPastWork({
-        piece: { name: 'Red cup', category: 'piece', templateId: null },
+        piece: {
+          name: 'Red cup',
+          category: 'piece',
+          templateId: null,
+          sizeAmount: null,
+          sizeUnit: null,
+        },
         startedAt,
         endedAt,
         photoFileName: null,
@@ -359,7 +401,13 @@ describe('addPastWork', () => {
   // Otherwise a photo added for a new piece that isn't finished yet would be thrown away.
   it('keeps the photo on a new piece that is not finished', async () => {
     await addPastWork({
-      piece: { name: 'Red cup', category: 'piece', templateId: null },
+      piece: {
+        name: 'Red cup',
+        category: 'piece',
+        templateId: null,
+        sizeAmount: null,
+        sizeUnit: null,
+      },
       startedAt,
       endedAt,
       photoFileName: 'cup.jpg',
@@ -375,6 +423,38 @@ describe('addPastWork', () => {
     ).toEqual([{ photo_file_name: 'cup.jpg', finished_at: null }]);
   });
 
+  // Otherwise prep added on Add Work would lose the size typed for it, or a piece could get one.
+  it('saves the size given for new prep, and rejects one on a piece', async () => {
+    const pastWork = (category: 'piece' | 'prep') => ({
+      piece: {
+        name: '30 mm points',
+        category,
+        templateId: null,
+        sizeAmount: 8,
+        sizeUnit: 'points',
+      },
+      startedAt,
+      endedAt,
+      photoFileName: null,
+      finish: null,
+      supplyUses: [],
+      prepUses: [],
+    });
+
+    await addPastWork(pastWork('prep'));
+
+    expect(
+      await database.getAllAsync(
+        "SELECT category, size_amount, size_unit FROM pieces WHERE name = '30 mm points'",
+      ),
+    ).toEqual([{ category: 'prep', size_amount: 8, size_unit: 'points' }]);
+    // An hour later, so it doesn't overlap the prep's work.
+    const laterEnd = new Date(Date.parse(endedAt) + 60 * 60 * 1000).toISOString();
+    await expect(
+      addPastWork({ ...pastWork('piece'), startedAt: endedAt, endedAt: laterEnd }),
+    ).rejects.toThrow(/CHECK constraint/);
+  });
+
   // Otherwise making another from a template would change the template or lose its prep.
   it('saves a new piece from a template with its prep and leaves the template unchanged', async () => {
     await database.execAsync(`
@@ -388,7 +468,13 @@ describe('addPastWork', () => {
     `);
 
     await addPastWork({
-      piece: { name: 'Blue vase', category: 'piece', templateId: 4 },
+      piece: {
+        name: 'Blue vase',
+        category: 'piece',
+        templateId: 4,
+        sizeAmount: null,
+        sizeUnit: null,
+      },
       startedAt,
       endedAt,
       photoFileName: 'second.jpg',
@@ -433,7 +519,13 @@ describe('addPastWork', () => {
 
     await expect(
       addPastWork({
-        piece: { name: 'Red cup', category: 'piece', templateId: null },
+        piece: {
+          name: 'Red cup',
+          category: 'piece',
+          templateId: null,
+          sizeAmount: null,
+          sizeUnit: null,
+        },
         startedAt,
         endedAt,
         photoFileName: null,
@@ -441,7 +533,7 @@ describe('addPastWork', () => {
         supplyUses: [],
         prepUses: [{ prepId: 3, share: { share_numerator: 25, share_denominator: 100 } }],
       }),
-    ).rejects.toThrow("Only finished prep that isn't used up or lost can be used.");
+    ).rejects.toThrow("Only finished prep that isn't all used or lost can be added.");
     expect(await database.getAllAsync("SELECT id FROM pieces WHERE name = 'Red cup'")).toEqual([]);
     expect(await database.getAllAsync(segmentsSql)).toEqual([]);
   });

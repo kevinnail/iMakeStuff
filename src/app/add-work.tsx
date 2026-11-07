@@ -17,6 +17,7 @@ import { Chevron } from '@/components/Chevron';
 import { Dropdown } from '@/components/Dropdown';
 import { getNotesPlaceholder, outcomeOptions, type Outcome } from '@/components/FinishPiecePanel';
 import { JoinedButtons } from '@/components/JoinedButtons';
+import { getSizeTexts, readSize, SizeField, sizeError } from '@/components/SizeField';
 import {
   confirmTemplateUseUp,
   getTemplateChoices,
@@ -65,6 +66,7 @@ export default function AddWorkScreen() {
   const [chosenPrep, setChosenPrep] = useState<UseChoice[]>([]);
   const [missingPrep, setMissingPrep] = useState<MissingPrep[]>([]);
   const [chosenSupplies, setChosenSupplies] = useState<UseChoice[]>([]);
+  const [sizeTexts, setSizeTexts] = useState({ amountText: '', unitText: '' });
   const [startedAt, setStartedAt] = useState(() => yesterdayAt(9));
   const [endedAt, setEndedAt] = useState(() => yesterdayAt(10));
   const [finishing, setFinishing] = useState(false);
@@ -114,12 +116,13 @@ export default function AddWorkScreen() {
     });
   }
 
-  // Each source starts with no template and no prep.
+  // Each source starts with no template, no prep, and no size.
   function chooseSource(value: Source) {
     setSource(value);
     setTemplate(null);
     setChosenPrep([]);
     setMissingPrep([]);
+    setSizeTexts({ amountText: '', unitText: '' });
     if (value !== 'existing') setCategory(value);
   }
 
@@ -133,15 +136,24 @@ export default function AddWorkScreen() {
         setCategory(chosen.category);
         setChosenPrep(prep.chosen);
         setMissingPrep(prep.missing);
+        setSizeTexts(getSizeTexts(chosen));
       })
       .catch(showError('Could not load the template'));
   }
 
   function save() {
+    const size =
+      category === 'prep'
+        ? readSize(sizeTexts.amountText, sizeTexts.unitText)
+        : { sizeAmount: null, sizeUnit: null };
+    if (size === null) {
+      Alert.alert(sizeError);
+      return;
+    }
     setSaving(true);
     withSavedPhoto(photoUri, (photoFileName) =>
       addPastWork({
-        piece: { name: trimmedName, category, templateId: template?.id ?? null },
+        piece: { name: trimmedName, category, templateId: template?.id ?? null, ...size },
         startedAt: new Date(startedAt).toISOString(),
         endedAt: new Date(endedAt).toISOString(),
         photoFileName,
@@ -196,6 +208,18 @@ export default function AddWorkScreen() {
                 </View>
               </View>
             )}
+            {category === 'prep' && (
+              <View style={[styles.cardRow, styles.separator]}>
+                <View style={styles.fill}>
+                  <SizeField
+                    amountText={sizeTexts.amountText}
+                    unitText={sizeTexts.unitText}
+                    onChangeAmount={(amountText) => setSizeTexts({ ...sizeTexts, amountText })}
+                    onChangeUnit={(unitText) => setSizeTexts({ ...sizeTexts, unitText })}
+                  />
+                </View>
+              </View>
+            )}
           </View>
           <View style={styles.card}>
             <View style={styles.cardRow}>
@@ -219,23 +243,23 @@ export default function AddWorkScreen() {
               />
             </View>
           </View>
-          {usesPrep && (availablePrep.length > 0 || missingPrep.length > 0) && (
+          {usesPrep && (
             <UseChoices
               kind="prep"
+              usedBy={category}
               availableItems={availablePrep}
               chosen={chosenPrep}
               missing={missingPrep}
               onChange={setChosenPrep}
             />
           )}
-          {availableSupplies.length > 0 && (
-            <UseChoices
-              kind="supply"
-              availableItems={availableSupplies}
-              chosen={chosenSupplies}
-              onChange={setChosenSupplies}
-            />
-          )}
+          <UseChoices
+            kind="supply"
+            usedBy={category}
+            availableItems={availableSupplies}
+            chosen={chosenSupplies}
+            onChange={setChosenSupplies}
+          />
           <View style={styles.card}>
             <Pressable
               style={({ pressed }) => [styles.cardRow, pressed && styles.buttonPressed]}

@@ -30,11 +30,12 @@ import {
 import type { FinishPrepUse } from '@/db/queries/prepQueries';
 import type { FinishSupplyUse } from '@/db/queries/supplyQueries';
 import { deletePhoto, withSavedPhoto } from '@/utils/photoStorage';
+import type { SizeInput } from '@/utils/prepTime';
 import { startOfDay } from '@/utils/workDays';
 import { getWorkTimerContent } from '@/utils/workTimer';
 import { showWorkTimer } from '@/widgets/WorkTimerActivity';
 
-interface FinishInput {
+interface FinishInput extends SizeInput {
   notes: string | null;
   // A photo just taken at Done, or null to keep the photo taken before it (if any).
   cameraPhotoUri: string | null;
@@ -116,7 +117,7 @@ export const useWorkStore = create<WorkState>()((set) => ({
   },
   finish: async (
     pieceId,
-    { notes, cameraPhotoUri, savedPhotoFileName, lost, prepUses, supplyUses },
+    { notes, cameraPhotoUri, savedPhotoFileName, lost, prepUses, supplyUses, sizeAmount, sizeUnit },
   ) => {
     const endedAt = new Date().toISOString();
     await withSavedPhoto(cameraPhotoUri, (photoFileName) =>
@@ -127,6 +128,8 @@ export const useWorkStore = create<WorkState>()((set) => ({
         lost,
         prepUses,
         supplyUses,
+        sizeAmount,
+        sizeUnit,
       }),
     );
     await showWork(set);

@@ -1,31 +1,40 @@
 import { StyleSheet, Text, View } from 'react-native';
 
 import { colors } from '@/theme';
-import { formatPercent } from '@/utils/prepTime';
+import { formatCost } from '@/utils/cost';
+import { formatPercent, formatUsedAmount, type BatchSize } from '@/utils/prepTime';
 
-interface PrepLeftBarProps {
-  // Every piece's share of the prep added together, 1 being all of it.
+interface AssignedBarProps {
   usedShare: number;
   usedUp: boolean;
+  costCents?: number;
+  size?: BatchSize;
 }
 
-// How much of a prep is left, as a bar to read at a glance, like checking the fridge. The
-// amount is estimated until the prep is used up. The outline shows the whole bar, so the
-// empty part reads as clearly as the green.
-export function PrepLeftBar({ usedShare, usedUp }: PrepLeftBarProps) {
-  const left = usedUp ? 0 : Math.max(0, 1 - usedShare);
+export function AssignedBar({ usedShare, usedUp, costCents, size }: AssignedBarProps) {
+  const assigned = usedUp ? 1 : Math.min(1, usedShare);
 
   return (
     <View style={styles.row}>
       <View style={styles.bar}>
-        <View style={[styles.fill, { width: `${left * 100}%` }]} />
+        <View style={[styles.fill, { width: `${assigned * 100}%` }]} />
       </View>
       <Text style={styles.text}>
         {usedUp ? (
-          'Used up'
+          'All used'
+        ) : size && size.size_amount !== null ? (
+          <>
+            <Text style={styles.value}>{formatUsedAmount(usedShare, size.size_amount)}</Text> of{' '}
+            {size.size_amount} {size.size_unit} used
+          </>
+        ) : costCents === undefined ? (
+          <>
+            <Text style={styles.value}>{formatPercent(usedShare)}</Text> assigned, est.
+          </>
         ) : (
           <>
-            <Text style={styles.value}>{formatPercent(left)}</Text> left, est.
+            <Text style={styles.value}>{formatCost(Math.round(usedShare * costCents))}</Text> of{' '}
+            {formatCost(costCents)} assigned
           </>
         )}
       </Text>

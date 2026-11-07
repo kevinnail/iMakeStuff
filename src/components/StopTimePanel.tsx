@@ -1,7 +1,7 @@
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useState } from 'react';
 import { Alert, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { colors } from '@/theme';
 
@@ -22,7 +22,6 @@ export function StopTimePanel({
   onCancel,
   onSave,
 }: StopTimePanelProps) {
-  const insets = useSafeAreaInsets();
   const [openedAt] = useState(() => Date.now());
   const [endedAt, setEndedAt] = useState(initialEndedAt);
   const [saving, setSaving] = useState(false);
@@ -39,7 +38,7 @@ export function StopTimePanel({
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onCancel}>
       <View style={styles.overlay}>
-        <View style={[styles.panel, { paddingBottom: insets.bottom + 16 }]}>
+        <SafeAreaView edges={{ bottom: 'additive' }} style={styles.panel}>
           <Text style={styles.title}>{title}</Text>
           <View style={styles.row}>
             <Text style={styles.label}>Stopped</Text>
@@ -65,7 +64,7 @@ export function StopTimePanel({
               <Text style={styles.saveButtonText}>Save</Text>
             </Pressable>
           </View>
-        </View>
+        </SafeAreaView>
       </View>
     </Modal>
   );

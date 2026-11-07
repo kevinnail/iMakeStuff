@@ -4,7 +4,7 @@ import { Alert, FlatList, Image, Pressable, StyleSheet, Text, View } from 'react
 
 import { Chevron } from '@/components/Chevron';
 import { JoinedButtons } from '@/components/JoinedButtons';
-import { PrepLeftBar } from '@/components/PrepLeftBar';
+import { AssignedBar } from '@/components/AssignedBar';
 import { Tag } from '@/components/Tag';
 import { getPieces, type PieceListItem } from '@/db/queries/pieceQueries';
 import { formatCost } from '@/utils/cost';
@@ -32,7 +32,7 @@ function isUsable(prep: PieceListItem) {
 function PrepLeft({ prep }: { prep: PieceListItem }) {
   if (!prep.finished_at) return <Text style={styles.detailText}>Unfinished</Text>;
   if (prep.lost) return null;
-  return <PrepLeftBar usedShare={prep.used_share} usedUp={prep.used_up === 1} />;
+  return <AssignedBar usedShare={prep.used_share} usedUp={prep.used_up === 1} size={prep} />;
 }
 
 export default function PiecesScreen() {

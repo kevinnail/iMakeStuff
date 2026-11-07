@@ -11,6 +11,8 @@ function piece(overrides: Partial<UnfinishedPiece>): UnfinishedPiece {
     template_id: null,
     worked_milliseconds: 0,
     running_since: null,
+    size_amount: null,
+    size_unit: null,
     ...overrides,
   };
 }

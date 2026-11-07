@@ -5,6 +5,7 @@ import {
   formatPercent,
   isUsedUp,
   wholeShare,
+  type BatchSize,
   type PrepTimeShare,
   type Share,
   type UseShare,
@@ -19,14 +20,14 @@ export interface FinishPrepUse extends NewPrepUse {
   useId?: number;
 }
 
-export interface AvailablePrep {
+export interface AvailablePrep extends BatchSize {
   id: number;
   name: string;
   // Every piece's share of it added together, 1 being all of it.
   used_share: number;
 }
 
-export interface UsedPrep extends PrepTimeShare {
+export interface UsedPrep extends PrepTimeShare, BatchSize {
   id: number;
   piece_id: number;
   prep_id: number;
@@ -91,14 +92,14 @@ export async function insertPrepUse(
     prepId,
   );
   if (result.changes === 0)
-    throw new Error("Only finished prep that isn't used up or lost can be used.");
+    throw new Error("Only finished prep that isn't all used or lost can be added.");
 }
 
 // The prep one piece used, or with no piece given, the prep every piece used.
 export function getUsedPrep(database: SQLiteDatabase, pieceId: number | null) {
   return database.getAllAsync<UsedPrep>(
     `SELECT prep_uses.id, prep_uses.piece_id, prep_uses.prep_id, pieces.name AS prep_name,
-       ${shareColumnsSql},
+       pieces.size_amount, pieces.size_unit, ${shareColumnsSql},
        round(total(julianday(work_segments.ended_at) - julianday(work_segments.started_at))
          * 86400000) AS prep_worked_milliseconds
      FROM prep_uses
@@ -132,7 +133,8 @@ export function getPiecesUsingPrep(database: SQLiteDatabase, prepId: number) {
 export async function getAvailablePrep(pieceId: number | null): Promise<AvailablePrep[]> {
   const database = await getDb();
   return database.getAllAsync<AvailablePrep>(
-    `SELECT pieces.id, pieces.name, total(${shareSql}) AS used_share
+    `SELECT pieces.id, pieces.name, pieces.size_amount, pieces.size_unit,
+       total(${shareSql}) AS used_share
      FROM pieces
      LEFT JOIN prep_uses ON prep_uses.prep_id = pieces.id
      WHERE pieces.category = 'prep' AND pieces.finished_at IS NOT NULL
@@ -209,7 +211,7 @@ export async function setPrepUsedUp(prepId: number, usedUp: boolean): Promise<vo
     usedUp ? 1 : 0,
   );
   if (result.changes > 0) return;
-  if (usedUp) throw new Error("Only finished prep that isn't used up can be marked used up.");
+  if (usedUp) throw new Error("Only finished prep that isn't all used yet can be marked all used.");
   // The failure needs its reason: not used up, or shares that keep it used up.
   const shares = await database.getFirstAsync<{ total: number }>(
     `SELECT total(${shareSql}) AS total FROM prep_uses WHERE prep_id = ?`,
@@ -217,7 +219,7 @@ export async function setPrepUsedUp(prepId: number, usedUp: boolean): Promise<vo
   );
   const total = shares?.total ?? 0;
   if (isUsedUp(total)) {
-    throw new Error(`Its uses add up to ${formatPercent(total)}. Lower one to put it back in use.`);
+    throw new Error(`Its uses add up to ${formatPercent(total)}. Lower one to turn All used off.`);
   }
-  throw new Error("That prep isn't used up.");
+  throw new Error("That prep isn't marked all used.");
 }

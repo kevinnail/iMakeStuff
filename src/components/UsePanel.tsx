@@ -9,16 +9,23 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Dropdown } from '@/components/Dropdown';
+import { SupplyPanel } from '@/components/SupplyPanel';
+import type { PieceCategory } from '@/db/queries/pieceQueries';
+import { addSupply, type SupplyDetails } from '@/db/queries/supplyQueries';
 import { colors } from '@/theme';
 import {
+  formatAmount,
   formatPercent,
   formatShare,
+  formatUnitAmount,
+  formatUsedAmount,
   getShareValue,
-  isUsedUp,
+  isPastWhole,
   parseAmount,
+  type BatchSize,
   type Share,
   type UseShare,
 } from '@/utils/prepTime';
@@ -31,20 +38,23 @@ export const useLabels = {
     heading: 'Prep used',
     add: 'Add prep',
     noneAdded: 'No prep added',
-    noneToUse: 'No finished prep to use.',
+    noneToUse: 'No open prep to pick from.',
+    noneToUseHelp:
+      "Prep shows here once it's finished. On the Work screen, pick Prep, start it, and tap Done when it's made. Prep made earlier goes in with Add Work on the Days tab.",
     choose: 'Choose prep',
   },
   supply: {
     heading: 'Supplies used',
     add: 'Add supply',
     noneAdded: 'No supplies added',
-    noneToUse: 'No supplies to use.',
+    noneToUse: 'No open supplies to pick from.',
+    noneToUseHelp: "Add what you bought, like a 5 ft tube at $40, and it's picked for you here.",
     choose: 'Choose a supply',
   },
 };
 
 // A prep or supply that can be picked, with every piece's share of it added together.
-export interface AvailableItem {
+export interface AvailableItem extends BatchSize {
   id: number;
   name: string;
   used_share: number;
@@ -52,7 +62,7 @@ export interface AvailableItem {
 
 export interface UseChoice {
   // otherUsesShare: every other piece's share of it added together, 1 being all of it.
-  item: { id: number; name: string; otherUsesShare: number; usedUp: boolean };
+  item: { id: number; name: string; otherUsesShare: number; usedUp: boolean } & BatchSize;
   share: Share;
   note?: string;
   useId?: number;
@@ -62,7 +72,7 @@ export interface UseChoice {
 // A use already saved on the piece, as a choice the panel can change or remove.
 export function getSavedChoice(
   use: UseShare & { id: number },
-  item: { id: number; name: string },
+  item: { id: number; name: string } & BatchSize,
 ): UseChoice {
   return {
     item: {
@@ -75,8 +85,14 @@ export function getSavedChoice(
   };
 }
 
+function getAmountText(share: Share, sizeAmount: number | null) {
+  return sizeAmount === null ? formatShare(share) : formatUnitAmount(share, sizeAmount);
+}
+
 interface UsePanelProps {
   kind: UseKind;
+  // What's using it: a piece takes part of a batch, and a prep usually takes a whole supply.
+  usedBy: PieceCategory;
   // Adding a use: the prep or supplies to choose from. Changing one: null.
   itemList: AvailableItem[] | null;
   // Changing a use: it as saved. Adding one: null.
@@ -84,77 +100,149 @@ interface UsePanelProps {
   onCancel: () => void;
   onSave: (choice: UseChoice) => void;
   onRemove?: () => void;
+  // A supply added from the empty list, so the list it came from can offer it again.
+  onItemAdded?: (item: AvailableItem) => void;
 }
 
 // Slides up from the bottom to add a use of a prep or supply, or change one: which one, and how
-// much of it this piece took.
-export function UsePanel({ kind, itemList, initial, onCancel, onSave, onRemove }: UsePanelProps) {
-  const insets = useSafeAreaInsets();
+// much of it the piece or prep took. With nothing to pick, it says why and how to fix it, and a
+// supply can be added right here.
+export function UsePanel({
+  kind,
+  usedBy,
+  itemList,
+  initial,
+  onCancel,
+  onSave,
+  onRemove,
+  onItemAdded,
+}: UsePanelProps) {
   const labels = useLabels[kind];
+  const [items, setItems] = useState(itemList);
   const [chosenItem, setChosenItem] = useState(initial?.item ?? null);
-  const [amountText, setAmountText] = useState(initial ? formatShare(initial.share) : '');
-  const typedShare = parseAmount(amountText);
+  const [amountText, setAmountText] = useState(
+    initial ? getAmountText(initial.share, initial.item.size_amount) : '',
+  );
+  const [addingSupply, setAddingSupply] = useState(false);
+  const sizeAmount = chosenItem?.size_amount ?? null;
+  const sizeUnit = chosenItem?.size_unit ?? null;
+  const typedPercent = amountText.includes('%');
+  const typedShare = parseAmount(amountText, sizeAmount);
 
-  const unitText = amountText !== '' && !/[/%]/.test(amountText) ? '%' : '';
+  // After the box: the batch's unit, or % for a bare number on a batch with no size.
+  const unitText =
+    sizeUnit !== null && !typedPercent
+      ? sizeUnit
+      : amountText !== '' && !/[/%]/.test(amountText)
+        ? '%'
+        : '';
+  // Under the box: how to enter an amount, or for a batch with a size, what it saves as.
+  const helpText =
+    chosenItem === null || sizeAmount === null
+      ? '(Enter a number or fraction)'
+      : typedShare && !typedPercent
+        ? `${formatAmount(typedShare, chosenItem)} = ${formatShare(typedShare)} of the batch`
+        : `In ${sizeUnit}, like 1 or 1/3, or a percent like 25%.`;
   const canSave = chosenItem !== null && amountText !== '';
+
+  function choose(item: AvailableItem) {
+    setChosenItem({
+      id: item.id,
+      name: item.name,
+      otherUsesShare: item.used_share,
+      usedUp: false,
+      size_amount: item.size_amount,
+      size_unit: item.size_unit,
+    });
+    // A prep usually takes all of a supply. A piece starts empty.
+    setAmountText(usedBy === 'prep' ? '100' : '');
+  }
 
   function handleSave() {
     if (chosenItem === null) return;
     if (typedShare === null) {
-      Alert.alert('Enter a percent from 1 to 100, or a fraction like 1/8.');
+      Alert.alert(
+        sizeAmount === null
+          ? 'Enter a percent from 1 to 100, or a fraction like 1/8.'
+          : `Enter up to ${sizeAmount} ${sizeUnit}, like 1 or 1/3, or a percent like 25%.`,
+      );
       return;
     }
     const choice = { item: chosenItem, share: typedShare };
     const total = chosenItem.otherUsesShare + getShareValue(typedShare);
-    if (chosenItem.usedUp || !isUsedUp(total)) {
+    // Exactly all of it is marked all used without asking, since nothing scales. Past it asks,
+    // since every share scales down.
+    if (chosenItem.usedUp || !isPastWhole(total)) {
       onSave(choice);
       return;
     }
-    const totalText = formatPercent(total);
     Alert.alert(
-      `Use up ${chosenItem.name}?`,
-      totalText === '100%'
-        ? 'This brings it to 100%, so saving marks it used up.'
-        : `This brings it to ${totalText}. Saving marks it used up and scales every piece's share to add up to 100%.`,
+      `All of ${chosenItem.name} used?`,
+      `This brings it to ${formatPercent(total)}. Saving marks it all used and scales every share to add up to 100%.`,
       [
         { text: 'Change amount', style: 'cancel' },
-        { text: 'Mark used up', onPress: () => onSave(choice) },
+        { text: 'All used', onPress: () => onSave(choice) },
       ],
     );
+  }
+
+  // The new supply is saved now, whatever happens to this piece, and picked in the list.
+  async function saveNewSupply(details: SupplyDetails) {
+    const id = await addSupply(details);
+    const item = { id, name: details.name, used_share: 0, size_amount: null, size_unit: null };
+    setItems([...(items ?? []), item]);
+    choose(item);
+    setAddingSupply(false);
+    onItemAdded?.(item);
   }
 
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onCancel}>
       <KeyboardAvoidingView style={styles.overlay} behavior="padding">
-        <View style={[styles.panel, { paddingBottom: insets.bottom + 16 }]}>
+        {/* Measures its own place on screen: the Work tab's inset counts the tab bar, which
+            this panel covers. */}
+        <SafeAreaView edges={{ bottom: 'additive' }} style={styles.panel}>
           <Text style={styles.title}>{initial ? initial.item.name : labels.add}</Text>
-          {itemList && itemList.length === 0 && (
-            <Text style={styles.secondaryText}>{labels.noneToUse}</Text>
+          {items && items.length === 0 && (
+            <>
+              <Text style={styles.label}>{labels.noneToUse}</Text>
+              <Text style={styles.secondaryText}>{labels.noneToUseHelp}</Text>
+              {kind === 'supply' && (
+                <Pressable
+                  style={({ pressed }) => [styles.addButton, pressed && styles.buttonPressed]}
+                  onPress={() => setAddingSupply(true)}
+                >
+                  <Text style={styles.saveButtonText}>Add supply</Text>
+                </Pressable>
+              )}
+            </>
           )}
-          {itemList && itemList.length > 0 && (
+          {items && items.length > 0 && (
             <Dropdown
-              options={itemList.map((item) => ({
+              options={items.map((item) => ({
                 key: item.id,
                 label: item.name,
-                detail: `${formatPercent(Math.max(0, 1 - item.used_share))} left`,
+                detail:
+                  item.size_amount === null
+                    ? `${formatPercent(item.used_share)} assigned`
+                    : `${formatUsedAmount(item.used_share, item.size_amount)} of ${item.size_amount} used`,
                 item,
               }))}
               selectedKey={chosenItem?.id ?? null}
               placeholder={labels.choose}
-              onSelect={({ item }) =>
-                setChosenItem({
-                  id: item.id,
-                  name: item.name,
-                  otherUsesShare: item.used_share,
-                  usedUp: false,
-                })
-              }
+              onSelect={({ item }) => choose(item)}
             />
           )}
           {chosenItem && (
             <>
               <View style={styles.fieldRow}>
-                <Text style={[styles.label, styles.amountLabel]}>How much this piece took</Text>
+                <Text style={[styles.label, styles.amountLabel]}>
+                  {usedBy === 'prep'
+                    ? 'How much of it this prep used'
+                    : sizeUnit !== null
+                      ? `How many ${sizeUnit} this piece used`
+                      : 'How much this piece took'}
+                </Text>
                 <TextInput
                   style={styles.amountInput}
                   value={amountText}
@@ -164,7 +252,7 @@ export function UsePanel({ kind, itemList, initial, onCancel, onSave, onRemove }
                 />
                 <Text style={[styles.label, styles.unitText]}>{unitText}</Text>
               </View>
-              <Text style={styles.secondaryText}>(Enter a number or fraction)</Text>
+              <Text style={styles.secondaryText}>{helpText}</Text>
             </>
           )}
           <View style={styles.buttonRow}>
@@ -184,8 +272,15 @@ export function UsePanel({ kind, itemList, initial, onCancel, onSave, onRemove }
               <Text style={styles.saveButtonText}>{initial ? 'Save' : 'Add'}</Text>
             </Pressable>
           </View>
-        </View>
+        </SafeAreaView>
       </KeyboardAvoidingView>
+      {addingSupply && (
+        <SupplyPanel
+          initial={null}
+          onCancel={() => setAddingSupply(false)}
+          onSave={saveNewSupply}
+        />
+      )}
     </Modal>
   );
 }
@@ -238,7 +333,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   unitText: {
-    width: 20,
+    minWidth: 20,
   },
   buttonRow: {
     flexDirection: 'row',
@@ -268,6 +363,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     borderRadius: 8,
     backgroundColor: colors.primary,
+  },
+  addButton: {
+    alignSelf: 'flex-start',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    backgroundColor: colors.primary,
+  },
+  buttonPressed: {
+    opacity: 0.6,
   },
   buttonDisabled: {
     opacity: 0.4,

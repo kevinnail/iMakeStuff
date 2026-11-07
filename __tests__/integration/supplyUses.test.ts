@@ -45,6 +45,8 @@ const finish = {
   notes: 'Cobalt',
   photoFileName: null,
   lost: false,
+  sizeAmount: null,
+  sizeUnit: null,
   prepUses: [],
 };
 
@@ -77,12 +79,10 @@ beforeEach(async () => {
   tubeId = await addSupply({
     name: '5 ft tube',
     costCents: 4000,
-    boughtAt: '2026-10-20T17:00:00.000Z',
   });
   bailId = await addSupply({
     name: 'Silver bail',
     costCents: 300,
-    boughtAt: '2026-10-21T17:00:00.000Z',
   });
 });
 
@@ -98,6 +98,8 @@ describe('finishPiece with supplies', () => {
         supply_id: tubeId,
         supply_name: '5 ft tube',
         supply_cost_cents: 4000,
+        size_amount: null,
+        size_unit: null,
         ...share(1, 4),
         used_up: 0,
         shares_total: 0.25,
@@ -120,7 +122,7 @@ describe('finishPiece with supplies', () => {
 
     await expect(
       finishPiece(vaseId, { ...finish, supplyUses: [supplyUse(tubeId, 1, 4)] }),
-    ).rejects.toThrow("Only a supply that isn't used up can be used.");
+    ).rejects.toThrow("Only a supply that isn't all used can be added.");
     expect((await getPieceDetail(vaseId))?.piece.finished_at).toBeNull();
   });
 
@@ -150,7 +152,7 @@ describe('addSupplyUse', () => {
 
     for (const supplyId of [bailId, tubeId]) {
       await expect(addSupplyUse(caneId, supplyUse(supplyId, 1, 8))).rejects.toThrow(
-        "Only a supply that isn't used up can be used.",
+        "Only a supply that isn't all used can be added.",
       );
     }
     expect(await getAvailableSupplies(caneId)).toEqual([]);
@@ -248,7 +250,13 @@ describe('cost', () => {
   // Otherwise a piece caught up on through Add Work would carry no cost.
   it('saves the supplies on Add Work', async () => {
     await addPastWork({
-      piece: { name: 'Red cup', category: 'piece', templateId: null },
+      piece: {
+        name: 'Red cup',
+        category: 'piece',
+        templateId: null,
+        sizeAmount: null,
+        sizeUnit: null,
+      },
       startedAt: '2026-11-02T09:00:00.000Z',
       endedAt: '2026-11-02T10:00:00.000Z',
       photoFileName: null,
@@ -269,7 +277,7 @@ describe('setSupplyUsedUp with uses', () => {
     await addSupplyUse(bowlId, supplyUse(tubeId, 1, 2));
 
     await expect(setSupplyUsedUp(tubeId, false)).rejects.toThrow(
-      'Its uses add up to 100%. Lower one to put it back in use.',
+      'Its uses add up to 100%. Lower one to turn All used off.',
     );
   });
 });
@@ -309,8 +317,8 @@ describe('deleting', () => {
     await deletePiece(vaseId);
 
     expect(await getAvailableSupplies(caneId)).toEqual([
-      { id: bailId, name: 'Silver bail', used_share: 0 },
-      { id: tubeId, name: '5 ft tube', used_share: 0.5 },
+      { id: bailId, name: 'Silver bail', size_amount: null, size_unit: null, used_share: 0 },
+      { id: tubeId, name: '5 ft tube', size_amount: null, size_unit: null, used_share: 0.5 },
     ]);
   });
 });
