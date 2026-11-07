@@ -2,16 +2,16 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import { colors } from '@/theme';
 import { formatCost } from '@/utils/cost';
-import { formatPercent, formatUsedAmount, type BatchSize } from '@/utils/prepTime';
+import { formatPercent } from '@/utils/prepTime';
 
 interface AssignedBarProps {
   usedShare: number;
   usedUp: boolean;
   costCents?: number;
-  size?: BatchSize;
 }
 
-export function AssignedBar({ usedShare, usedUp, costCents, size }: AssignedBarProps) {
+// How much of a by eye batch's cost is assigned to what used it. Counted batches have no bar.
+export function AssignedBar({ usedShare, usedUp, costCents }: AssignedBarProps) {
   const assigned = usedUp ? 1 : Math.min(1, usedShare);
 
   return (
@@ -22,11 +22,6 @@ export function AssignedBar({ usedShare, usedUp, costCents, size }: AssignedBarP
       <Text style={styles.text}>
         {usedUp ? (
           'All used'
-        ) : size && size.size_amount !== null ? (
-          <>
-            <Text style={styles.value}>{formatUsedAmount(usedShare, size.size_amount)}</Text> of{' '}
-            {size.size_amount} {size.size_unit} used
-          </>
         ) : costCents === undefined ? (
           <>
             <Text style={styles.value}>{formatPercent(usedShare)}</Text> assigned, est.
