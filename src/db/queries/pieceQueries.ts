@@ -19,12 +19,12 @@ import {
   type UsedSupply,
 } from '@/db/queries/supplyQueries';
 import { getCost } from '@/utils/cost';
-import { getPrepTime, type Share } from '@/utils/prepTime';
+import { getPrepTime, type BatchSize, type Share, type SizeInput } from '@/utils/prepTime';
 import type { TimeRange } from '@/utils/workDays';
 
 export type PieceCategory = 'piece' | 'prep';
 
-export interface UnfinishedPiece {
+export interface UnfinishedPiece extends BatchSize {
   id: number;
   name: string;
   category: PieceCategory;
@@ -34,7 +34,7 @@ export interface UnfinishedPiece {
   running_since: string | null;
 }
 
-export interface PieceListItem {
+export interface PieceListItem extends BatchSize {
   id: number;
   name: string;
   category: PieceCategory;
@@ -56,7 +56,7 @@ export interface PieceListItem {
   no_prep: number;
 }
 
-export interface PieceRecord {
+export interface PieceRecord extends BatchSize {
   id: number;
   name: string;
   category: PieceCategory;
@@ -68,7 +68,7 @@ export interface PieceRecord {
   is_template: number;
 }
 
-export interface Template {
+export interface Template extends BatchSize {
   id: number;
   name: string;
   category: PieceCategory;
@@ -87,7 +87,7 @@ export interface PieceDetail {
   usedSupplies: UsedSupply[];
 }
 
-export interface FinishDetails {
+export interface FinishDetails extends SizeInput {
   endedAt: string;
   notes: string | null;
   photoFileName: string | null;
@@ -102,6 +102,9 @@ export interface PieceChanges {
   category: PieceCategory;
   notes: string | null;
   photoFileName: string | null;
+  // Prep only, both or neither.
+  sizeAmount: number | null;
+  sizeUnit: string | null;
 }
 
 async function stopRunning(database: SQLiteDatabase, endedAt: string): Promise<number> {
@@ -147,8 +150,9 @@ export async function startFromTemplate(templateId: number): Promise<number> {
   let pieceId = 0;
   await database.withTransactionAsync(async () => {
     const result = await database.runAsync(
-      `INSERT INTO pieces (name, category, template_id)
-       SELECT name, category, id FROM pieces WHERE id = ? AND is_template = 1`,
+      `INSERT INTO pieces (name, category, template_id, size_amount, size_unit)
+       SELECT name, category, id, size_amount, size_unit FROM pieces
+       WHERE id = ? AND is_template = 1`,
       templateId,
     );
     if (result.changes === 0) throw new Error("That piece isn't a template.");
@@ -201,9 +205,19 @@ async function saveUses<Use extends { useId?: number; share: Share }>(
   }
 }
 
+// Prep gets its size here, when it's made; a piece's is always null.
 export async function finishPiece(
   pieceId: number,
-  { endedAt, notes, photoFileName, lost, prepUses, supplyUses }: FinishDetails,
+  {
+    endedAt,
+    notes,
+    photoFileName,
+    lost,
+    prepUses,
+    supplyUses,
+    sizeAmount,
+    sizeUnit,
+  }: FinishDetails,
 ): Promise<void> {
   const database = await getDb();
   await database.withTransactionAsync(async () => {
@@ -213,12 +227,15 @@ export async function finishPiece(
       pieceId,
     );
     const result = await database.runAsync(
-      `UPDATE pieces SET finished_at = ?, notes = ?, photo_file_name = ?, lost = ?
+      `UPDATE pieces SET finished_at = ?, notes = ?, photo_file_name = ?, lost = ?, size_amount = ?,
+         size_unit = ?
        WHERE id = ? AND finished_at IS NULL`,
       endedAt,
       notes,
       photoFileName,
       lost ? 1 : 0,
+      sizeAmount,
+      sizeUnit,
       pieceId,
     );
     if (result.changes === 0) throw new Error('That piece is already finished.');
@@ -253,11 +270,15 @@ export async function updatePiece(pieceId: number, changes: PieceChanges): Promi
       throw new Error("Prep that pieces used, or that's all used, can't become a piece.");
     }
     await database.runAsync(
-      'UPDATE pieces SET name = ?, category = ?, notes = ?, photo_file_name = ? WHERE id = ?',
+      `UPDATE pieces SET name = ?, category = ?, notes = ?, photo_file_name = ?, size_amount = ?,
+         size_unit = ?
+       WHERE id = ?`,
       changes.name,
       changes.category,
       changes.notes,
       changes.photoFileName,
+      changes.sizeAmount,
+      changes.sizeUnit,
       pieceId,
     );
   });
@@ -322,7 +343,7 @@ export async function setPieceTemplate(pieceId: number, isTemplate: boolean): Pr
 export async function getTemplates(): Promise<Template[]> {
   const database = await getDb();
   return database.getAllAsync<Template>(
-    `SELECT id, name, category, photo_file_name FROM pieces
+    `SELECT id, name, category, photo_file_name, size_amount, size_unit FROM pieces
      WHERE is_template = 1 ORDER BY name COLLATE NOCASE`,
   );
 }
@@ -332,6 +353,7 @@ export async function getUnfinishedPieces(): Promise<UnfinishedPiece[]> {
   const database = await getDb();
   return database.getAllAsync<UnfinishedPiece>(
     `SELECT pieces.id, pieces.name, pieces.category, pieces.photo_file_name, pieces.template_id,
+       pieces.size_amount, pieces.size_unit,
        round(total(julianday(work_segments.ended_at) - julianday(work_segments.started_at))
          * 86400000) AS worked_milliseconds,
        max(CASE WHEN work_segments.ended_at IS NULL THEN work_segments.started_at END)
@@ -355,7 +377,7 @@ export async function getPieces(): Promise<PieceListItem[]> {
       Omit<PieceListItem, 'prep_milliseconds' | 'prep_estimated' | 'cost_cents' | 'cost_estimated'>
     >(
       `SELECT pieces.id, pieces.name, pieces.category, pieces.photo_file_name, pieces.finished_at,
-         pieces.lost,
+         pieces.lost, pieces.size_amount, pieces.size_unit,
          round(total(julianday(coalesce(work_segments.ended_at, 'now'))
            - julianday(work_segments.started_at)) * 86400000) AS worked_milliseconds,
          ${usedShareSql} AS used_share,
@@ -390,7 +412,7 @@ export async function getPieceDetail(pieceId: number): Promise<PieceDetail | nul
   const database = await getDb();
   const piece = await database.getFirstAsync<PieceRecord>(
     `SELECT id, name, category, notes, photo_file_name, finished_at, used_up_at, lost,
-       is_template
+       is_template, size_amount, size_unit
      FROM pieces WHERE id = ?`,
     pieceId,
   );
