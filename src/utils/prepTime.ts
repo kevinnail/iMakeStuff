@@ -9,21 +9,18 @@ export interface Share {
 export interface UseShare extends Share {
   // 1 once the prep or supply is used up.
   used_up: number;
-  // 1 when the batch has a size: its shares are exact, so they're final and never scale.
+  // 1 when the batch is counted: its shares are exact, so they're final and never scale.
   measured: number;
   // Every piece's share of it added together, 1 being all of it.
   shares_total: number;
 }
 
 export interface PrepTimeShare extends UseShare {
+  // The prep's whole worked time: as saved with a counted use, otherwise as it is now.
   prep_worked_milliseconds: number;
 }
 
 const minute = 60 * 1000;
-
-// Ten shares of 1/10 add up to 0.9999999999999999, so shares this close to the whole prep or
-// supply count as all of it. The SQL checks use the same number.
-export const wholeShare = 1 - 1e-9;
 
 export interface BatchSize {
   size_amount: number | null;
@@ -64,26 +61,33 @@ export function parseSize(text: string): number | null {
   return size && size.numerator > 0 ? size.numerator / size.denominator : null;
 }
 
+// An amount in a count's unit: "1", "2.5", "1/3", or a whole number and a fraction, "1 1/2".
+function parseUnitAmount(text: string): Fraction | null {
+  const fractionMatch = /^(?:(\d+)\s+)?(\d+)\s*\/\s*(\d+)$/.exec(text);
+  if (!fractionMatch) return parseDecimal(text);
+  const denominator = Number(fractionMatch[3]);
+  return {
+    numerator: Number(fractionMatch[1] ?? 0) * denominator + Number(fractionMatch[2]),
+    denominator,
+  };
+}
+
 // What a piece took of a prep, typed as a whole percent ("13" or "13%") or a fraction ("1/8"),
 // or null for anything else. It's kept as typed, so eight shares of 1/8 add up to exactly the prep.
-// With a size, a bare number or fraction is in the batch's unit: "1/3" of 8 points saves as
-// 1/24, reduced. A percent is still a percent of the whole.
+// With a count, a bare number or fraction is in the batch's unit: "1/3" of 8 points saves as
+// 1/24, reduced, and more than the count is allowed, since a count only divides the cost. A
+// percent is still a percent of the whole.
 export function parseAmount(text: string, sizeAmount: number | null = null): Share | null {
   const trimmed = text.trim();
   if (sizeAmount !== null && !trimmed.endsWith('%')) {
-    const fractionMatch = /^(\d+)\s*\/\s*(\d+)$/.exec(trimmed);
-    const amount = fractionMatch
-      ? { numerator: Number(fractionMatch[1]), denominator: Number(fractionMatch[2]) }
-      : parseDecimal(trimmed);
+    const amount = parseUnitAmount(trimmed);
     const size = parseDecimal(String(sizeAmount));
     if (!amount || !size || amount.numerator < 1 || amount.denominator < 1) return null;
     const share = reduce({
       numerator: amount.numerator * size.denominator,
       denominator: amount.denominator * size.numerator,
     });
-    return share.numerator <= share.denominator
-      ? { share_numerator: share.numerator, share_denominator: share.denominator }
-      : null;
+    return { share_numerator: share.numerator, share_denominator: share.denominator };
   }
   const match = /^(\d+)(?:\s*\/\s*(\d+)|\s*%)?$/.exec(trimmed);
   if (!match) return null;
@@ -97,7 +101,8 @@ export function parseAmount(text: string, sizeAmount: number | null = null): Sha
 }
 
 // A share as a number in the batch's unit, for the amount box: a decimal when it has one of up
-// to three places ("2.5", "1"), otherwise a fraction ("1/3").
+// to three places ("2.5", "1"), otherwise a fraction ("1/3"), with its whole number past one
+// ("2 1/3").
 export function formatUnitAmount(share: Share, sizeAmount: number) {
   const size = parseDecimal(String(sizeAmount));
   if (!size) return String(getShareValue(share) * sizeAmount);
@@ -105,17 +110,26 @@ export function formatUnitAmount(share: Share, sizeAmount: number) {
     numerator: share.share_numerator * size.numerator,
     denominator: share.share_denominator * size.denominator,
   });
-  return 1000 % amount.denominator === 0
-    ? String(amount.numerator / amount.denominator)
-    : `${amount.numerator}/${amount.denominator}`;
+  if (1000 % amount.denominator === 0) return String(amount.numerator / amount.denominator);
+  const whole = Math.floor(amount.numerator / amount.denominator);
+  const fraction = `${amount.numerator % amount.denominator}/${amount.denominator}`;
+  return whole === 0 ? fraction : `${whole} ${fraction}`;
 }
 
-// Every use of a batch added together, in its unit, to two decimal places at most: "3", "2.33".
-export function formatUsedAmount(usedShare: number, sizeAmount: number) {
-  return String(Number((usedShare * sizeAmount).toFixed(2)));
+// A counted use kept at the parts it entered when its batch's count is corrected: 1 point of 8
+// (1/8) becomes 1/10 once the count is fixed to 10. A count is always read from parseSize, so it
+// has a decimal form.
+export function rescaleShare(share: Share, oldCount: number, newCount: number): Share {
+  const before = parseDecimal(String(oldCount))!;
+  const after = parseDecimal(String(newCount))!;
+  const scaled = reduce({
+    numerator: share.share_numerator * before.numerator * after.denominator,
+    denominator: share.share_denominator * before.denominator * after.numerator,
+  });
+  return { share_numerator: scaled.numerator, share_denominator: scaled.denominator };
 }
 
-// A use as it's shown: in the batch's unit when it has a size ("1/3 point"), otherwise as entered.
+// A use as it's shown: in the batch's unit when it's counted ("1/3 point"), otherwise as entered.
 export function formatAmount(share: Share, { size_amount, size_unit }: BatchSize) {
   return size_amount === null
     ? formatShare(share)
@@ -138,7 +152,13 @@ export function formatPercent(value: number) {
   return `${Math.round(value * 100)}%`;
 }
 
-// A share is a guess while its batch has no size and isn't all used yet.
+// Save as template, until it's tapped: pieces use counted prep through its template, and lost prep
+// can't be used.
+export function defaultsToTemplate(countedPrep: boolean, lost: boolean) {
+  return countedPrep && !lost;
+}
+
+// A share is a guess while its batch is by eye and isn't all used yet.
 export function isEstimated(use: UseShare) {
   return !use.used_up && !use.measured;
 }
@@ -148,8 +168,8 @@ function wholeMinutes(milliseconds: number) {
   return Math.floor(milliseconds / minute) * minute;
 }
 
-// A batch with no size, once all used, spreads all of it over what used it. A measured batch's
-// shares are exact, so leftovers stay off the books.
+// A by eye batch, once all used, spreads all of it over what used it. A counted batch's shares
+// are exact, so they never scale.
 export function getActualShare(share: UseShare) {
   const estimate = getShareValue(share);
   return share.used_up && !share.measured ? estimate / share.shares_total : estimate;

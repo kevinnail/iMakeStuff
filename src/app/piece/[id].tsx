@@ -44,6 +44,7 @@ import { formatClockTime, formatDay, formatDuration } from '@/utils/formatTime';
 import {
   formatAmount,
   formatPercent,
+  formatShare,
   getActualShare,
   getPrepTime,
   getShareValue,
@@ -294,13 +295,15 @@ function UsesSection({ kind, usedBy, lines, uses, onChange }: UsesSectionProps) 
 }
 
 // A prep's uses: each piece's estimate, and once the prep is all used, what it really took. A
-// measured prep's uses are exact, so they're what each piece used, with no Actual.
+// counted prep's pieces carry their own exact amounts, so it lists only the pieces.
 function UsedBy({ usedBy, usedUp, size }: UsedByProps) {
-  const measured = size.size_amount !== null;
-  const showActual = usedUp && !measured;
   const rows = usedBy.map((use) => ({ ...use, actual_share: getActualShare(use) }));
   const estimatedTotal = rows.reduce((total, row) => total + getShareValue(row), 0);
   const actualTotal = rows.reduce((total, row) => total + row.actual_share, 0);
+
+  function openPiece(pieceId: number) {
+    router.push({ pathname: '/piece/[id]', params: { id: pieceId } });
+  }
 
   return (
     <View style={styles.section}>
@@ -311,14 +314,27 @@ function UsedBy({ usedBy, usedUp, size }: UsedByProps) {
             <Text style={styles.secondaryText}>No pieces have used it yet.</Text>
           </View>
         </Card>
+      ) : size.size_amount !== null ? (
+        <Card>
+          {rows.map((row) => (
+            <Pressable
+              key={row.id}
+              style={({ pressed }) => [styles.row, pressed && styles.buttonPressed]}
+              onPress={() => openPiece(row.piece_id)}
+            >
+              <Text style={[styles.tableValue, styles.fill]}>{row.piece_name}</Text>
+              <Chevron />
+            </Pressable>
+          ))}
+        </Card>
       ) : (
         <Card>
           <View style={styles.row}>
             <Text style={[styles.secondaryText, styles.fill]}>Piece</Text>
             <Text style={[styles.secondaryText, styles.numberColumn, styles.estimatedColumn]}>
-              {measured ? 'Used' : 'Estimated'}
+              Estimated
             </Text>
-            {showActual && (
+            {usedUp && (
               <Text style={[styles.secondaryText, styles.numberColumn, styles.actualColumn]}>
                 Actual
               </Text>
@@ -329,13 +345,13 @@ function UsedBy({ usedBy, usedUp, size }: UsedByProps) {
             <Pressable
               key={row.id}
               style={({ pressed }) => [styles.row, pressed && styles.buttonPressed]}
-              onPress={() => router.push({ pathname: '/piece/[id]', params: { id: row.piece_id } })}
+              onPress={() => openPiece(row.piece_id)}
             >
               <Text style={[styles.tableValue, styles.fill]}>{row.piece_name}</Text>
               <Text style={[styles.tableValue, styles.numberColumn, styles.estimatedColumn]}>
-                {formatAmount(row, size)}
+                {formatShare(row)}
               </Text>
-              {showActual && (
+              {usedUp && (
                 <Text style={[styles.tableValue, styles.numberColumn, styles.actualColumn]}>
                   {formatPercent(row.actual_share)}
                 </Text>
@@ -350,7 +366,7 @@ function UsedBy({ usedBy, usedUp, size }: UsedByProps) {
             <Text style={[styles.tableValue, styles.numberColumn, styles.estimatedColumn]}>
               {formatPercent(estimatedTotal)}
             </Text>
-            {showActual && (
+            {usedUp && (
               <Text style={[styles.tableValue, styles.numberColumn, styles.actualColumn]}>
                 {formatPercent(actualTotal)}
               </Text>
@@ -406,6 +422,9 @@ export default function PieceScreen() {
   const prepTime = getPrepTime(sumDays(days, 'worked'), usedPrep);
   const cost = getCost(piece.id, usedPrep, usedSupplies);
   const finishedPrep = piece.category === 'prep' && piece.finished_at !== null;
+  // Only prep has a count.
+  const partCount = piece.size_amount;
+  const finishedByEyePrep = finishedPrep && partCount === null;
   const usedShare = usedBy.reduce((total, use) => total + getShareValue(use), 0);
   // Every use carries whether its uses have closed the prep, so the page follows the same rule.
   const usedUp = piece.used_up_at !== null || usedBy.some((use) => use.used_up === 1);
@@ -510,18 +529,37 @@ export default function PieceScreen() {
         cost={cost}
         tag={!piece.finished_at ? 'Unfinished' : piece.lost ? 'Lost' : null}
       />
-      {/* The rows that change the piece: a finished prep's All used and how much of it is
-          assigned, a finished piece's switches, then Add time. */}
+      {/* A counted prep's parts: what a piece using one takes in time and cost. */}
+      {partCount !== null && (
+        <Card>
+          <View style={styles.row}>
+            <Text style={[styles.text, styles.fill]}>Made</Text>
+            <Text style={styles.value}>
+              {partCount} {piece.size_unit}
+            </Text>
+          </View>
+          <View style={styles.row}>
+            <Text style={[styles.text, styles.fill]}>Time per part</Text>
+            <Text style={styles.value}>{formatDuration(prepTime.total / partCount)}</Text>
+          </View>
+          {cost.hasSupplies && (
+            <View style={styles.row}>
+              <Text style={[styles.text, styles.fill]}>
+                {cost.estimated ? 'Cost per part, estimated' : 'Cost per part'}
+              </Text>
+              <Text style={styles.value}>{formatCost(Math.round(cost.cents / partCount))}</Text>
+            </View>
+          )}
+        </Card>
+      )}
+      {/* The rows that change the piece: a finished by eye prep's All used and how much of it
+          is assigned, a finished piece's switches, then Add time. */}
       <Card>
-        {finishedPrep && (
+        {finishedByEyePrep && (
           <View style={styles.row}>
             <View style={styles.fill}>
               <Text style={styles.text}>All used</Text>
-              <Text style={styles.note}>
-                {piece.size_amount === null
-                  ? 'Its full cost goes to what used it.'
-                  : 'Takes it off the list to pick from.'}
-              </Text>
+              <Text style={styles.note}>Its full cost goes to what used it.</Text>
             </View>
             <Switch
               value={usedUp}
@@ -530,16 +568,21 @@ export default function PieceScreen() {
             />
           </View>
         )}
-        {finishedPrep && !piece.lost && (
+        {finishedByEyePrep && !piece.lost && (
           <View style={styles.row}>
             <View style={styles.fill}>
-              <AssignedBar usedShare={usedShare} usedUp={usedUp} size={piece} />
+              <AssignedBar usedShare={usedShare} usedUp={usedUp} />
             </View>
           </View>
         )}
         {piece.finished_at && (
           <View style={styles.row}>
-            <Text style={[styles.text, styles.fill]}>Use as template</Text>
+            <View style={styles.fill}>
+              <Text style={styles.text}>Use as template</Text>
+              {partCount !== null && piece.is_template === 0 && (
+                <Text style={styles.note}>Pieces pick counted prep by its template.</Text>
+              )}
+            </View>
             <Switch
               value={piece.is_template === 1}
               onValueChange={setTemplate}

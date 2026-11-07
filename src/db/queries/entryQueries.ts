@@ -41,7 +41,7 @@ export interface PastWork {
   startedAt: string;
   endedAt: string;
   photoFileName: string | null;
-  finish: { notes: string | null; lost: boolean } | null;
+  finish: { notes: string | null; lost: boolean; isTemplate: boolean } | null;
   prepUses: NewPrepUse[];
   supplyUses: NewSupplyUse[];
 }
@@ -167,8 +167,8 @@ export async function addPastWork({
     if (overlapping.length > 0) throw new Error('That overlaps another entry.');
     const { lastInsertRowId: pieceId } = await database.runAsync(
       `INSERT INTO pieces (name, category, template_id, photo_file_name, created_at, finished_at,
-         notes, lost, size_amount, size_unit)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         notes, lost, is_template, size_amount, size_unit)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       piece.name,
       piece.category,
       piece.templateId,
@@ -177,6 +177,7 @@ export async function addPastWork({
       finish ? endedAt : null,
       finish?.notes ?? null,
       finish?.lost ? 1 : 0,
+      finish?.isTemplate ? 1 : 0,
       piece.sizeAmount,
       piece.sizeUnit,
     );

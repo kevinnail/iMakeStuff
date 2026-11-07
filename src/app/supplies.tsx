@@ -16,8 +16,8 @@ import { formatCost } from '@/utils/cost';
 import { formatDay } from '@/utils/formatTime';
 import { showError } from '@/utils/showError';
 
-// Every supply with how much of its cost is assigned, the day it was added, and its cost. Add supply in the
-// header; a row opens the supply's page.
+// Every supply with how much of its cost is assigned (or what a counted one holds), the day it
+// was added, and its cost. Add supply in the header; a row opens the supply's page.
 export default function SuppliesScreen() {
   const [supplies, setSupplies] = useState<SupplyRecord[]>([]);
   const [adding, setAdding] = useState(false);
@@ -65,11 +65,17 @@ export default function SuppliesScreen() {
           >
             <View style={styles.details}>
               <Text style={styles.name}>{supply.name}</Text>
-              <AssignedBar
-                usedShare={supply.used_share}
-                usedUp={supply.used_up === 1}
-                costCents={supply.cost_cents}
-              />
+              {supply.size_amount === null ? (
+                <AssignedBar
+                  usedShare={supply.used_share}
+                  usedUp={supply.used_up === 1}
+                  costCents={supply.cost_cents}
+                />
+              ) : (
+                <Text style={styles.detailText}>
+                  Holds {supply.size_amount} {supply.size_unit}
+                </Text>
+              )}
               <View style={styles.bottomRow}>
                 <Text style={[styles.detailText, styles.fill]}>
                   Added {formatDay(Date.parse(supply.created_at))}

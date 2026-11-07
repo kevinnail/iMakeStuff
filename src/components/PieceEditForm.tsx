@@ -12,9 +12,16 @@ import {
 } from 'react-native';
 
 import { Chevron } from '@/components/Chevron';
+import {
+  getCountTexts,
+  getPrepKind,
+  noCount,
+  PrepKindField,
+  prepCountError,
+  readPrepCount,
+} from '@/components/CountField';
 import { getNotesPlaceholder } from '@/components/FinishPiecePanel';
 import { JoinedButtons } from '@/components/JoinedButtons';
-import { getSizeTexts, readSize, SizeField, sizeError } from '@/components/SizeField';
 import {
   deletePiece,
   updatePiece,
@@ -69,9 +76,8 @@ export function PieceEditForm({
   const [photo, setPhoto] = useState<PhotoChoice>(
     piece.photo_file_name ? { kind: 'saved' } : { kind: 'none' },
   );
-  const savedSizeTexts = getSizeTexts(piece);
-  const [sizeAmountText, setSizeAmountText] = useState(savedSizeTexts.amountText);
-  const [sizeUnitText, setSizeUnitText] = useState(savedSizeTexts.unitText);
+  const [prepKind, setPrepKind] = useState(() => getPrepKind(piece));
+  const [countTexts, setCountTexts] = useState(() => getCountTexts(piece));
   const [saving, setSaving] = useState(false);
   const trimmedName = name.trim();
   const trimmedNotes = notes.trim();
@@ -92,7 +98,7 @@ export function PieceEditForm({
     });
   }
 
-  // A piece has no size, so switching to Piece drops it.
+  // A piece has no count, so switching to Piece drops it.
   async function save(size: SizeInput) {
     const details = { name: trimmedName, category, notes: trimmedNotes || null, ...size };
     if (photo.kind === 'new') {
@@ -107,12 +113,9 @@ export function PieceEditForm({
   }
 
   function handleSave() {
-    const size =
-      category === 'prep'
-        ? readSize(sizeAmountText, sizeUnitText)
-        : { sizeAmount: null, sizeUnit: null };
+    const size = category === 'prep' ? readPrepCount(prepKind, countTexts) : noCount;
     if (size === null) {
-      Alert.alert(sizeError);
+      Alert.alert(prepCountError);
       return;
     }
     setSaving(true);
@@ -186,11 +189,12 @@ export function PieceEditForm({
         {category === 'prep' && (
           <View style={[styles.cardRow, styles.separator]}>
             <View style={styles.fill}>
-              <SizeField
-                amountText={sizeAmountText}
-                unitText={sizeUnitText}
-                onChangeAmount={setSizeAmountText}
-                onChangeUnit={setSizeUnitText}
+              <PrepKindField
+                kind={prepKind}
+                onChangeKind={setPrepKind}
+                texts={countTexts}
+                onChangeTexts={setCountTexts}
+                trackStyle={styles.trackOnCard}
               />
             </View>
           </View>

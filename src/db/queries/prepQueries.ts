@@ -1,13 +1,10 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { getDb } from '@/db/database';
-import {
-  wholeShare,
-  type BatchSize,
-  type PrepTimeShare,
-  type Share,
-  type UseShare,
-} from '@/utils/prepTime';
+import { getUsedSupplies } from '@/db/queries/supplyQueries';
+import { shareSql, usedUpSql, wholeUseSql } from '@/db/schema';
+import { getCost } from '@/utils/cost';
+import { type BatchSize, type PrepTimeShare, type Share, type UseShare } from '@/utils/prepTime';
 
 export interface NewPrepUse {
   prepId: number;
@@ -23,6 +20,11 @@ export interface AvailablePrep extends BatchSize {
   name: string;
   // Every piece's share of it added together, 1 being all of it.
   used_share: number;
+  // A counted prep's whole cost as it is now. Null for by eye prep, which the picker doesn't price,
+  // or with no supply behind it.
+  cost_cents: number | null;
+  // Counted prep only: true while a by eye supply's guess is in that cost.
+  cost_estimated?: boolean;
 }
 
 export interface UsedPrep extends PrepTimeShare, BatchSize {
@@ -30,12 +32,15 @@ export interface UsedPrep extends PrepTimeShare, BatchSize {
   piece_id: number;
   prep_id: number;
   prep_name: string;
+  // The prep's whole cost as saved with a counted use, or null to work it out from its supplies.
+  prep_cost_cents: number | null;
 }
 
 export interface TemplatePrepUse extends Share {
   prep_id: number;
   prep_name: string;
   prep_lost: number;
+  counted: number;
   replacement: AvailablePrep | null;
 }
 
@@ -45,29 +50,20 @@ export interface PieceUsingPrep extends UseShare {
   piece_name: string;
 }
 
-// A use's share as a number, 1 being the whole prep or supply. It names no table, so it reads
-// the prep_uses or supply_uses row of the query it's in.
-export const shareSql = '(share_numerator * 1.0 / share_denominator)';
+// All used by its uses, whatever the switch says.
+const closedByUsesSql = wholeUseSql('prep_uses', 'prep_id', 'pieces.id');
 
-export function wholeUseSql(useTable: string, batchColumn: string, batchIdSql: string) {
-  return `EXISTS (SELECT 1 FROM ${useTable}
-    WHERE ${batchColumn} = ${batchIdSql} AND share_numerator = share_denominator)`;
+// Prep a piece can use: finished, not lost, and either by eye and open, or a counted prep's
+// template, which holds the time and cost every batch of it is divided from.
+export function availableSql(prepTable: string) {
+  return `(${prepTable}.category = 'prep' AND ${prepTable}.finished_at IS NOT NULL
+    AND ${prepTable}.lost = 0 AND NOT ${usedUpSql(prepTable, 'prep_uses', 'prep_id')}
+    AND (${prepTable}.size_amount IS NULL OR ${prepTable}.is_template = 1))`;
 }
 
-// All used by its uses, whatever the switch says: a measured prep whose uses reach its size, or
-// any prep with one use of all of it. Uses that add up to 100% on a prep with no size are
-// guesses, so they leave it open until the switch closes it. A query that already has the
-// prep's shares added together passes that column in, so they aren't added up twice.
-function closedByUsesSql(
-  prepTable: string,
-  usedShareSql = `(SELECT total(${shareSql}) FROM prep_uses WHERE prep_id = ${prepTable}.id)`,
-) {
-  return `((${prepTable}.size_amount IS NOT NULL AND ${usedShareSql} >= ${wholeShare})
-    OR ${wholeUseSql('prep_uses', 'prep_id', `${prepTable}.id`)})`;
-}
-
-export function usedUpSql(prepTable: string, usedShareSql?: string) {
-  return `(${prepTable}.used_up_at IS NOT NULL OR ${closedByUsesSql(prepTable, usedShareSql)})`;
+function workedMillisecondsSql(pieceIdSql: string) {
+  return `(SELECT round(total(julianday(ended_at) - julianday(started_at)) * 86400000)
+    FROM work_segments WHERE piece_id = ${pieceIdSql})`;
 }
 
 // A finished piece made from a template that used prep, with none of its own: likely a missed
@@ -76,51 +72,69 @@ export const noPrepSql = `(pieces.finished_at IS NOT NULL
   AND EXISTS (SELECT 1 FROM prep_uses WHERE piece_id = pieces.template_id)
   AND NOT EXISTS (SELECT 1 FROM prep_uses WHERE piece_id = pieces.id))`;
 
-// The columns getActualShare needs: whether the prep is used up or measured, and every share
+// The columns getActualShare needs: whether the prep is used up or counted, and every share
 // of it.
 const shareColumnsSql = `
   prep_uses.share_numerator, prep_uses.share_denominator,
-  (SELECT ${usedUpSql('prep')} FROM pieces AS prep WHERE prep.id = prep_uses.prep_id)
+  (SELECT ${usedUpSql('prep', 'prep_uses', 'prep_id')} FROM pieces AS prep
+   WHERE prep.id = prep_uses.prep_id)
     AS used_up,
   (SELECT size_amount IS NOT NULL FROM pieces AS prep WHERE prep.id = prep_uses.prep_id)
     AS measured,
   (SELECT total(${shareSql}) FROM prep_uses AS sibling
    WHERE sibling.prep_id = prep_uses.prep_id) AS shares_total`;
 
-// The insert only matches finished prep that isn't used up or lost, so a piece, unfinished
-// prep, or prep that's gone can't be used. The share's range and one use per prep per piece are
+// The insert only matches prep that can be used (availableSql), so a piece, unfinished prep,
+// prep that's gone, or a counted batch that isn't its template can't be. A counted use saves the
+// prep's whole cost and time as they are now (Decisions: A counted use keeps its cost). A cost
+// with a by eye supply's guess in it isn't saved, so the piece stays estimated and takes the
+// actual cost when that supply closes. The share's range and one use per prep per piece are
 // table rules.
 export async function insertPrepUse(
   database: SQLiteDatabase,
   pieceId: number,
   { prepId, share }: NewPrepUse,
 ) {
+  const prep = await database.getFirstAsync<{ counted: number }>(
+    'SELECT size_amount IS NOT NULL AS counted FROM pieces WHERE id = ?',
+    prepId,
+  );
+  const prepCost = prep?.counted
+    ? getCost(prepId, [], await getUsedSupplies(database, prepId))
+    : null;
   const result = await database.runAsync(
-    `INSERT INTO prep_uses (piece_id, prep_id, share_numerator, share_denominator)
-     SELECT ?, id, ?, ? FROM pieces
-     WHERE id = ? AND category = 'prep' AND finished_at IS NOT NULL AND NOT ${usedUpSql('pieces')}
-       AND lost = 0`,
+    `INSERT INTO prep_uses (piece_id, prep_id, share_numerator, share_denominator,
+       prep_cost_cents, prep_milliseconds)
+     SELECT ?, id, ?, ?, ?,
+       CASE WHEN size_amount IS NOT NULL THEN ${workedMillisecondsSql('pieces.id')} END
+     FROM pieces WHERE id = ? AND ${availableSql('pieces')}`,
     pieceId,
     share.share_numerator,
     share.share_denominator,
+    prepCost?.hasSupplies && !prepCost.estimated ? prepCost.cents : null,
     prepId,
   );
   if (result.changes === 0)
-    throw new Error("Only finished prep that isn't all used or lost can be added.");
+    throw new Error(
+      "Only finished prep that isn't all used or lost can be added, and counted prep only by its template.",
+    );
 }
 
-// The prep one piece used, or with no piece given, the prep every piece used.
+// The prep one piece used, or with no piece given, the prep every piece used. A counted use
+// carries the cost and time saved with it, except on a template, whose own cost uses today's
+// (Decisions: A counted use keeps its cost).
 export function getUsedPrep(database: SQLiteDatabase, pieceId: number | null) {
   return database.getAllAsync<UsedPrep>(
     `SELECT prep_uses.id, prep_uses.piece_id, prep_uses.prep_id, pieces.name AS prep_name,
        pieces.size_amount, pieces.size_unit, ${shareColumnsSql},
-       round(total(julianday(work_segments.ended_at) - julianday(work_segments.started_at))
-         * 86400000) AS prep_worked_milliseconds
+       CASE WHEN NOT using_piece.is_template THEN prep_uses.prep_cost_cents END
+         AS prep_cost_cents,
+       coalesce(CASE WHEN NOT using_piece.is_template THEN prep_uses.prep_milliseconds END,
+         ${workedMillisecondsSql('pieces.id')}) AS prep_worked_milliseconds
      FROM prep_uses
      JOIN pieces ON pieces.id = prep_uses.prep_id
-     JOIN work_segments ON work_segments.piece_id = pieces.id
+     JOIN pieces AS using_piece ON using_piece.id = prep_uses.piece_id
      WHERE ? IS NULL OR prep_uses.piece_id = ?
-     GROUP BY prep_uses.id
      ORDER BY prep_uses.id`,
     pieceId,
     pieceId,
@@ -143,28 +157,42 @@ export function getPiecesUsingPrep(database: SQLiteDatabase, prepId: number) {
   );
 }
 
-// Newest first, leaving out prep this piece already uses. A piece not saved yet has no id.
+// Open by eye prep and each counted prep's template, newest first, leaving out prep this piece
+// already uses. A piece not saved yet has no id.
 export async function getAvailablePrep(pieceId: number | null): Promise<AvailablePrep[]> {
   const database = await getDb();
-  return database.getAllAsync<AvailablePrep>(
+  const prepList = await database.getAllAsync<Omit<AvailablePrep, 'cost_cents'>>(
     `SELECT pieces.id, pieces.name, pieces.size_amount, pieces.size_unit,
        total(${shareSql}) AS used_share
      FROM pieces
      LEFT JOIN prep_uses ON prep_uses.prep_id = pieces.id
-     WHERE pieces.category = 'prep' AND pieces.finished_at IS NOT NULL
-       AND NOT ${usedUpSql('pieces')} AND pieces.lost = 0
+     WHERE ${availableSql('pieces')}
        AND pieces.id NOT IN (SELECT prep_id FROM prep_uses WHERE piece_id = ?)
      GROUP BY pieces.id
      ORDER BY pieces.finished_at DESC`,
     pieceId,
   );
+  return Promise.all(
+    prepList.map(async (prep) => {
+      if (prep.size_amount === null) return { ...prep, cost_cents: null };
+      const cost = getCost(prep.id, [], await getUsedSupplies(database, prep.id));
+      return {
+        ...prep,
+        cost_cents: cost.hasSupplies ? cost.cents : null,
+        cost_estimated: cost.estimated,
+      };
+    }),
+  );
 }
 
+// A by eye line whose prep is gone takes the newest open by eye prep with its name. A counted
+// line names its template, so it's never swapped.
 export async function getTemplatePrep(templateId: number): Promise<TemplatePrepUse[]> {
   const database = await getDb();
   const [uses, available] = await Promise.all([
     database.getAllAsync<Omit<TemplatePrepUse, 'replacement'>>(
       `SELECT prep_uses.prep_id, pieces.name AS prep_name, pieces.lost AS prep_lost,
+         pieces.size_amount IS NOT NULL AS counted,
          prep_uses.share_numerator, prep_uses.share_denominator
        FROM prep_uses
        JOIN pieces ON pieces.id = prep_uses.prep_id
@@ -180,9 +208,11 @@ export async function getTemplatePrep(templateId: number): Promise<TemplatePrepU
   );
   return uses.map((use) => {
     const same = available.find((prep) => prep.id === use.prep_id);
-    if (same) return { ...use, replacement: same };
+    if (same || use.counted) return { ...use, replacement: same ?? null };
     const newerBatch =
-      available.find((prep) => prep.name === use.prep_name && !taken.has(prep.id)) ?? null;
+      available.find(
+        (prep) => prep.size_amount === null && prep.name === use.prep_name && !taken.has(prep.id),
+      ) ?? null;
     if (newerBatch) taken.add(newerBatch.id);
     return { ...use, replacement: newerBatch };
   });
@@ -209,16 +239,16 @@ export async function removePrepUse(useId: number): Promise<void> {
   if (result.changes === 0) throw new Error('That prep use no longer exists.');
 }
 
-// All used takes the prep out of Add prep, and on a prep with no size scales its shares to the
-// whole prep; off puts it back. Prep its uses close stays all used whatever the switch says, so
-// turning it off is refused until a share is lowered.
+// All used takes a by eye prep out of Add prep and scales its shares to the whole prep; off puts
+// it back. Prep its uses close stays all used whatever the switch says, so turning it off is
+// refused until a share is lowered.
 export async function setPrepUsedUp(prepId: number, usedUp: boolean): Promise<void> {
   const database = await getDb();
   const result = await database.runAsync(
     `UPDATE pieces SET used_up_at = ?
      WHERE id = ? AND category = 'prep' AND finished_at IS NOT NULL
        AND (used_up_at IS NULL) = ?
-       AND (? OR NOT ${closedByUsesSql('pieces')})`,
+       AND (? OR NOT ${closedByUsesSql})`,
     usedUp ? new Date().toISOString() : null,
     prepId,
     usedUp ? 1 : 0,
@@ -228,7 +258,7 @@ export async function setPrepUsedUp(prepId: number, usedUp: boolean): Promise<vo
   if (usedUp) throw new Error("Only finished prep that isn't all used yet can be marked all used.");
   // The failure needs its reason: not all used, or uses that keep it all used.
   const prep = await database.getFirstAsync<{ closed: number }>(
-    `SELECT ${closedByUsesSql('pieces')} AS closed FROM pieces WHERE id = ?`,
+    `SELECT ${closedByUsesSql} AS closed FROM pieces WHERE id = ?`,
     prepId,
   );
   if (prep?.closed) throw new Error('Its uses take all of it. Lower one to turn All used off.');

@@ -13,8 +13,9 @@ jest.mock('@/db/database', () => ({
   getDb: jest.fn(),
 }));
 
-const tube = { name: '5 ft tube', costCents: 4000 };
-const bail = { name: 'Silver bail', costCents: 300 };
+const noCount = { sizeAmount: null, sizeUnit: null };
+const tube = { name: '5 ft tube', costCents: 4000, ...noCount };
+const bail = { name: 'Silver bail', costCents: 300, ...noCount };
 
 beforeEach(() => {
   (getDb as jest.Mock).mockResolvedValue(createTestDb());
@@ -31,6 +32,8 @@ describe('addSupply', () => {
       cost_cents: 4000,
       used_up_at: null,
       created_at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
+      size_amount: null,
+      size_unit: null,
       used_share: 0,
       used_up: 0,
       prep_count: 0,
@@ -67,9 +70,29 @@ describe('updateSupply', () => {
   it('changes its name and cost', async () => {
     const supplyId = await addSupply(tube);
 
-    await updateSupply(supplyId, { name: '4 ft tube', costCents: 3550 });
+    await updateSupply(supplyId, { name: '4 ft tube', costCents: 3550, ...noCount });
 
     expect(await getSupply(supplyId)).toMatchObject({ name: '4 ft tube', cost_cents: 3550 });
+  });
+
+  // Otherwise a box bought by the tube couldn't be priced per tube.
+  it('saves what a supply holds, and turns it back to by eye', async () => {
+    const supplyId = await addSupply(tube);
+
+    await updateSupply(supplyId, { ...tube, sizeAmount: 16, sizeUnit: 'tubes' });
+    expect(await getSupply(supplyId)).toMatchObject({ size_amount: 16, size_unit: 'tubes' });
+
+    await updateSupply(supplyId, tube);
+    expect(await getSupply(supplyId)).toMatchObject({ size_amount: null, size_unit: null });
+  });
+
+  // Otherwise a count with no unit, or a count of 0, would divide a price into nothing.
+  it.each([
+    ['a count without a unit', { sizeAmount: 16, sizeUnit: null }],
+    ['a count of 0', { sizeAmount: 0, sizeUnit: 'tubes' }],
+    ['a blank unit', { sizeAmount: 16, sizeUnit: ' ' }],
+  ])('rejects %s', async (_case, count) => {
+    await expect(addSupply({ ...tube, ...count })).rejects.toThrow(/CHECK constraint/);
   });
 
   // Otherwise a stale page could report a change to a deleted supply as saved.

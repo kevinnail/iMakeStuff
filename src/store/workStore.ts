@@ -41,6 +41,7 @@ interface FinishInput extends SizeInput {
   cameraPhotoUri: string | null;
   savedPhotoFileName: string | null;
   lost: boolean;
+  isTemplate: boolean;
   prepUses: FinishPrepUse[];
   supplyUses: FinishSupplyUse[];
 }
@@ -117,7 +118,17 @@ export const useWorkStore = create<WorkState>()((set) => ({
   },
   finish: async (
     pieceId,
-    { notes, cameraPhotoUri, savedPhotoFileName, lost, prepUses, supplyUses, sizeAmount, sizeUnit },
+    {
+      notes,
+      cameraPhotoUri,
+      savedPhotoFileName,
+      lost,
+      isTemplate,
+      prepUses,
+      supplyUses,
+      sizeAmount,
+      sizeUnit,
+    },
   ) => {
     const endedAt = new Date().toISOString();
     await withSavedPhoto(cameraPhotoUri, (photoFileName) =>
@@ -126,12 +137,15 @@ export const useWorkStore = create<WorkState>()((set) => ({
         notes,
         photoFileName: photoFileName ?? savedPhotoFileName,
         lost,
+        isTemplate,
         prepUses,
         supplyUses,
         sizeAmount,
         sizeUnit,
       }),
     );
+    // A new template is offered under the name box right away.
+    if (isTemplate) set({ templates: await getTemplates() });
     await showWork(set);
   },
   remove: async (pieceId) => {

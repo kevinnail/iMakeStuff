@@ -2,6 +2,23 @@
 // so a stored timestamp goes straight into Date.parse().
 export const SQL_NOW = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')";
 
+// A use's share as a number, 1 being the whole prep or supply.
+export const shareSql = '(share_numerator * 1.0 / share_denominator)';
+
+// One use of all of a batch, saved as n/n.
+export function wholeUseSql(useTable: string, batchColumn: string, batchIdSql: string) {
+  return `EXISTS (SELECT 1 FROM ${useTable}
+    WHERE ${batchColumn} = ${batchIdSql} AND share_numerator = share_denominator)`;
+}
+
+// A by eye batch closes by its All used switch or one use of all of it. Uses that add up to 100%
+// are guesses, so they leave it open until the switch closes it. A counted batch never closes.
+export function usedUpSql(batchTable: string, useTable: string, batchColumn: string) {
+  return `(${batchTable}.size_amount IS NULL
+    AND (${batchTable}.used_up_at IS NOT NULL
+      OR ${wholeUseSql(useTable, batchColumn, `${batchTable}.id`)}))`;
+}
+
 export const SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS pieces (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -19,7 +36,8 @@ export const SCHEMA_SQL = `
     is_template     INTEGER NOT NULL DEFAULT 0 CHECK (is_template IN (0, 1)),
     -- The template this piece was made from.
     template_id     INTEGER REFERENCES pieces(id),
-    -- A prep's size in the maker's own unit, like 8 points, so uses are entered in it.
+    -- A counted prep's count in the maker's own unit, like 8 points, so uses are entered in
+    -- it. By eye prep has none.
     size_amount     REAL,
     size_unit       TEXT,
     -- A finished piece must be identifiable later: it needs a photo or a description.
@@ -60,15 +78,22 @@ export const SCHEMA_SQL = `
   CREATE UNIQUE INDEX IF NOT EXISTS work_segments_one_running
     ON work_segments(ended_at IS NULL) WHERE ended_at IS NULL;
 
-  -- How much of a prep a piece took, as the fraction entered: 1/8, or 25/100 for 25%. Only
-  -- the estimate is stored; a check can't look at another table, so the insert itself only
-  -- matches finished prep that isn't used up.
+  -- How much of a prep a piece took, as the fraction entered: 1/8, or 25/100 for 25%. A check
+  -- can't look at another table, so the insert itself only matches prep that can be used.
   CREATE TABLE IF NOT EXISTS prep_uses (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
     piece_id          INTEGER NOT NULL REFERENCES pieces(id),
     prep_id           INTEGER NOT NULL REFERENCES pieces(id),
     share_numerator   INTEGER NOT NULL CHECK (share_numerator > 0),
-    share_denominator INTEGER NOT NULL CHECK (share_denominator >= share_numerator),
+    share_denominator INTEGER NOT NULL CHECK (share_denominator > 0),
+    -- A counted prep's whole cost and worked time when the use was saved, so the piece keeps
+    -- them when prices change. Null on a by eye use, and the cost is null when no supply was
+    -- behind the prep.
+    prep_cost_cents   INTEGER,
+    prep_milliseconds INTEGER,
+    -- A by eye share is a guess at part of one thing, so at most all of it. A counted use can
+    -- take more parts than the batch made.
+    CHECK (share_numerator <= share_denominator OR prep_milliseconds IS NOT NULL),
     UNIQUE (piece_id, prep_id)
   );
 
@@ -76,11 +101,16 @@ export const SCHEMA_SQL = `
   -- photo, no finish. The cost is what was paid for the whole thing, in cents. created_at is
   -- when it was added, which keeps each price's date, so prices can be compared over time.
   CREATE TABLE IF NOT EXISTS supplies (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    name       TEXT NOT NULL CHECK (trim(name) <> ''),
-    cost_cents INTEGER NOT NULL CHECK (cost_cents >= 0),
-    used_up_at TEXT,
-    created_at TEXT NOT NULL DEFAULT (${SQL_NOW})
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT NOT NULL CHECK (trim(name) <> ''),
+    cost_cents  INTEGER NOT NULL CHECK (cost_cents >= 0),
+    used_up_at  TEXT,
+    created_at  TEXT NOT NULL DEFAULT (${SQL_NOW}),
+    -- A counted supply's count, like a box that holds 16 tubes. A by eye supply has none.
+    size_amount REAL,
+    size_unit   TEXT,
+    CHECK ((size_amount IS NULL) = (size_unit IS NULL)),
+    CHECK (size_amount IS NULL OR (size_amount > 0 AND trim(size_unit) <> ''))
   );
 
   -- How much of a supply a piece or prep took, as the fraction entered, the same as prep_uses.
@@ -90,7 +120,11 @@ export const SCHEMA_SQL = `
     piece_id          INTEGER NOT NULL REFERENCES pieces(id),
     supply_id         INTEGER NOT NULL REFERENCES supplies(id),
     share_numerator   INTEGER NOT NULL CHECK (share_numerator > 0),
-    share_denominator INTEGER NOT NULL CHECK (share_denominator >= share_numerator),
+    share_denominator INTEGER NOT NULL CHECK (share_denominator > 0),
+    -- A counted supply's cost when the use was saved, so the piece keeps it when the price
+    -- changes. Null on a by eye use.
+    supply_cost_cents INTEGER,
+    CHECK (share_numerator <= share_denominator OR supply_cost_cents IS NOT NULL),
     UNIQUE (piece_id, supply_id)
   );
 `;

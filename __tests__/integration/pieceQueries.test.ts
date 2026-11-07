@@ -61,6 +61,7 @@ describe('startPiece', () => {
         photo_file_name: null,
         worked_milliseconds: 0,
         template_id: null,
+        template_counted: 0,
         running_since: segments[0].started_at,
         size_amount: null,
         size_unit: null,
@@ -188,6 +189,7 @@ describe('getUnfinishedPieces', () => {
         photo_file_name: null,
         worked_milliseconds: 105 * 60 * 1000,
         template_id: null,
+        template_counted: 0,
         running_since: null,
         size_amount: null,
         size_unit: null,
@@ -211,6 +213,7 @@ describe('endDay', () => {
         photo_file_name: null,
         worked_milliseconds: expect.any(Number),
         template_id: null,
+        template_counted: 0,
         running_since: null,
         size_amount: null,
         size_unit: null,
@@ -256,6 +259,7 @@ describe('finishPiece', () => {
       notes: null,
       photoFileName: 'vase.jpg',
       lost: false,
+      isTemplate: false,
       sizeAmount: null,
       sizeUnit: null,
       supplyUses: [],
@@ -283,6 +287,7 @@ describe('finishPiece', () => {
       notes: 'Cobalt glaze',
       photoFileName: null,
       lost: false,
+      isTemplate: false,
       sizeAmount: null,
       sizeUnit: null,
       supplyUses: [],
@@ -303,6 +308,7 @@ describe('finishPiece', () => {
       notes: 'Cobalt glaze',
       photoFileName: null,
       lost: false,
+      isTemplate: false,
       sizeAmount: null,
       sizeUnit: null,
       supplyUses: [],
@@ -326,6 +332,7 @@ describe('finishPiece', () => {
         notes: null,
         photoFileName: null,
         lost: false,
+        isTemplate: false,
         sizeAmount: null,
         sizeUnit: null,
         supplyUses: [],
@@ -351,6 +358,7 @@ describe('finishPiece', () => {
       notes: null,
       photoFileName: 'vase.jpg',
       lost: false,
+      isTemplate: false,
       sizeAmount: null,
       sizeUnit: null,
       supplyUses: [],
@@ -363,6 +371,7 @@ describe('finishPiece', () => {
         notes: null,
         photoFileName: 'other.jpg',
         lost: false,
+        isTemplate: false,
         sizeAmount: null,
         sizeUnit: null,
         supplyUses: [],
@@ -389,6 +398,7 @@ describe('finishPiece as lost', () => {
       notes: null,
       photoFileName: 'crack.jpg',
       lost: true,
+      isTemplate: false,
       sizeAmount: null,
       sizeUnit: null,
       supplyUses: [],
@@ -412,6 +422,7 @@ describe('finishPiece as lost', () => {
         notes: null,
         photoFileName: null,
         lost: true,
+        isTemplate: false,
         sizeAmount: null,
         sizeUnit: null,
         supplyUses: [],
@@ -444,6 +455,7 @@ describe('setPiecePhoto', () => {
       notes: null,
       photoFileName: 'vase.jpg',
       lost: false,
+      isTemplate: false,
       sizeAmount: null,
       sizeUnit: null,
       supplyUses: [],
@@ -471,6 +483,7 @@ describe('setPieceLost', () => {
       notes: 'Cobalt',
       photoFileName: null,
       lost: false,
+      isTemplate: false,
       sizeAmount: null,
       sizeUnit: null,
       supplyUses: [],
@@ -524,6 +537,7 @@ describe('getPieces', () => {
         prep_estimated: false,
         used_share: 0,
         used_up: 0,
+        usable: 0,
         no_prep: 0,
         cost_cents: null,
         cost_estimated: false,
@@ -542,6 +556,7 @@ describe('getPieces', () => {
         prep_estimated: false,
         used_share: 0,
         used_up: 0,
+        usable: 0,
         no_prep: 0,
         cost_cents: null,
         cost_estimated: false,
@@ -560,6 +575,7 @@ describe('getPieces', () => {
         prep_estimated: false,
         used_share: 0,
         used_up: 0,
+        usable: 0,
         no_prep: 0,
         cost_cents: null,
         cost_estimated: false,
@@ -707,20 +723,51 @@ describe('updatePiece', () => {
     expect(await database.getFirstAsync(pieceRowSql, 1)).toMatchObject({ category: 'prep' });
   });
 
-  // Otherwise a cane couldn't be measured in points after it was made.
-  it('saves a size on prep', async () => {
-    await updatePiece(3, {
-      name: 'Dichroic cane',
+  // Otherwise prep couldn't be counted in points after it was made.
+  it('saves a count on prep nothing has used', async () => {
+    await updatePiece(4, {
+      name: 'Frit mix',
       category: 'prep',
-      notes: 'Blue',
+      notes: 'Green',
       photoFileName: null,
       sizeAmount: 8,
       sizeUnit: 'points',
     });
 
     expect(
-      await database.getFirstAsync('SELECT size_amount, size_unit FROM pieces WHERE id = 3'),
+      await database.getFirstAsync('SELECT size_amount, size_unit FROM pieces WHERE id = 4'),
     ).toEqual({ size_amount: 8, size_unit: 'points' });
+  });
+
+  // Otherwise a by eye guess of 1/4 would turn into 2 points, changing what the piece cost.
+  it('rejects a count on prep a piece has used, and saves nothing', async () => {
+    await expect(
+      updatePiece(3, {
+        name: 'Renamed cane',
+        category: 'prep',
+        notes: 'Blue',
+        photoFileName: null,
+        sizeAmount: 8,
+        sizeUnit: 'points',
+      }),
+    ).rejects.toThrow("Counted or By eye can't change once a piece used it.");
+
+    expect(
+      await database.getFirstAsync('SELECT name, size_amount FROM pieces WHERE id = 3'),
+    ).toEqual({ name: 'Dichroic cane', size_amount: null });
+  });
+
+  // Otherwise editing a used prep's name or notes would be refused along with its count.
+  it('saves other changes on prep a piece has used', async () => {
+    await updatePiece(3, {
+      name: 'Renamed cane',
+      category: 'prep',
+      notes: 'Blue',
+      photoFileName: null,
+      ...noSize,
+    });
+
+    expect(await database.getFirstAsync(pieceRowSql, 3)).toMatchObject({ name: 'Renamed cane' });
   });
 
   // Otherwise a piece, which nothing uses, could carry a size that means nothing.

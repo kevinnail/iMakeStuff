@@ -14,10 +14,18 @@ import {
 } from 'react-native';
 
 import { Chevron } from '@/components/Chevron';
+import {
+  getCountTexts,
+  getPrepKind,
+  noCount,
+  PrepKindField,
+  prepCountError,
+  readPrepCount,
+  type PrepKind,
+} from '@/components/CountField';
 import { Dropdown } from '@/components/Dropdown';
 import { getNotesPlaceholder, outcomeOptions, type Outcome } from '@/components/FinishPiecePanel';
 import { JoinedButtons } from '@/components/JoinedButtons';
-import { getSizeTexts, readSize, SizeField, sizeError } from '@/components/SizeField';
 import { getTemplateChoices, UseChoices, type MissingPrep } from '@/components/UseChoices';
 import type { UseChoice } from '@/components/UsePanel';
 import { addPastWork } from '@/db/queries/entryQueries';
@@ -26,6 +34,7 @@ import { getAvailablePrep, getTemplatePrep, type AvailablePrep } from '@/db/quer
 import { getAvailableSupplies, type AvailableSupply } from '@/db/queries/supplyQueries';
 import { colors } from '@/theme';
 import { showPhotoChoices, withSavedPhoto } from '@/utils/photoStorage';
+import { defaultsToTemplate } from '@/utils/prepTime';
 import { showError } from '@/utils/showError';
 
 // A category starts an empty new piece or prep; existing fills one in from a template.
@@ -61,11 +70,14 @@ export default function AddWorkScreen() {
   const [chosenPrep, setChosenPrep] = useState<UseChoice[]>([]);
   const [missingPrep, setMissingPrep] = useState<MissingPrep[]>([]);
   const [chosenSupplies, setChosenSupplies] = useState<UseChoice[]>([]);
-  const [sizeTexts, setSizeTexts] = useState({ amountText: '', unitText: '' });
+  const [prepKind, setPrepKind] = useState<PrepKind>('byEye');
+  const [countTexts, setCountTexts] = useState({ amountText: '', unitText: '' });
   const [startedAt, setStartedAt] = useState(() => yesterdayAt(9));
   const [endedAt, setEndedAt] = useState(() => yesterdayAt(10));
   const [finishing, setFinishing] = useState(false);
   const [outcome, setOutcome] = useState<Outcome>('good');
+  // null until the switch is tapped.
+  const [templateChoice, setTemplateChoice] = useState<boolean | null>(null);
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   // From the camera or library opening until its photo is ready, which can run on after the
   // library closes while an iCloud photo downloads.
@@ -78,6 +90,11 @@ export default function AddWorkScreen() {
   const showForm = source !== 'existing' || template !== null;
 
   const usesPrep = category === 'piece';
+  // A batch of a counted prep's template: the template knows its count and supplies.
+  const laterBatch = category === 'prep' && template !== null && template.size_amount !== null;
+  const saveAsTemplate =
+    templateChoice ??
+    defaultsToTemplate(category === 'prep' && prepKind === 'counted', outcome === 'lost');
   const templateOptions = templates.map((option) => ({
     key: option.id,
     label: option.name,
@@ -111,13 +128,15 @@ export default function AddWorkScreen() {
     });
   }
 
-  // Each source starts with no template, no prep, and no size.
+  // Each source starts with no template, no prep, and by eye.
   function chooseSource(value: Source) {
     setSource(value);
     setTemplate(null);
     setChosenPrep([]);
     setMissingPrep([]);
-    setSizeTexts({ amountText: '', unitText: '' });
+    setPrepKind('byEye');
+    setCountTexts({ amountText: '', unitText: '' });
+    setTemplateChoice(null);
     if (value !== 'existing') setCategory(value);
   }
 
@@ -131,18 +150,16 @@ export default function AddWorkScreen() {
         setCategory(chosen.category);
         setChosenPrep(prep.chosen);
         setMissingPrep(prep.missing);
-        setSizeTexts(getSizeTexts(chosen));
+        setPrepKind(getPrepKind(chosen));
+        setCountTexts(getCountTexts(chosen));
       })
       .catch(showError('Could not load the template'));
   }
 
   function save() {
-    const size =
-      category === 'prep'
-        ? readSize(sizeTexts.amountText, sizeTexts.unitText)
-        : { sizeAmount: null, sizeUnit: null };
+    const size = category === 'prep' ? readPrepCount(prepKind, countTexts) : noCount;
     if (size === null) {
-      Alert.alert(sizeError);
+      Alert.alert(prepCountError);
       return;
     }
     setSaving(true);
@@ -152,9 +169,17 @@ export default function AddWorkScreen() {
         startedAt: new Date(startedAt).toISOString(),
         endedAt: new Date(endedAt).toISOString(),
         photoFileName,
-        finish: finishing ? { notes: trimmedNotes || null, lost: outcome === 'lost' } : null,
+        finish: finishing
+          ? {
+              notes: trimmedNotes || null,
+              lost: outcome === 'lost',
+              isTemplate: template === null && saveAsTemplate,
+            }
+          : null,
         prepUses: usesPrep ? chosenPrep.map(({ item, share }) => ({ prepId: item.id, share })) : [],
-        supplyUses: chosenSupplies.map(({ item, share }) => ({ supplyId: item.id, share })),
+        supplyUses: laterBatch
+          ? []
+          : chosenSupplies.map(({ item, share }) => ({ supplyId: item.id, share })),
       }),
     )
       .then(() => router.back())
@@ -203,14 +228,15 @@ export default function AddWorkScreen() {
                 </View>
               </View>
             )}
-            {category === 'prep' && (
+            {category === 'prep' && !laterBatch && (
               <View style={[styles.cardRow, styles.separator]}>
                 <View style={styles.fill}>
-                  <SizeField
-                    amountText={sizeTexts.amountText}
-                    unitText={sizeTexts.unitText}
-                    onChangeAmount={(amountText) => setSizeTexts({ ...sizeTexts, amountText })}
-                    onChangeUnit={(unitText) => setSizeTexts({ ...sizeTexts, unitText })}
+                  <PrepKindField
+                    kind={prepKind}
+                    onChangeKind={setPrepKind}
+                    texts={countTexts}
+                    onChangeTexts={setCountTexts}
+                    trackStyle={styles.trackOnCard}
                   />
                 </View>
               </View>
@@ -248,13 +274,15 @@ export default function AddWorkScreen() {
               onChange={setChosenPrep}
             />
           )}
-          <UseChoices
-            kind="supply"
-            usedBy={category}
-            availableItems={availableSupplies}
-            chosen={chosenSupplies}
-            onChange={setChosenSupplies}
-          />
+          {!laterBatch && (
+            <UseChoices
+              kind="supply"
+              usedBy={category}
+              availableItems={availableSupplies}
+              chosen={chosenSupplies}
+              onChange={setChosenSupplies}
+            />
+          )}
           <View style={styles.card}>
             <Pressable
               style={({ pressed }) => [styles.cardRow, pressed && styles.buttonPressed]}
@@ -298,6 +326,16 @@ export default function AddWorkScreen() {
                   placeholderTextColor={colors.secondaryText}
                   multiline
                 />
+                {template === null && (
+                  <View style={[styles.cardRow, styles.separator]}>
+                    <Text style={[styles.text, styles.fill]}>Save as template</Text>
+                    <Switch
+                      value={saveAsTemplate}
+                      onValueChange={setTemplateChoice}
+                      trackColor={{ true: colors.primary }}
+                    />
+                  </View>
+                )}
               </>
             )}
           </View>
