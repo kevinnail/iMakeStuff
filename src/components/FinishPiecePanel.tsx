@@ -7,20 +7,28 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import {
+  getCountTexts,
+  getPrepKind,
+  noCount,
+  PrepKindField,
+  prepCountError,
+  readPrepCount,
+} from '@/components/CountField';
 import { JoinedButtons } from '@/components/JoinedButtons';
-import { getSizeTexts, readSize, SizeField, sizeError } from '@/components/SizeField';
 import { UseChoices, type MissingPrep } from '@/components/UseChoices';
 import type { AvailableItem, UseChoice } from '@/components/UsePanel';
 import type { FinishPrepUse } from '@/db/queries/prepQueries';
 import type { FinishSupplyUse } from '@/db/queries/supplyQueries';
 import { colors } from '@/theme';
-import type { BatchSize, SizeInput } from '@/utils/prepTime';
+import { defaultsToTemplate, type BatchSize, type SizeInput } from '@/utils/prepTime';
 
 interface FinishPiecePanelProps {
   pieceName: string;
@@ -32,12 +40,18 @@ interface FinishPiecePanelProps {
   missingPrep: MissingPrep[];
   availableSupplies: AvailableItem[];
   initialSupplies: UseChoice[];
-  // Prep's size so far, from its template if it has one.
+  // Prep's count so far, from its template if it has one.
   initialSize: BatchSize;
+  // A batch of a counted prep's template: the template knows its count and supplies, so Done
+  // asks only for a photo or notes.
+  laterBatch: boolean;
+  // Started from a template, so Save as template isn't offered.
+  fromTemplate: boolean;
   onCancel: () => void;
   onSave: (
     notes: string | null,
     lost: boolean,
+    isTemplate: boolean,
     prepUses: FinishPrepUse[],
     supplyUses: FinishSupplyUse[],
     size: SizeInput,
@@ -67,6 +81,8 @@ export function FinishPiecePanel({
   availableSupplies,
   initialSupplies,
   initialSize,
+  laterBatch,
+  fromTemplate,
   onCancel,
   onSave,
 }: FinishPiecePanelProps) {
@@ -74,18 +90,26 @@ export function FinishPiecePanel({
   const [notes, setNotes] = useState('');
   const [chosenPrep, setChosenPrep] = useState(initialPrep);
   const [chosenSupplies, setChosenSupplies] = useState(initialSupplies);
-  const [sizeTexts, setSizeTexts] = useState(() => getSizeTexts(initialSize));
+  const [prepKind, setPrepKind] = useState(() => getPrepKind(initialSize));
+  const [countTexts, setCountTexts] = useState(() => getCountTexts(initialSize));
+  // null until the switch is tapped.
+  const [templateChoice, setTemplateChoice] = useState<boolean | null>(null);
   const finishingPrep = availablePrep === null;
+  const saveAsTemplate =
+    templateChoice ??
+    defaultsToTemplate(finishingPrep && prepKind === 'counted', outcome === 'lost');
   const [saving, setSaving] = useState(false);
   const trimmedNotes = notes.trim();
   const canSave = !saving && (photoUri !== null || trimmedNotes !== '');
 
   function save() {
-    const size = finishingPrep
-      ? readSize(sizeTexts.amountText, sizeTexts.unitText)
-      : { sizeAmount: null, sizeUnit: null };
+    const size = !finishingPrep
+      ? noCount
+      : laterBatch
+        ? { sizeAmount: initialSize.size_amount, sizeUnit: initialSize.size_unit }
+        : readPrepCount(prepKind, countTexts);
     if (size === null) {
-      Alert.alert(sizeError);
+      Alert.alert(prepCountError);
       return;
     }
     setSaving(true);
@@ -100,12 +124,17 @@ export function FinishPiecePanel({
       share,
       useId,
     }));
-    onSave(trimmedNotes || null, outcome === 'lost', prepUses, supplyUses, size).catch(
-      (error: Error) => {
-        setSaving(false);
-        Alert.alert('Could not save', error.message);
-      },
-    );
+    onSave(
+      trimmedNotes || null,
+      outcome === 'lost',
+      !fromTemplate && saveAsTemplate,
+      prepUses,
+      supplyUses,
+      size,
+    ).catch((error: Error) => {
+      setSaving(false);
+      Alert.alert('Could not save', error.message);
+    });
   }
 
   return (
@@ -144,23 +173,36 @@ export function FinishPiecePanel({
                 style={styles.useCard}
               />
             )}
-            {finishingPrep && (
-              <SizeField
-                amountText={sizeTexts.amountText}
-                unitText={sizeTexts.unitText}
-                onChangeAmount={(amountText) => setSizeTexts({ ...sizeTexts, amountText })}
-                onChangeUnit={(unitText) => setSizeTexts({ ...sizeTexts, unitText })}
+            {finishingPrep && !laterBatch && (
+              <PrepKindField
+                kind={prepKind}
+                onChangeKind={setPrepKind}
+                texts={countTexts}
+                onChangeTexts={setCountTexts}
               />
             )}
-            <UseChoices
-              kind="supply"
-              usedBy={availablePrep ? 'piece' : 'prep'}
-              availableItems={availableSupplies}
-              chosen={chosenSupplies}
-              onChange={setChosenSupplies}
-              style={styles.useCard}
-            />
+            {!laterBatch && (
+              <UseChoices
+                kind="supply"
+                usedBy={availablePrep ? 'piece' : 'prep'}
+                availableItems={availableSupplies}
+                chosen={chosenSupplies}
+                onChange={setChosenSupplies}
+                style={styles.useCard}
+              />
+            )}
           </ScrollView>
+          {/* In the footer with Save, so it's never scrolled out of sight. */}
+          {!fromTemplate && (
+            <View style={styles.switchRow}>
+              <Text style={styles.switchLabel}>Save as template</Text>
+              <Switch
+                value={saveAsTemplate}
+                onValueChange={setTemplateChoice}
+                trackColor={{ true: colors.primary }}
+              />
+            </View>
+          )}
           <View style={styles.buttonRow}>
             <Pressable style={styles.cancelButton} onPress={onCancel}>
               <Text style={styles.cancelButtonText}>Cancel</Text>
@@ -222,6 +264,19 @@ const styles = StyleSheet.create({
   },
   useCard: {
     backgroundColor: colors.background,
+  },
+  switchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.separator,
+  },
+  switchLabel: {
+    flex: 1,
+    fontSize: 18,
+    color: colors.text,
   },
   buttonRow: {
     flexDirection: 'row',
