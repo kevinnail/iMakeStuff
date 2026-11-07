@@ -16,17 +16,19 @@ function supplyUse(
     share_numerator: numerator,
     share_denominator: denominator,
     used_up: usedUp ? 1 : 0,
+    measured: 0,
     shares_total: sharesTotal,
   };
 }
 
-// The vase's use of the cane.
-function caneUse([numerator, denominator]: [number, number], usedUp = false) {
+// The vase's use of the cane. A measured cane is one with a size, like 8 points.
+function caneUse([numerator, denominator]: [number, number], usedUp = false, measured = false) {
   return {
     prep_id: caneId,
     share_numerator: numerator,
     share_denominator: denominator,
     used_up: usedUp ? 1 : 0,
+    measured: measured ? 1 : 0,
     shares_total: numerator / denominator,
   };
 }
@@ -84,6 +86,14 @@ describe('getCost', () => {
         [supplyUse(caneId, 4000, [1, 2], { sharesTotal: 0.5 })],
       ).estimated,
     ).toBe(true);
+  });
+
+  // Otherwise a piece made from points would show its cost as a guess while the points are open.
+  it('is not estimated from an open measured prep made from a closed supply', () => {
+    expect(getCost(vaseId, [caneUse([1, 8], false, true)], [wholeTube])).toMatchObject({
+      cents: 500,
+      estimated: false,
+    });
   });
 
   // Otherwise a piece whose prep has no supplies would show a $0.00 cost marked estimated.
