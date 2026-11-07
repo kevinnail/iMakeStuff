@@ -4,6 +4,7 @@ import { getDb } from '@/db/database';
 import type { PieceCategory } from '@/db/queries/pieceQueries';
 import { insertPrepUse, type NewPrepUse } from '@/db/queries/prepQueries';
 import { insertSupplyUse, type NewSupplyUse } from '@/db/queries/supplyQueries';
+import type { SizeInput } from '@/utils/prepTime';
 import { getLastTouch } from '@/utils/stillWorking';
 
 export type EntryKind = 'segment' | 'break';
@@ -35,7 +36,8 @@ interface TimelineEntry {
 }
 
 export interface PastWork {
-  piece: { name: string; category: PieceCategory; templateId: number | null };
+  // Size is prep only, both or neither.
+  piece: { name: string; category: PieceCategory; templateId: number | null } & SizeInput;
   startedAt: string;
   endedAt: string;
   photoFileName: string | null;
@@ -164,9 +166,9 @@ export async function addPastWork({
     const overlapping = await getOverlappingEntries(database, startedAt, endedAt, now);
     if (overlapping.length > 0) throw new Error('That overlaps another entry.');
     const { lastInsertRowId: pieceId } = await database.runAsync(
-      `INSERT INTO pieces
-         (name, category, template_id, photo_file_name, created_at, finished_at, notes, lost)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO pieces (name, category, template_id, photo_file_name, created_at, finished_at,
+         notes, lost, size_amount, size_unit)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       piece.name,
       piece.category,
       piece.templateId,
@@ -175,6 +177,8 @@ export async function addPastWork({
       finish ? endedAt : null,
       finish?.notes ?? null,
       finish?.lost ? 1 : 0,
+      piece.sizeAmount,
+      piece.sizeUnit,
     );
     await database.runAsync(
       'INSERT INTO work_segments (piece_id, started_at, ended_at) VALUES (?, ?, ?)',
