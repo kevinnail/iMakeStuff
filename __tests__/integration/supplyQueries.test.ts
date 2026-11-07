@@ -102,10 +102,12 @@ describe('setSupplyUsedUp', () => {
   it('fails for a supply already in the state asked for', async () => {
     const supplyId = await addSupply(tube);
 
-    await expect(setSupplyUsedUp(supplyId, false)).rejects.toThrow("That supply isn't used up.");
+    await expect(setSupplyUsedUp(supplyId, false)).rejects.toThrow(
+      "That supply isn't marked all used.",
+    );
     await setSupplyUsedUp(supplyId, true);
     await expect(setSupplyUsedUp(supplyId, true)).rejects.toThrow(
-      'That supply is already used up.',
+      'That supply is already marked all used.',
     );
   });
 });
