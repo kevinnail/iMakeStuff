@@ -441,7 +441,7 @@ describe('addPastWork', () => {
         supplyUses: [],
         prepUses: [{ prepId: 3, share: { share_numerator: 25, share_denominator: 100 } }],
       }),
-    ).rejects.toThrow("Only finished prep that isn't used up or lost can be used.");
+    ).rejects.toThrow("Only finished prep that isn't all used or lost can be added.");
     expect(await database.getAllAsync("SELECT id FROM pieces WHERE name = 'Red cup'")).toEqual([]);
     expect(await database.getAllAsync(segmentsSql)).toEqual([]);
   });
