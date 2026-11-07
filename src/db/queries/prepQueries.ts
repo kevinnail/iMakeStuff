@@ -49,7 +49,6 @@ export interface PieceUsingPrep extends UseShare {
 // the prep_uses or supply_uses row of the query it's in.
 export const shareSql = '(share_numerator * 1.0 / share_denominator)';
 
-// One use of all of it, the same rule for prep and supplies. A whole share is saved as n/n.
 export function wholeUseSql(useTable: string, batchColumn: string, batchIdSql: string) {
   return `EXISTS (SELECT 1 FROM ${useTable}
     WHERE ${batchColumn} = ${batchIdSql} AND share_numerator = share_denominator)`;
