@@ -31,8 +31,8 @@ export default function SuppliesScreen() {
     }, [load]),
   );
 
-  async function save(details: SupplyDetails) {
-    await addSupply(details);
+  async function save(details: SupplyDetails, sameAsId: number | null) {
+    await addSupply(details, sameAsId);
     setAdding(false);
     await load();
   }
@@ -65,20 +65,14 @@ export default function SuppliesScreen() {
           >
             <View style={styles.details}>
               <Text style={styles.name}>{supply.name}</Text>
-              {supply.size_amount === null ? (
-                <AssignedBar
-                  usedShare={supply.used_share}
-                  usedUp={supply.used_up === 1}
-                  costCents={supply.cost_cents}
-                />
-              ) : (
-                <Text style={styles.detailText}>
-                  Holds {supply.size_amount} {supply.size_unit}
-                </Text>
-              )}
+              <AssignedBar
+                usedShare={supply.used_share}
+                usedUp={supply.used_up === 1}
+                costCents={supply.cost_cents}
+              />
               <View style={styles.bottomRow}>
                 <Text style={[styles.detailText, styles.fill]}>
-                  Added {formatDay(Date.parse(supply.created_at))}
+                  Priced {formatDay(Date.parse(supply.priced_at))}
                 </Text>
                 <Text style={styles.cost}>{formatCost(supply.cost_cents)}</Text>
               </View>
