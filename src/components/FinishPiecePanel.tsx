@@ -21,9 +21,10 @@ import {
   PrepKindField,
   prepCountError,
   readPrepCount,
+  type PrepKind,
 } from '@/components/CountField';
 import { JoinedButtons } from '@/components/JoinedButtons';
-import { UseChoices, type MissingPrep } from '@/components/UseChoices';
+import { UseChoices, type MissingUse } from '@/components/UseChoices';
 import type { AvailableItem, UseChoice } from '@/components/UsePanel';
 import type { FinishPrepUse } from '@/db/queries/prepQueries';
 import type { FinishSupplyUse } from '@/db/queries/supplyQueries';
@@ -37,9 +38,10 @@ interface FinishPiecePanelProps {
   availablePrep: AvailableItem[] | null;
 
   initialPrep: UseChoice[];
-  missingPrep: MissingPrep[];
+  missingPrep: MissingUse[];
   availableSupplies: AvailableItem[];
   initialSupplies: UseChoice[];
+  missingSupplies: MissingUse[];
   // Prep's count so far, from its template if it has one.
   initialSize: BatchSize;
   // A batch of a counted prep's template: the template knows its count and supplies, so Done
@@ -80,6 +82,7 @@ export function FinishPiecePanel({
   missingPrep,
   availableSupplies,
   initialSupplies,
+  missingSupplies,
   initialSize,
   laterBatch,
   fromTemplate,
@@ -90,10 +93,14 @@ export function FinishPiecePanel({
   const [notes, setNotes] = useState('');
   const [chosenPrep, setChosenPrep] = useState(initialPrep);
   const [chosenSupplies, setChosenSupplies] = useState(initialSupplies);
-  const [prepKind, setPrepKind] = useState(() => getPrepKind(initialSize));
+  // New prep starts counted. A batch of a by eye template stays by eye.
+  const [prepKind, setPrepKind] = useState<PrepKind>(() =>
+    fromTemplate ? getPrepKind(initialSize) : 'counted',
+  );
   const [countTexts, setCountTexts] = useState(() => getCountTexts(initialSize));
   // null until the switch is tapped.
   const [templateChoice, setTemplateChoice] = useState<boolean | null>(null);
+  const [showingPhoto, setShowingPhoto] = useState(false);
   const finishingPrep = availablePrep === null;
   const saveAsTemplate =
     templateChoice ??
@@ -140,7 +147,7 @@ export function FinishPiecePanel({
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onCancel}>
       <KeyboardAvoidingView style={styles.overlay} behavior="padding">
-        <SafeAreaView edges={{ bottom: 'additive' }} style={styles.panel}>
+        <View style={styles.panel}>
           <ScrollView
             style={styles.scroll}
             contentContainerStyle={styles.content}
@@ -148,9 +155,25 @@ export function FinishPiecePanel({
             keyboardDismissMode="on-drag"
           >
             <JoinedButtons options={outcomeOptions} selected={outcome} onSelect={setOutcome} />
-            <Text style={styles.pieceName}>{pieceName}</Text>
-            {photoUri && <Image source={{ uri: photoUri }} style={styles.photo} />}
-
+            {/* A small photo, so the whole panel fits without scrolling. Tapping it shows it
+                full screen. */}
+            <View style={styles.nameRow}>
+              {photoUri && (
+                <Pressable onPress={() => setShowingPhoto(true)}>
+                  <Image source={{ uri: photoUri }} style={styles.thumbnail} />
+                </Pressable>
+              )}
+              <Text style={styles.pieceName}>{pieceName}</Text>
+            </View>
+            {/* Right under the name: what a piece's cost is divided from. */}
+            {finishingPrep && !laterBatch && (
+              <PrepKindField
+                kind={prepKind}
+                onChangeKind={setPrepKind}
+                texts={countTexts}
+                onChangeTexts={setCountTexts}
+              />
+            )}
             <TextInput
               style={styles.notesInput}
               value={notes}
@@ -173,50 +196,58 @@ export function FinishPiecePanel({
                 style={styles.useCard}
               />
             )}
-            {finishingPrep && !laterBatch && (
-              <PrepKindField
-                kind={prepKind}
-                onChangeKind={setPrepKind}
-                texts={countTexts}
-                onChangeTexts={setCountTexts}
-              />
-            )}
             {!laterBatch && (
               <UseChoices
                 kind="supply"
                 usedBy={availablePrep ? 'piece' : 'prep'}
                 availableItems={availableSupplies}
                 chosen={chosenSupplies}
+                missing={missingSupplies}
                 onChange={setChosenSupplies}
                 style={styles.useCard}
               />
             )}
           </ScrollView>
-          {/* In the footer with Save, so it's never scrolled out of sight. */}
-          {!fromTemplate && (
-            <View style={styles.switchRow}>
-              <Text style={styles.switchLabel}>Save as template</Text>
-              <Switch
-                value={saveAsTemplate}
-                onValueChange={setTemplateChoice}
-                trackColor={{ true: colors.primary }}
-              />
+          {/* In the footer with Save, so it's never scrolled out of sight. Darker than the
+              part that scrolls, so it's clear where that part ends. */}
+          <SafeAreaView edges={{ bottom: 'additive' }} style={styles.footer}>
+            {!fromTemplate && (
+              <View style={styles.switchRow}>
+                <Text style={styles.switchLabel}>Save as template</Text>
+                <Switch
+                  value={saveAsTemplate}
+                  onValueChange={setTemplateChoice}
+                  trackColor={{ true: colors.primary }}
+                />
+              </View>
+            )}
+            <View style={styles.buttonRow}>
+              <Pressable style={styles.cancelButton} onPress={onCancel}>
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.saveButton, !canSave && styles.buttonDisabled]}
+                onPress={save}
+                disabled={!canSave}
+              >
+                <Text style={styles.saveButtonText}>Save</Text>
+              </Pressable>
             </View>
-          )}
-          <View style={styles.buttonRow}>
-            <Pressable style={styles.cancelButton} onPress={onCancel}>
-              <Text style={styles.cancelButtonText}>Cancel</Text>
-            </Pressable>
-            <Pressable
-              style={[styles.saveButton, !canSave && styles.buttonDisabled]}
-              onPress={save}
-              disabled={!canSave}
-            >
-              <Text style={styles.saveButtonText}>Save</Text>
-            </Pressable>
-          </View>
-        </SafeAreaView>
+          </SafeAreaView>
+        </View>
       </KeyboardAvoidingView>
+      {photoUri && (
+        <Modal
+          visible={showingPhoto}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowingPhoto(false)}
+        >
+          <Pressable style={styles.photoScreen} onPress={() => setShowingPhoto(false)}>
+            <Image source={{ uri: photoUri }} style={styles.fullPhoto} resizeMode="contain" />
+          </Pressable>
+        </Modal>
+      )}
     </Modal>
   );
 }
@@ -229,8 +260,7 @@ const styles = StyleSheet.create({
   },
   panel: {
     maxHeight: '90%',
-    padding: 16,
-    gap: 12,
+    overflow: 'hidden',
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
     backgroundColor: colors.surface,
@@ -240,16 +270,37 @@ const styles = StyleSheet.create({
     flexShrink: 1,
   },
   content: {
+    padding: 16,
     gap: 12,
   },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  thumbnail: {
+    width: 72,
+    height: 72,
+    borderRadius: 8,
+  },
   pieceName: {
+    flex: 1,
     fontSize: 20,
     color: colors.text,
   },
-  photo: {
-    width: '100%',
-    aspectRatio: 4 / 3,
-    borderRadius: 8,
+  photoScreen: {
+    flex: 1,
+    backgroundColor: 'black',
+  },
+  fullPhoto: {
+    flex: 1,
+  },
+  footer: {
+    padding: 16,
+    gap: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.separator,
+    backgroundColor: colors.background,
   },
   notesInput: {
     fontSize: 18,
@@ -269,9 +320,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    paddingTop: 12,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.separator,
   },
   switchLabel: {
     flex: 1,
