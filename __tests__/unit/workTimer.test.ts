@@ -9,6 +9,7 @@ function piece(overrides: Partial<UnfinishedPiece>): UnfinishedPiece {
     category: 'piece',
     photo_file_name: null,
     template_id: null,
+    template_counted: 0,
     worked_milliseconds: 0,
     running_since: null,
     size_amount: null,
