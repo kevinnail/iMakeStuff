@@ -102,6 +102,7 @@ describe('finishPiece with supplies', () => {
         size_unit: null,
         ...share(1, 4),
         used_up: 0,
+        measured: 0,
         shares_total: 0.25,
       },
     ]);
@@ -145,10 +146,9 @@ describe('finishPiece with supplies', () => {
 
 describe('addSupplyUse', () => {
   // Otherwise a tube that's gone could keep collecting shares from new pieces.
-  it('rejects a supply marked used up, or whose shares reach all of it', async () => {
+  it('rejects a supply marked all used, or one use took all of', async () => {
     await setSupplyUsedUp(bailId, true);
-    await addSupplyUse(vaseId, supplyUse(tubeId, 1, 2));
-    await addSupplyUse(bowlId, supplyUse(tubeId, 1, 2));
+    await addSupplyUse(vaseId, supplyUse(tubeId, 1, 1));
 
     for (const supplyId of [bailId, tubeId]) {
       await expect(addSupplyUse(caneId, supplyUse(supplyId, 1, 8))).rejects.toThrow(
@@ -211,6 +211,24 @@ describe('cost', () => {
     expect(await getCostOf(caneId)).toEqual({ cents: 4000, estimated: false });
   });
 
+  // Otherwise points pulled from a whole tube would show their cost as a guess until something else closed.
+  it('gives a piece at 1 of 8 points from a whole $40 tube $5.00, not estimated', async () => {
+    await finishPiece(caneId, {
+      ...finish,
+      sizeAmount: 8,
+      sizeUnit: 'points',
+      supplyUses: [supplyUse(tubeId, 1, 1)],
+    });
+
+    await finishPiece(vaseId, {
+      ...finish,
+      prepUses: [{ prepId: caneId, share: share(1, 8) }],
+      supplyUses: [],
+    });
+
+    expect(await getCostOf(vaseId)).toEqual({ cents: 500, estimated: false });
+  });
+
   // Otherwise a pendant with a bail would carry only its cane, or only its bail.
   it('adds a supply used directly to the share of a prep', async () => {
     await finishCaneFromWholeTube();
@@ -270,14 +288,23 @@ describe('cost', () => {
   });
 });
 
-describe('setSupplyUsedUp with uses', () => {
-  // Otherwise turning Used up off would look like it worked on a supply still at 100%.
-  it('refuses to turn Used up off while the uses add up to all of it', async () => {
+describe('closing a supply', () => {
+  // Otherwise guesses on a rod that runs long would close it at 100% and refuse the next piece.
+  it('leaves a supply open at 100% from several uses, taking another use', async () => {
     await addSupplyUse(vaseId, supplyUse(tubeId, 1, 2));
     await addSupplyUse(bowlId, supplyUse(tubeId, 1, 2));
 
+    await addSupplyUse(caneId, supplyUse(tubeId, 1, 4));
+
+    expect(await getSupply(tubeId)).toMatchObject({ used_share: 1.25, used_up: 0 });
+  });
+
+  // Otherwise turning All used off would look like it worked on a tube one prep took all of.
+  it('refuses to turn All used off while one use takes all of it', async () => {
+    await finishCaneFromWholeTube();
+
     await expect(setSupplyUsedUp(tubeId, false)).rejects.toThrow(
-      'Its uses add up to 100%. Lower one to turn All used off.',
+      'One use takes all of it. Lower it to turn All used off.',
     );
   });
 });
