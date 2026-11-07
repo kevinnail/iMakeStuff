@@ -334,13 +334,16 @@ export default function WorkScreen() {
       availableSupplies={finishing.availableSupplies}
       initialSupplies={finishing.initialSupplies}
       initialSize={finishing.piece}
+      laterBatch={finishing.piece.template_counted === 1}
+      fromTemplate={finishing.piece.template_id !== null}
       onCancel={() => setFinishing(null)}
-      onSave={(notes, lost, prepUses, supplyUses, size) =>
+      onSave={(notes, lost, isTemplate, prepUses, supplyUses, size) =>
         finish(finishing.piece.id, {
           notes,
           cameraPhotoUri: finishing.cameraPhotoUri,
           savedPhotoFileName: finishing.piece.photo_file_name,
           lost,
+          isTemplate,
           prepUses,
           supplyUses,
           ...size,
