@@ -77,18 +77,8 @@ beforeEach(async () => {
   database = createTestDb();
   (getDb as jest.Mock).mockResolvedValue(database);
   await database.execAsync(fixturesSql);
-  tubeId = await addSupply({
-    name: '5 ft tube',
-    costCents: 4000,
-    sizeAmount: null,
-    sizeUnit: null,
-  });
-  bailId = await addSupply({
-    name: 'Silver bail',
-    costCents: 300,
-    sizeAmount: null,
-    sizeUnit: null,
-  });
+  tubeId = await addSupply({ name: '5 ft tube', costCents: 4000 });
+  bailId = await addSupply({ name: 'Silver bail', costCents: 300 });
 });
 
 describe('finishPiece with supplies', () => {
@@ -338,6 +328,7 @@ describe('deleting', () => {
         size_unit: null,
         used_share: 0,
         cost_cents: 300,
+        kind_id: bailId,
       },
       {
         id: tubeId,
@@ -346,6 +337,7 @@ describe('deleting', () => {
         size_unit: null,
         used_share: 0.5,
         cost_cents: 4000,
+        kind_id: tubeId,
       },
     ]);
   });

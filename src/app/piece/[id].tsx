@@ -77,6 +77,7 @@ interface TotalsProps {
   cost: Cost;
   // Unfinished or Lost, beside the total.
   tag: string | null;
+  noCost: boolean;
 }
 
 interface UseLine {
@@ -128,7 +129,7 @@ function getLastHour(runningSince: string | null) {
 // The whole piece: its total time large (its own time plus its share of prep), when it was
 // worked, then a card of what the total is made of and where the rest of the time went. A piece
 // whose only entry ended at its own start (I stopped at, or a time fix) has no days, so no when.
-function Totals({ days, prepTime, cost, tag }: TotalsProps) {
+function Totals({ days, prepTime, cost, tag, noCost }: TotalsProps) {
   const firstDay = days[0];
   const lastDay = days[days.length - 1];
   const when =
@@ -165,6 +166,7 @@ function Totals({ days, prepTime, cost, tag }: TotalsProps) {
             {prepTime.estimated && ', estimated'}
           </Text>
           {tag && <Tag label={tag} />}
+          {noCost && <Tag label="No cost" warning />}
         </View>
         {when && <Text style={styles.secondaryText}>{when}</Text>}
       </View>
@@ -224,6 +226,11 @@ function UsesSection({ kind, usedBy, lines, uses, onChange }: UsesSectionProps) 
     uses.getAvailable().then(setItemList).catch(showError('Could not load the list'));
   }
 
+  // A new price is saved even if the panel is canceled, so the page shows it right away.
+  function reload() {
+    onChange().catch(showError('Could not load the piece'));
+  }
+
   return (
     <View style={styles.section}>
       <Text style={styles.heading}>{labels.heading}</Text>
@@ -277,6 +284,7 @@ function UsesSection({ kind, usedBy, lines, uses, onChange }: UsesSectionProps) 
           initial={null}
           onCancel={() => setItemList(null)}
           onSave={({ item, share }) => save(uses.add(item.id, share))}
+          onRepriced={reload}
         />
       )}
       {changingLine && (
@@ -528,6 +536,7 @@ export default function PieceScreen() {
         prepTime={prepTime}
         cost={cost}
         tag={!piece.finished_at ? 'Unfinished' : piece.lost ? 'Lost' : null}
+        noCost={piece.no_cost === 1}
       />
       {/* A counted prep's parts: what a piece using one takes in time and cost. */}
       {partCount !== null && (

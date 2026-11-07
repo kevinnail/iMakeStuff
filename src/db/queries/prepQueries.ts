@@ -1,8 +1,13 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { getDb } from '@/db/database';
-import { getUsedSupplies } from '@/db/queries/supplyQueries';
-import { shareSql, usedUpSql, wholeUseSql } from '@/db/schema';
+import {
+  getSuppliesUsedBy,
+  getUsedSupplies,
+  type AvailableSupply,
+  type SupplyRecord,
+} from '@/db/queries/supplyQueries';
+import { prepUsedUpSql, shareSql, wholeUseSql } from '@/db/schema';
 import { getCost } from '@/utils/cost';
 import { type BatchSize, type PrepTimeShare, type Share, type UseShare } from '@/utils/prepTime';
 
@@ -25,6 +30,42 @@ export interface AvailablePrep extends BatchSize {
   cost_cents: number | null;
   // Counted prep only: true while a by eye supply's guess is in that cost.
   cost_estimated?: boolean;
+  // The first prep of its kind, or its own id.
+  kind_id: number;
+}
+
+// A prep or supply line on a template, and what a piece made from it takes in its place.
+export interface TemplateUse<Batch> extends Share {
+  batch_id: number;
+  batch_name: string;
+  // Prep only: 1 when it was lost.
+  batch_lost: number;
+  counted: number;
+  kind_id: number;
+  // The same batch while it can be used, or the newest open by eye one of its kind. Null when
+  // there's none.
+  replacement: Batch | null;
+}
+
+export interface TemplateUses {
+  prep: TemplateUse<AvailablePrep>[];
+  supplies: TemplateUse<AvailableSupply>[];
+}
+
+// What the form a template's lines go into can add.
+export interface AvailableBatches {
+  prep: AvailablePrep[];
+  supplies: AvailableSupply[];
+}
+
+// A counted prep's part cost and time come from the whole prep's, and the cost from the supplies
+// listed.
+export interface PartPrice {
+  // The whole prep's, null with no supply behind it.
+  cost_cents: number | null;
+  cost_estimated: boolean;
+  worked_milliseconds: number;
+  supplies: SupplyRecord[];
 }
 
 export interface UsedPrep extends PrepTimeShare, BatchSize {
@@ -34,14 +75,6 @@ export interface UsedPrep extends PrepTimeShare, BatchSize {
   prep_name: string;
   // The prep's whole cost as saved with a counted use, or null to work it out from its supplies.
   prep_cost_cents: number | null;
-}
-
-export interface TemplatePrepUse extends Share {
-  prep_id: number;
-  prep_name: string;
-  prep_lost: number;
-  counted: number;
-  replacement: AvailablePrep | null;
 }
 
 export interface PieceUsingPrep extends UseShare {
@@ -57,7 +90,7 @@ const closedByUsesSql = wholeUseSql('prep_uses', 'prep_id', 'pieces.id');
 // template, which holds the time and cost every batch of it is divided from.
 export function availableSql(prepTable: string) {
   return `(${prepTable}.category = 'prep' AND ${prepTable}.finished_at IS NOT NULL
-    AND ${prepTable}.lost = 0 AND NOT ${usedUpSql(prepTable, 'prep_uses', 'prep_id')}
+    AND ${prepTable}.lost = 0 AND NOT ${prepUsedUpSql(prepTable)}
     AND (${prepTable}.size_amount IS NULL OR ${prepTable}.is_template = 1))`;
 }
 
@@ -66,17 +99,30 @@ function workedMillisecondsSql(pieceIdSql: string) {
     FROM work_segments WHERE piece_id = ${pieceIdSql})`;
 }
 
-// A finished piece made from a template that used prep, with none of its own: likely a missed
-// cost. Unfinished pieces are left out, since a template's prep is only filled in at Done.
-export const noPrepSql = `(pieces.finished_at IS NOT NULL
-  AND EXISTS (SELECT 1 FROM prep_uses WHERE piece_id = pieces.template_id)
-  AND NOT EXISTS (SELECT 1 FROM prep_uses WHERE piece_id = pieces.id))`;
+// A finished piece or prep with no supply behind it, its own or its prep's, and no counted prep's
+// cost saved on a use: an incomplete record. Unfinished pieces are left out, since supplies are
+// filled in at Done, and so is a batch of a counted template, which takes none since the
+// template has them.
+export const noCostSql = `(pieces.finished_at IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM supply_uses WHERE supply_uses.piece_id = pieces.id
+    OR supply_uses.piece_id IN (SELECT prep_id FROM prep_uses WHERE prep_uses.piece_id = pieces.id))
+  AND NOT EXISTS (SELECT 1 FROM prep_uses WHERE prep_uses.piece_id = pieces.id
+    AND prep_uses.prep_cost_cents IS NOT NULL AND pieces.is_template = 0)
+  AND NOT EXISTS (SELECT 1 FROM pieces AS template
+    WHERE template.id = pieces.template_id AND template.size_amount IS NOT NULL))`;
+
+// A counted prep's whole cost at today's prices: null with no supply behind it, and estimated
+// while a by eye supply's guess is in it.
+async function getPrepCost(database: SQLiteDatabase, prepId: number) {
+  const cost = getCost(prepId, [], await getUsedSupplies(database, prepId));
+  return { cost_cents: cost.hasSupplies ? cost.cents : null, cost_estimated: cost.estimated };
+}
 
 // The columns getActualShare needs: whether the prep is used up or counted, and every share
 // of it.
 const shareColumnsSql = `
   prep_uses.share_numerator, prep_uses.share_denominator,
-  (SELECT ${usedUpSql('prep', 'prep_uses', 'prep_id')} FROM pieces AS prep
+  (SELECT ${prepUsedUpSql('prep')} FROM pieces AS prep
    WHERE prep.id = prep_uses.prep_id)
     AS used_up,
   (SELECT size_amount IS NOT NULL FROM pieces AS prep WHERE prep.id = prep_uses.prep_id)
@@ -86,7 +132,7 @@ const shareColumnsSql = `
 
 // The insert only matches prep that can be used (availableSql), so a piece, unfinished prep,
 // prep that's gone, or a counted batch that isn't its template can't be. A counted use saves the
-// prep's whole cost and time as they are now (Decisions: A counted use keeps its cost). A cost
+// prep's whole cost as it is now (Decisions: A counted use keeps its cost). A cost
 // with a by eye supply's guess in it isn't saved, so the piece stays estimated and takes the
 // actual cost when that supply closes. The share's range and one use per prep per piece are
 // table rules.
@@ -99,19 +145,15 @@ export async function insertPrepUse(
     'SELECT size_amount IS NOT NULL AS counted FROM pieces WHERE id = ?',
     prepId,
   );
-  const prepCost = prep?.counted
-    ? getCost(prepId, [], await getUsedSupplies(database, prepId))
-    : null;
+  const prepCost = prep?.counted ? await getPrepCost(database, prepId) : null;
   const result = await database.runAsync(
     `INSERT INTO prep_uses (piece_id, prep_id, share_numerator, share_denominator,
-       prep_cost_cents, prep_milliseconds)
-     SELECT ?, id, ?, ?, ?,
-       CASE WHEN size_amount IS NOT NULL THEN ${workedMillisecondsSql('pieces.id')} END
-     FROM pieces WHERE id = ? AND ${availableSql('pieces')}`,
+       prep_cost_cents)
+     SELECT ?, id, ?, ?, ? FROM pieces WHERE id = ? AND ${availableSql('pieces')}`,
     pieceId,
     share.share_numerator,
     share.share_denominator,
-    prepCost?.hasSupplies && !prepCost.estimated ? prepCost.cents : null,
+    prepCost && !prepCost.cost_estimated ? prepCost.cost_cents : null,
     prepId,
   );
   if (result.changes === 0)
@@ -121,16 +163,15 @@ export async function insertPrepUse(
 }
 
 // The prep one piece used, or with no piece given, the prep every piece used. A counted use
-// carries the cost and time saved with it, except on a template, whose own cost uses today's
-// (Decisions: A counted use keeps its cost).
+// carries the cost saved with it, except on a template, whose own cost uses today's (Decisions:
+// A counted use keeps its cost). Time is always the prep's as recorded now.
 export function getUsedPrep(database: SQLiteDatabase, pieceId: number | null) {
   return database.getAllAsync<UsedPrep>(
     `SELECT prep_uses.id, prep_uses.piece_id, prep_uses.prep_id, pieces.name AS prep_name,
        pieces.size_amount, pieces.size_unit, ${shareColumnsSql},
        CASE WHEN NOT using_piece.is_template THEN prep_uses.prep_cost_cents END
          AS prep_cost_cents,
-       coalesce(CASE WHEN NOT using_piece.is_template THEN prep_uses.prep_milliseconds END,
-         ${workedMillisecondsSql('pieces.id')}) AS prep_worked_milliseconds
+       ${workedMillisecondsSql('pieces.id')} AS prep_worked_milliseconds
      FROM prep_uses
      JOIN pieces ON pieces.id = prep_uses.prep_id
      JOIN pieces AS using_piece ON using_piece.id = prep_uses.piece_id
@@ -163,7 +204,7 @@ export async function getAvailablePrep(pieceId: number | null): Promise<Availabl
   const database = await getDb();
   const prepList = await database.getAllAsync<Omit<AvailablePrep, 'cost_cents'>>(
     `SELECT pieces.id, pieces.name, pieces.size_amount, pieces.size_unit,
-       total(${shareSql}) AS used_share
+       coalesce(pieces.kind_id, pieces.id) AS kind_id, total(${shareSql}) AS used_share
      FROM pieces
      LEFT JOIN prep_uses ON prep_uses.prep_id = pieces.id
      WHERE ${availableSql('pieces')}
@@ -173,49 +214,97 @@ export async function getAvailablePrep(pieceId: number | null): Promise<Availabl
     pieceId,
   );
   return Promise.all(
-    prepList.map(async (prep) => {
-      if (prep.size_amount === null) return { ...prep, cost_cents: null };
-      const cost = getCost(prep.id, [], await getUsedSupplies(database, prep.id));
-      return {
-        ...prep,
-        cost_cents: cost.hasSupplies ? cost.cents : null,
-        cost_estimated: cost.estimated,
-      };
-    }),
+    prepList.map(async (prep) =>
+      prep.size_amount === null
+        ? { ...prep, cost_cents: null }
+        : { ...prep, ...(await getPrepCost(database, prep.id)) },
+    ),
   );
 }
 
-// A by eye line whose prep is gone takes the newest open by eye prep with its name. A counted
-// line names its template, so it's never swapped.
-export async function getTemplatePrep(templateId: number): Promise<TemplatePrepUse[]> {
+// Each line takes its own batch while it can be used. A by eye line whose batch is closed takes
+// the newest open by eye one of its kind, never one only sharing its name. A counted line names
+// its prep's template, which never closes, so it's never swapped. The available list is newest first.
+function fillTemplateLines<
+  Batch extends { id: number; size_amount: number | null; kind_id: number },
+>(uses: Omit<TemplateUse<Batch>, 'replacement'>[], available: Batch[]): TemplateUse<Batch>[] {
+  const taken = new Set(
+    uses.map((use) => use.batch_id).filter((id) => available.some((batch) => batch.id === id)),
+  );
+  return uses.map((use) => {
+    const same = available.find((batch) => batch.id === use.batch_id);
+    if (same || use.counted) return { ...use, replacement: same ?? null };
+    const sameKind =
+      available.find(
+        (batch) =>
+          batch.size_amount === null && batch.kind_id === use.kind_id && !taken.has(batch.id),
+      ) ?? null;
+    if (sameKind) taken.add(sameKind.id);
+    return { ...use, replacement: sameKind };
+  });
+}
+
+// A template's prep and supplies, for what a piece made from it starts with at Done or on Add
+// Work, filled from what that form can add. A line of a kind the piece already uses is left out,
+// so a rod saved on it isn't joined by a second one. A piece not saved yet has no id.
+export async function getTemplateUses(
+  templateId: number,
+  pieceId: number | null,
+  available: AvailableBatches,
+): Promise<TemplateUses> {
   const database = await getDb();
-  const [uses, available] = await Promise.all([
-    database.getAllAsync<Omit<TemplatePrepUse, 'replacement'>>(
-      `SELECT prep_uses.prep_id, pieces.name AS prep_name, pieces.lost AS prep_lost,
-         pieces.size_amount IS NOT NULL AS counted,
+  const [prepUses, supplyUses] = await Promise.all([
+    database.getAllAsync<Omit<TemplateUse<AvailablePrep>, 'replacement'>>(
+      `SELECT prep_uses.prep_id AS batch_id, pieces.name AS batch_name,
+         pieces.lost AS batch_lost, pieces.size_amount IS NOT NULL AS counted,
+         coalesce(pieces.kind_id, pieces.id) AS kind_id,
          prep_uses.share_numerator, prep_uses.share_denominator
        FROM prep_uses
        JOIN pieces ON pieces.id = prep_uses.prep_id
        WHERE prep_uses.piece_id = ?
+         AND coalesce(pieces.kind_id, pieces.id) NOT IN (
+           SELECT coalesce(saved.kind_id, saved.id) FROM prep_uses AS saved_use
+           JOIN pieces AS saved ON saved.id = saved_use.prep_id
+           WHERE saved_use.piece_id = ?)
        ORDER BY prep_uses.id`,
       templateId,
+      pieceId,
     ),
-    getAvailablePrep(null),
+    database.getAllAsync<Omit<TemplateUse<AvailableSupply>, 'replacement'>>(
+      `SELECT supply_uses.supply_id AS batch_id, supplies.name AS batch_name, 0 AS batch_lost,
+         0 AS counted, coalesce(supplies.kind_id, supplies.id) AS kind_id,
+         supply_uses.share_numerator, supply_uses.share_denominator
+       FROM supply_uses
+       JOIN supplies ON supplies.id = supply_uses.supply_id
+       WHERE supply_uses.piece_id = ?
+         AND coalesce(supplies.kind_id, supplies.id) NOT IN (
+           SELECT coalesce(saved.kind_id, saved.id) FROM supply_uses AS saved_use
+           JOIN supplies AS saved ON saved.id = saved_use.supply_id
+           WHERE saved_use.piece_id = ?)
+       ORDER BY supply_uses.id`,
+      templateId,
+      pieceId,
+    ),
   ]);
-  const availableIds = new Set(available.map((prep) => prep.id));
-  const taken = new Set(
-    uses.map((use) => use.prep_id).filter((prepId) => availableIds.has(prepId)),
-  );
-  return uses.map((use) => {
-    const same = available.find((prep) => prep.id === use.prep_id);
-    if (same || use.counted) return { ...use, replacement: same ?? null };
-    const newerBatch =
-      available.find(
-        (prep) => prep.size_amount === null && prep.name === use.prep_name && !taken.has(prep.id),
-      ) ?? null;
-    if (newerBatch) taken.add(newerBatch.id);
-    return { ...use, replacement: newerBatch };
-  });
+  return {
+    prep: fillTemplateLines(prepUses, available.prep),
+    supplies: fillTemplateLines(supplyUses, available.supplies),
+  };
+}
+
+// A counted prep's whole cost at today's prices, its worked time, and the supplies its cost
+// comes from.
+export async function getPrepPrice(prepId: number): Promise<PartPrice> {
+  const database = await getDb();
+  const [worked, cost, supplies] = await Promise.all([
+    database.getFirstAsync<{ worked_milliseconds: number }>(
+      `SELECT ${workedMillisecondsSql('?')} AS worked_milliseconds`,
+      prepId,
+    ),
+    getPrepCost(database, prepId),
+    getSuppliesUsedBy(prepId),
+  ]);
+  return { ...cost, worked_milliseconds: worked!.worked_milliseconds, supplies };
 }
 
 export async function addPrepUse(pieceId: number, use: NewPrepUse): Promise<void> {

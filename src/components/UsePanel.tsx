@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -14,10 +14,19 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Dropdown } from '@/components/Dropdown';
 import { SupplyPanel } from '@/components/SupplyPanel';
 import type { PieceCategory } from '@/db/queries/pieceQueries';
-import { addSupply, type SupplyDetails } from '@/db/queries/supplyQueries';
+import { getAvailablePrep, getPrepPrice, type PartPrice } from '@/db/queries/prepQueries';
+import {
+  addSupply,
+  updateSupply,
+  type SupplyDetails,
+  type SupplyRecord,
+} from '@/db/queries/supplyQueries';
 import { colors } from '@/theme';
 import { formatCost } from '@/utils/cost';
+import { formatDay, formatDuration } from '@/utils/formatTime';
+import { showError } from '@/utils/showError';
 import {
+  formatAmount,
   formatPercent,
   formatShare,
   formatUnitAmount,
@@ -46,7 +55,7 @@ export const useLabels = {
     add: 'Add supply',
     noneAdded: 'No supplies added',
     noneToUse: 'No open supplies to pick from.',
-    noneToUseHelp: "Add what you bought, like a 5 ft tube at $40, and it's picked for you here.",
+    noneToUseHelp: "Add what you bought, like a tube at $15, and it's picked for you here.",
     choose: 'Choose a supply',
   },
 };
@@ -67,6 +76,18 @@ function getPickerDetail({ used_share, size_amount, cost_cents, cost_estimated }
   if (cost_cents === null) return undefined;
   const partCost = formatCost(Math.round(cost_cents / size_amount));
   return cost_estimated ? `${partCost} each, estimated` : `${partCost} each`;
+}
+
+// "$3.76 and 10m": the part of a counted prep's whole cost and time, 1 being all of it.
+function getPriceText(
+  { cost_cents, cost_estimated, worked_milliseconds }: PartPrice,
+  fraction: number,
+) {
+  const values = [
+    ...(cost_cents === null ? [] : [formatCost(Math.round(cost_cents * fraction))]),
+    formatDuration(worked_milliseconds * fraction),
+  ];
+  return `${values.join(' and ')}${cost_estimated ? ', estimated' : ''}`;
 }
 
 export interface UseChoice {
@@ -98,7 +119,7 @@ function getAmountText(share: Share, sizeAmount: number | null) {
 
 interface UsePanelProps {
   kind: UseKind;
-  // What's using it: a piece takes part of a batch, and a prep usually takes a whole supply.
+  // What's using it: a piece takes part of a batch, and a prep takes a whole supply.
   usedBy: PieceCategory;
   // Adding a use: the prep or supplies to choose from. Changing one: null.
   itemList: AvailableItem[] | null;
@@ -107,13 +128,17 @@ interface UsePanelProps {
   onCancel: () => void;
   onSave: (choice: UseChoice) => void;
   onRemove?: () => void;
-  // A supply added from the empty list, so the list it came from can offer it again.
-  onItemAdded?: (item: AvailableItem) => void;
+  // A supply added from the empty list, and every prep after Update price, so the list they
+  // came from offers them as they are now.
+  onSupplyAdded?: (item: AvailableItem) => void;
+  onRepriced?: (items: AvailableItem[]) => void;
 }
 
 // Slides up from the bottom to add a use of a prep or supply, or change one: which one, and how
-// much of it the piece or prep took. With nothing to pick, it says why and how to fix it, and a
-// supply can be added right here.
+// much of it the piece took. A prep takes the whole supply it picks, so picking adds it. With
+// nothing to pick, it says why and how to fix it, and a supply can be added right here. A counted
+// prep not saved on the piece yet shows what the amount typed costs, its price per part, and the
+// supplies that price comes from, each with Update price.
 export function UsePanel({
   kind,
   usedBy,
@@ -122,7 +147,8 @@ export function UsePanel({
   onCancel,
   onSave,
   onRemove,
-  onItemAdded,
+  onSupplyAdded,
+  onRepriced,
 }: UsePanelProps) {
   const labels = useLabels[kind];
   const [items, setItems] = useState(itemList);
@@ -131,10 +157,27 @@ export function UsePanel({
     initial ? getAmountText(initial.share, initial.item.size_amount) : '',
   );
   const [addingSupply, setAddingSupply] = useState(false);
+  const [price, setPrice] = useState<PartPrice | null>(null);
+  const [repricing, setRepricing] = useState<SupplyRecord | null>(null);
   const sizeAmount = chosenItem?.size_amount ?? null;
   const sizeUnit = chosenItem?.size_unit ?? null;
+  const takesWhole = usedBy === 'prep';
+  // A saved use keeps the price it was saved with, so only a new one shows today's.
+  const pricedId =
+    chosenItem !== null && sizeAmount !== null && initial?.useId === undefined
+      ? chosenItem.id
+      : null;
   const typedPercent = amountText.includes('%');
   const typedShare = parseAmount(amountText, sizeAmount);
+  const typedPrice =
+    chosenItem !== null && price !== null && typedShare !== null
+      ? `${formatAmount(typedShare, chosenItem)}: ${getPriceText(price, getShareValue(typedShare))}`
+      : null;
+
+  useEffect(() => {
+    if (pricedId === null) return;
+    getPrepPrice(pricedId).then(setPrice).catch(showError('Could not load the price'));
+  }, [pricedId]);
 
   // After the box: a counted batch's unit, or % for a bare number on a by eye batch.
   const unitText =
@@ -147,16 +190,21 @@ export function UsePanel({
   const canSave = chosenItem !== null && amountText !== '';
 
   function choose(item: AvailableItem) {
-    setChosenItem({
+    const choiceItem = {
       id: item.id,
       name: item.name,
       otherUsesShare: item.used_share,
       size_amount: item.size_amount,
       size_unit: item.size_unit,
-    });
-    // A prep usually takes one whole supply, or one of what a counted one holds. A piece starts
-    // empty.
-    setAmountText(usedBy === 'piece' ? '' : item.size_amount === null ? '100' : '1');
+    };
+    if (takesWhole) {
+      onSave({ item: choiceItem, share: { share_numerator: 1, share_denominator: 1 } });
+      return;
+    }
+    // Picking the same batch again keeps its price, since it isn't loaded again.
+    if (item.id !== chosenItem?.id) setPrice(null);
+    setChosenItem(choiceItem);
+    setAmountText('');
   }
 
   function handleSave() {
@@ -171,20 +219,30 @@ export function UsePanel({
   }
 
   // The new supply is saved now, whatever happens to this piece, and picked in the list.
-  async function saveNewSupply(details: SupplyDetails) {
-    const id = await addSupply(details);
+  async function saveNewSupply(details: SupplyDetails, sameAsId: number | null) {
+    const id = await addSupply(details, sameAsId);
     const item = {
       id,
       name: details.name,
       used_share: 0,
-      size_amount: details.sizeAmount,
-      size_unit: details.sizeUnit,
+      size_amount: null,
+      size_unit: null,
       cost_cents: details.costCents,
     };
     setItems([...(items ?? []), item]);
-    choose(item);
     setAddingSupply(false);
-    onItemAdded?.(item);
+    onSupplyAdded?.(item);
+    choose(item);
+  }
+
+  // The new price goes on everything priced from that supply, here and in the form's list.
+  async function savePrice(supplyId: number, details: SupplyDetails) {
+    await updateSupply(supplyId, details);
+    const [fresh, newPrice] = await Promise.all([getAvailablePrep(null), getPrepPrice(pricedId!)]);
+    setItems(items && items.map((item) => fresh.find(({ id }) => id === item.id) ?? item));
+    setPrice(newPrice);
+    setRepricing(null);
+    onRepriced?.(fresh);
   }
 
   return (
@@ -221,15 +279,13 @@ export function UsePanel({
               onSelect={({ item }) => choose(item)}
             />
           )}
-          {chosenItem && (
+          {chosenItem && !takesWhole && (
             <>
               <View style={styles.fieldRow}>
                 <Text style={[styles.label, styles.amountLabel]}>
                   {sizeUnit !== null
-                    ? `How many ${sizeUnit} this ${usedBy} used`
-                    : usedBy === 'prep'
-                      ? 'How much of it this prep used'
-                      : 'How much this piece took'}
+                    ? `How many ${sizeUnit} this piece used`
+                    : 'How much this piece took'}
                 </Text>
                 <TextInput
                   style={styles.amountInput}
@@ -241,9 +297,28 @@ export function UsePanel({
                 <Text style={[styles.label, styles.unitText]}>{unitText}</Text>
               </View>
               <Text style={styles.secondaryText}>
-                {sizeAmount === null ? '(Enter a number or fraction)' : unitHelp}
+                {sizeAmount === null ? '(Enter a number or fraction)' : (typedPrice ?? unitHelp)}
               </Text>
             </>
+          )}
+          {pricedId !== null && price && (
+            <View style={styles.priceBox}>
+              <Text style={styles.label}>{getPriceText(price, 1 / sizeAmount!)} each</Text>
+              {price.supplies.map((supply) => (
+                <View key={supply.id} style={styles.fieldRow}>
+                  <Text style={[styles.secondaryText, styles.amountLabel]}>
+                    {supply.name}: {formatCost(supply.cost_cents)}, priced{' '}
+                    {formatDay(Date.parse(supply.priced_at))}
+                  </Text>
+                  <Pressable
+                    style={({ pressed }) => [styles.priceButton, pressed && styles.buttonPressed]}
+                    onPress={() => setRepricing(supply)}
+                  >
+                    <Text style={styles.priceButtonText}>Update price</Text>
+                  </Pressable>
+                </View>
+              ))}
+            </View>
           )}
           <View style={styles.buttonRow}>
             {onRemove && (
@@ -254,13 +329,15 @@ export function UsePanel({
             <Pressable style={styles.textButton} onPress={onCancel}>
               <Text style={styles.textButtonText}>Cancel</Text>
             </Pressable>
-            <Pressable
-              style={[styles.saveButton, !canSave && styles.buttonDisabled]}
-              onPress={handleSave}
-              disabled={!canSave}
-            >
-              <Text style={styles.saveButtonText}>{initial ? 'Save' : 'Add'}</Text>
-            </Pressable>
+            {!takesWhole && (
+              <Pressable
+                style={[styles.saveButton, !canSave && styles.buttonDisabled]}
+                onPress={handleSave}
+                disabled={!canSave}
+              >
+                <Text style={styles.saveButtonText}>{initial ? 'Save' : 'Add'}</Text>
+              </Pressable>
+            )}
           </View>
         </SafeAreaView>
       </KeyboardAvoidingView>
@@ -269,6 +346,13 @@ export function UsePanel({
           initial={null}
           onCancel={() => setAddingSupply(false)}
           onSave={saveNewSupply}
+        />
+      )}
+      {repricing && (
+        <SupplyPanel
+          initial={repricing}
+          onCancel={() => setRepricing(null)}
+          onSave={(details) => savePrice(repricing.id, details)}
         />
       )}
     </Modal>
@@ -324,6 +408,20 @@ const styles = StyleSheet.create({
   },
   unitText: {
     minWidth: 20,
+  },
+  priceBox: {
+    gap: 8,
+    paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.separator,
+  },
+  priceButton: {
+    paddingVertical: 4,
+  },
+  priceButtonText: {
+    fontSize: 18,
+    lineHeight: 20,
+    color: colors.primary,
   },
   buttonRow: {
     flexDirection: 'row',

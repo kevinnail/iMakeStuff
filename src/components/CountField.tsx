@@ -1,6 +1,5 @@
-import { StyleSheet, Text, TextInput, View, type StyleProp, type ViewStyle } from 'react-native';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { JoinedButtons } from '@/components/JoinedButtons';
 import { colors } from '@/theme';
 import { parseSize, type BatchSize, type SizeInput } from '@/utils/prepTime';
 
@@ -26,18 +25,11 @@ interface PrepKindFieldProps {
   onChangeKind: (kind: PrepKind) => void;
   texts: CountTexts;
   onChangeTexts: (texts: CountTexts) => void;
-  // The joined buttons' track, where the field sits on a card the buttons' usual color.
-  trackStyle?: StyleProp<ViewStyle>;
 }
-
-const kindOptions: { value: PrepKind; label: string }[] = [
-  { value: 'counted', label: 'Counted' },
-  { value: 'byEye', label: 'By eye' },
-];
 
 export const noCount: SizeInput = { sizeAmount: null, sizeUnit: null };
 
-export const prepCountError = 'Enter how many it made, like 8 points, or pick By eye.';
+export const prepCountError = "Enter how many it made, like 8 points, or tap I didn't count it.";
 
 export function getPrepKind({ size_amount }: BatchSize): PrepKind {
   return size_amount === null ? 'byEye' : 'counted';
@@ -60,8 +52,8 @@ export function readPrepCount(kind: PrepKind, texts: CountTexts): SizeInput | nu
   return kind === 'byEye' ? noCount : readCount(texts);
 }
 
-// A number and a unit the maker types: what a counted prep made, or what a counted supply holds.
-// The app never interprets the unit.
+// A number and a unit the maker types: what a counted prep made. The app never interprets the
+// unit.
 export function CountField({
   label,
   amountPlaceholder,
@@ -96,31 +88,30 @@ export function CountField({
   );
 }
 
-// Counted or By eye, and for counted prep, how many parts it made.
-export function PrepKindField({
-  kind,
-  onChangeKind,
-  texts,
-  onChangeTexts,
-  trackStyle,
-}: PrepKindFieldProps) {
+// How many parts prep made, asked up front since that's what a piece's cost is divided from. A
+// cane that isn't counted is by eye: pieces guess how much they took.
+export function PrepKindField({ kind, onChangeKind, texts, onChangeTexts }: PrepKindFieldProps) {
   return (
     <View style={styles.field}>
-      <JoinedButtons
-        options={kindOptions}
-        selected={kind}
-        onSelect={onChangeKind}
-        style={trackStyle}
-      />
-      {kind === 'counted' && (
+      {kind === 'counted' ? (
         <CountField
-          label="Made"
+          label="How many did it make?"
           amountPlaceholder="8"
           unitPlaceholder="points"
           texts={texts}
           onChange={onChangeTexts}
         />
+      ) : (
+        <Text style={styles.label}>Not counted: each piece guesses how much of it went in.</Text>
       )}
+      <Pressable
+        style={({ pressed }) => [styles.switchButton, pressed && styles.buttonPressed]}
+        onPress={() => onChangeKind(kind === 'counted' ? 'byEye' : 'counted')}
+      >
+        <Text style={styles.switchText}>
+          {kind === 'counted' ? "I didn't count it" : 'Count it instead'}
+        </Text>
+      </Pressable>
     </View>
   );
 }
@@ -160,5 +151,17 @@ const styles = StyleSheet.create({
   note: {
     fontSize: 16,
     color: colors.secondaryText,
+  },
+  switchButton: {
+    alignSelf: 'flex-start',
+    paddingVertical: 4,
+  },
+  buttonPressed: {
+    opacity: 0.6,
+  },
+  switchText: {
+    fontSize: 18,
+    lineHeight: 20,
+    color: colors.primary,
   },
 });

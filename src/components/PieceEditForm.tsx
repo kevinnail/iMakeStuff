@@ -19,6 +19,7 @@ import {
   PrepKindField,
   prepCountError,
   readPrepCount,
+  type PrepKind,
 } from '@/components/CountField';
 import { getNotesPlaceholder } from '@/components/FinishPiecePanel';
 import { JoinedButtons } from '@/components/JoinedButtons';
@@ -76,7 +77,10 @@ export function PieceEditForm({
   const [photo, setPhoto] = useState<PhotoChoice>(
     piece.photo_file_name ? { kind: 'saved' } : { kind: 'none' },
   );
-  const [prepKind, setPrepKind] = useState(() => getPrepKind(piece));
+  // A piece turned into prep starts counted, like new prep.
+  const [prepKind, setPrepKind] = useState<PrepKind>(() =>
+    piece.category === 'piece' ? 'counted' : getPrepKind(piece),
+  );
   const [countTexts, setCountTexts] = useState(() => getCountTexts(piece));
   const [saving, setSaving] = useState(false);
   const trimmedName = name.trim();
@@ -194,7 +198,6 @@ export function PieceEditForm({
                 onChangeKind={setPrepKind}
                 texts={countTexts}
                 onChangeTexts={setCountTexts}
-                trackStyle={styles.trackOnCard}
               />
             </View>
           </View>

@@ -1,5 +1,5 @@
 import { getDb } from '@/db/database';
-import { addPastWork } from '@/db/queries/entryQueries';
+import { addPastWork, addPieceTime } from '@/db/queries/entryQueries';
 import {
   finishPiece,
   getPieces,
@@ -13,7 +13,6 @@ import { addPrepUse, getAvailablePrep } from '@/db/queries/prepQueries';
 import {
   addSupply,
   addSupplyUse,
-  getAvailableSupplies,
   getSupply,
   setSupplyUsedUp,
   updateSupply,
@@ -63,9 +62,9 @@ const finish = {
   supplyUses: [],
 };
 
-const box = { name: 'Box of 32.7 × 4', costCents: 24000, sizeAmount: 16, sizeUnit: 'tubes' };
+const tube = { name: '32.7 × 4 tube', costCents: 1500 };
 
-let boxId: number;
+let tubeId: number;
 
 // A use of the points, typed the way a piece enters it: "1/3", "1 1/2".
 function points(amount: string) {
@@ -80,19 +79,19 @@ async function finishWith(pieceId: number, prepUses: ReturnType<typeof points>[]
   await finishPiece(pieceId, { ...finish, prepUses });
 }
 
-// The points are pulled from one tube of the box, made 8, and saved at Done as the template
-// every later batch of points is divided from.
+// The points are pulled from a whole $15 tube, made 8, and saved at Done as the template every
+// later batch of points is divided from.
 beforeEach(async () => {
   const database = createTestDb();
   (getDb as jest.Mock).mockResolvedValue(database);
   await database.execAsync(fixturesSql);
-  boxId = await addSupply(box);
+  tubeId = await addSupply(tube);
   await finishPiece(pointsId, {
     ...finish,
     isTemplate: true,
     sizeAmount: 8,
     sizeUnit: 'points',
-    supplyUses: [{ supplyId: boxId, share: parseAmount('1', 16)! }],
+    supplyUses: [{ supplyId: tubeId, share: { share_numerator: 1, share_denominator: 1 } }],
   });
 });
 
@@ -117,8 +116,8 @@ describe('Save as template at Done', () => {
 });
 
 describe('counted cost', () => {
-  // Otherwise a tube from a box would carry the whole box's price, or a guess at it.
-  it('gives a tube from a $240 box of 16 a cost of $15.00, not estimated', async () => {
+  // Otherwise the points wouldn't carry the tube they were pulled from, or would carry a guess at it.
+  it('gives the points the whole $15.00 tube, not estimated', async () => {
     expect(await getListed(pointsId)).toMatchObject({ cost_cents: 1500, cost_estimated: false });
   });
 
@@ -172,11 +171,20 @@ describe('counted cost', () => {
     });
   });
 
-  // Otherwise a new box price would rewrite what last month's pieces cost.
+  // Otherwise time added to the points after a piece used them would never reach that piece.
+  it('gives a piece already made the time added to its prep afterward', async () => {
+    await finishWith(pendantId, [points('1')]);
+
+    await addPieceTime(pointsId, '2026-11-01T08:10:00.000Z', '2026-11-01T08:50:00.000Z');
+
+    expect(await getListed(pendantId)).toMatchObject({ prep_milliseconds: 10 * minute });
+  });
+
+  // Otherwise a new tube price would rewrite what last month's pieces cost.
   it("keeps a counted use's cost when the price changes, while the template's follows it", async () => {
     await finishWith(pendantId, [points('1/3')]);
 
-    await updateSupply(boxId, { ...box, costCents: 32000 });
+    await updateSupply(tubeId, { ...tube, costCents: 2000 });
     await finishWith(bubblerId, [points('1/3')]);
 
     expect(await getListed(pendantId)).toMatchObject({ cost_cents: 63 });
@@ -185,21 +193,11 @@ describe('counted cost', () => {
   });
 
   // Otherwise a piece made only from exact parts would read as a guess.
-  it('is not estimated for a piece using only counted prep and supplies', async () => {
-    const bailsId = await addSupply({
-      name: 'Bails',
-      costCents: 3000,
-      sizeAmount: 10,
-      sizeUnit: 'bails',
-    });
-    await finishPiece(pendantId, {
-      ...finish,
-      prepUses: [points('1/3')],
-      supplyUses: [{ supplyId: bailsId, share: parseAmount('1', 10)! }],
-    });
+  it('is not estimated for a piece using only counted prep', async () => {
+    await finishWith(pendantId, [points('1/3')]);
 
     expect(await getListed(pendantId)).toMatchObject({
-      cost_cents: 63 + 300,
+      cost_cents: 63,
       cost_estimated: false,
       prep_estimated: false,
     });
@@ -239,61 +237,8 @@ describe('counted prep in Add prep', () => {
   });
 });
 
-describe('counted supplies', () => {
-  // Otherwise a box of bails would close after ten were entered and refuse the next piece.
-  it('never closes, past one use of all of it and past its count', async () => {
-    const bailsId = await addSupply({
-      name: 'Bails',
-      costCents: 3000,
-      sizeAmount: 10,
-      sizeUnit: 'bails',
-    });
-
-    await addSupplyUse(pendantId, { supplyId: bailsId, share: parseAmount('10', 10)! });
-    await addSupplyUse(bubblerId, { supplyId: bailsId, share: parseAmount('12', 10)! });
-
-    expect(await getSupply(bailsId)).toMatchObject({ used_up: 0 });
-    expect((await getAvailableSupplies(caneId)).map((supply) => supply.id)).toContain(bailsId);
-    expect(await getListed(bubblerId)).toMatchObject({ cost_cents: 3600 });
-  });
-
-  // Otherwise a box of 20 typed as 16 would keep pricing each tube at a sixteenth of the box.
-  it('keeps each use at the tubes it used when the count is corrected', async () => {
-    await updateSupply(boxId, { ...box, sizeAmount: 20 });
-
-    expect(await getSupply(boxId)).toMatchObject({ size_amount: 20 });
-    expect(await getListed(pointsId)).toMatchObject({ cost_cents: 1200 });
-  });
-
-  // Otherwise a used box's shares would turn into by eye guesses and start closing it.
-  it('refuses turning a used counted supply by eye, and saves nothing', async () => {
-    await expect(
-      updateSupply(boxId, { ...box, name: 'Renamed', sizeAmount: null, sizeUnit: null }),
-    ).rejects.toThrow("Holds can't be added or cleared once something has used the supply.");
-
-    expect(await getSupply(boxId)).toMatchObject({ name: box.name, size_amount: 16 });
-  });
-
-  // Otherwise a by eye rod's guesses would snap to a count with a price nothing saved.
-  it('refuses a count on a used by eye supply', async () => {
-    const rodId = await addSupply({ ...box, name: 'Rod', sizeAmount: null, sizeUnit: null });
-    await addSupplyUse(pendantId, { supplyId: rodId, share: parseAmount('50')! });
-
-    await expect(updateSupply(rodId, { ...box, name: 'Rod' })).rejects.toThrow(
-      "Holds can't be added or cleared once something has used the supply.",
-    );
-  });
-
-  // Otherwise fixing a used box's price or a typo in its unit would be refused too.
-  it('still changes a used supply with the same count', async () => {
-    await updateSupply(boxId, { ...box, costCents: 32000, sizeUnit: 'rods' });
-
-    expect(await getSupply(boxId)).toMatchObject({ cost_cents: 32000, size_unit: 'rods' });
-  });
-});
-
 describe('counted prep made with a by eye supply', () => {
-  const rod = { name: 'Rod', costCents: 4000, sizeAmount: null, sizeUnit: null };
+  const rod = { name: 'Rod', costCents: 4000 };
   const cutId = 5;
   let rodId: number;
 
@@ -353,21 +298,22 @@ describe('Delete supply counts', () => {
   it('leaves out pieces with the cost saved on their use of its prep', async () => {
     await finishWith(pendantId, [points('1')]);
 
-    expect(await getSupply(boxId)).toMatchObject({ prep_count: 1, piece_count: 0 });
+    expect(await getSupply(tubeId)).toMatchObject({ prep_count: 1, piece_count: 0 });
   });
 
   // Otherwise the confirmation would leave out a template piece, whose cost follows the supply.
   it('counts a template piece using its prep, since it ignores the saved cost', async () => {
     await finishPiece(pendantId, { ...finish, isTemplate: true, prepUses: [points('1')] });
 
-    expect(await getSupply(boxId)).toMatchObject({ prep_count: 1, piece_count: 1 });
+    expect(await getSupply(tubeId)).toMatchObject({ prep_count: 1, piece_count: 1 });
   });
 
-  // Otherwise the confirmation would leave out a piece that used the box directly.
+  // Otherwise the confirmation would leave out a piece that used a supply directly.
   it('counts a piece using the supply directly', async () => {
-    await addSupplyUse(pendantId, { supplyId: boxId, share: parseAmount('1', 16)! });
+    const bailId = await addSupply({ name: 'Silver bail', costCents: 300 });
+    await addSupplyUse(pendantId, { supplyId: bailId, share: parseAmount('100')! });
 
-    expect(await getSupply(boxId)).toMatchObject({ prep_count: 1, piece_count: 1 });
+    expect(await getSupply(bailId)).toMatchObject({ prep_count: 0, piece_count: 1 });
   });
 });
 

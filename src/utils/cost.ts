@@ -1,7 +1,6 @@
 import { getActualShare, isEstimated, type UseShare } from '@/utils/prepTime';
 
-// A use of a supply by a piece or a prep, with the supply's cost: as saved with a counted use,
-// otherwise as it is now.
+// A use of a supply by a piece or a prep, with the supply's cost as it is now.
 export interface SupplyCostShare extends UseShare {
   piece_id: number;
   supply_cost_cents: number;

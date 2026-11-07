@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -11,27 +11,63 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { CountField, getCountTexts, noCount, readCount } from '@/components/CountField';
-import type { SupplyDetails, SupplyRecord } from '@/db/queries/supplyQueries';
+import { Dropdown } from '@/components/Dropdown';
+import {
+  getSupplyKinds,
+  type SupplyDetails,
+  type SupplyKind,
+  type SupplyRecord,
+} from '@/db/queries/supplyQueries';
 import { colors } from '@/theme';
-import { parseCost } from '@/utils/cost';
+import { formatCost, parseCost } from '@/utils/cost';
+import { showError } from '@/utils/showError';
 
 interface SupplyPanelProps {
   initial: SupplyRecord | null;
   onCancel: () => void;
-  onSave: (details: SupplyDetails) => Promise<void>;
+  // sameAsId: the earlier supply picked in Same as when adding, whose kind the new one joins.
+  onSave: (details: SupplyDetails, sameAsId: number | null) => Promise<void>;
 }
 
-// A supply's name, its cost, and what it holds when it's counted, like a box of 16 tubes.
+const newSupplyKey = 'new';
+
+function getCostText(costCents: number) {
+  return (costCents / 100).toFixed(2);
+}
+
+// A supply is what was bought and what it cost, like a tube at $15. Adding one offers Same as: an
+// earlier supply of each kind, which fills the form in.
 export function SupplyPanel({ initial, onCancel, onSave }: SupplyPanelProps) {
   const [name, setName] = useState(initial?.name ?? '');
-  const [costText, setCostText] = useState(initial ? (initial.cost_cents / 100).toFixed(2) : '');
-  const [countTexts, setCountTexts] = useState(() =>
-    getCountTexts(initial ?? { size_amount: null, size_unit: null }),
-  );
+  const [costText, setCostText] = useState(initial ? getCostText(initial.cost_cents) : '');
+  const [kinds, setKinds] = useState<SupplyKind[]>([]);
+  const [sameAsId, setSameAsId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const trimmedName = name.trim();
   const canSave = !saving && trimmedName !== '' && costText.trim() !== '';
+  const kindOptions = [
+    ...kinds.map((kind) => ({
+      key: kind.id,
+      label: kind.name,
+      detail: formatCost(kind.cost_cents),
+      kind,
+    })),
+    { key: newSupplyKey, label: 'New supply', kind: null },
+  ];
+
+  useEffect(() => {
+    if (initial) return;
+    getSupplyKinds().then(setKinds).catch(showError('Could not load your supplies'));
+  }, [initial]);
+
+  // Everything it fills in can still be changed before Add. Going back to New supply empties
+  // what an earlier supply filled in.
+  function chooseKind(kind: SupplyKind | null) {
+    if (kind === null && sameAsId === null) return;
+    setSameAsId(kind?.id ?? null);
+    setName(kind?.name ?? '');
+    setCostText(kind ? getCostText(kind.cost_cents) : '');
+  }
 
   function handleSave() {
     const costCents = parseCost(costText);
@@ -39,14 +75,8 @@ export function SupplyPanel({ initial, onCancel, onSave }: SupplyPanelProps) {
       Alert.alert('Enter a cost like 40 or 12.50.');
       return;
     }
-    const noCountTyped = countTexts.amountText.trim() === '' && countTexts.unitText.trim() === '';
-    const count = noCountTyped ? noCount : readCount(countTexts);
-    if (count === null) {
-      Alert.alert('Enter what it holds, like 16 tubes, or leave both empty.');
-      return;
-    }
     setSaving(true);
-    onSave({ name: trimmedName, costCents, ...count }).catch((error: Error) => {
+    onSave({ name: trimmedName, costCents }, sameAsId).catch((error: Error) => {
       setSaving(false);
       Alert.alert('Could not save', error.message);
     });
@@ -57,11 +87,25 @@ export function SupplyPanel({ initial, onCancel, onSave }: SupplyPanelProps) {
       <KeyboardAvoidingView style={styles.overlay} behavior="padding">
         <SafeAreaView edges={{ bottom: 'additive' }} style={styles.panel}>
           <Text style={styles.title}>{initial ? 'Change supply' : 'Add supply'}</Text>
+          {kinds.length > 0 && (
+            <View style={styles.fieldRow}>
+              <Text style={styles.label}>Same as</Text>
+              <View style={styles.fill}>
+                <Dropdown
+                  options={kindOptions}
+                  selectedKey={sameAsId ?? newSupplyKey}
+                  placeholder="New supply"
+                  onSelect={(option) => chooseKind(option.kind)}
+                  floating
+                />
+              </View>
+            </View>
+          )}
           <TextInput
             style={styles.input}
             value={name}
             onChangeText={setName}
-            placeholder="Name, like 5 ft tube"
+            placeholder="Name, like 32.7 × 4 tube"
             placeholderTextColor={colors.secondaryText}
             autoFocus={!initial}
           />
@@ -75,14 +119,6 @@ export function SupplyPanel({ initial, onCancel, onSave }: SupplyPanelProps) {
               keyboardType="decimal-pad"
             />
           </View>
-          <CountField
-            label="Holds"
-            amountPlaceholder="16"
-            unitPlaceholder="tubes"
-            note="Leave empty for one thing used by eye, like a rod."
-            texts={countTexts}
-            onChange={setCountTexts}
-          />
           <View style={styles.buttonRow}>
             <Pressable style={styles.textButton} onPress={onCancel}>
               <Text style={styles.textButtonText}>Cancel</Text>

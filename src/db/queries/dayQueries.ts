@@ -1,6 +1,6 @@
 import { getDb } from '@/db/database';
 import type { PieceCategory } from '@/db/queries/pieceQueries';
-import { noPrepSql } from '@/db/queries/prepQueries';
+import { noCostSql } from '@/db/queries/prepQueries';
 import type { TimeRange } from '@/utils/workDays';
 
 export interface FinishedPiece {
@@ -10,7 +10,7 @@ export interface FinishedPiece {
   photo_file_name: string | null;
   finished_at: string;
   lost: number;
-  no_prep: number;
+  no_cost: number;
 }
 
 export interface WorkRecords {
@@ -33,7 +33,7 @@ export async function getWorkRecords(since: string): Promise<WorkRecords> {
       since,
     ),
     database.getAllAsync<FinishedPiece>(
-      `SELECT id, name, category, photo_file_name, finished_at, lost, ${noPrepSql} AS no_prep
+      `SELECT id, name, category, photo_file_name, finished_at, lost, ${noCostSql} AS no_cost
        FROM pieces WHERE finished_at > ? ORDER BY finished_at`,
       since,
     ),

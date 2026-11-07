@@ -96,52 +96,29 @@ export default function SupplyScreen() {
           <Text style={[styles.text, styles.fill]}>Cost</Text>
           <Text style={styles.value}>{formatCost(supply.cost_cents)}</Text>
         </View>
-        {supply.size_amount !== null && (
-          <View style={styles.row}>
-            <Text style={[styles.text, styles.fill]}>Holds</Text>
-            <Text style={styles.value}>
-              {supply.size_amount} {supply.size_unit}
-            </Text>
-          </View>
-        )}
-        {supply.size_amount !== null && (
-          <View style={styles.row}>
-            <Text style={[styles.text, styles.fill]}>Cost per part</Text>
-            <Text style={styles.value}>
-              {formatCost(Math.round(supply.cost_cents / supply.size_amount))}
-            </Text>
-          </View>
-        )}
         <View style={styles.row}>
-          <Text style={[styles.text, styles.fill]}>Added</Text>
-          <Text style={styles.value}>{formatDay(Date.parse(supply.created_at))}</Text>
+          <Text style={[styles.text, styles.fill]}>Priced</Text>
+          <Text style={styles.value}>{formatDay(Date.parse(supply.priced_at))}</Text>
         </View>
       </Card>
-      {/* A counted supply never closes, so only a by eye one has All used. */}
-      {supply.size_amount === null && (
-        <Card>
-          <View style={styles.row}>
-            <View style={styles.fill}>
-              <Text style={styles.text}>All used</Text>
-              <Text style={styles.note}>Its full cost goes to what used it.</Text>
-            </View>
-            <Switch
-              value={usedUp}
-              onValueChange={setUsedUp}
-              trackColor={{ true: colors.primary }}
+      <Card>
+        <View style={styles.row}>
+          <View style={styles.fill}>
+            <Text style={styles.text}>All used</Text>
+            <Text style={styles.note}>Its full cost goes to what used it.</Text>
+          </View>
+          <Switch value={usedUp} onValueChange={setUsedUp} trackColor={{ true: colors.primary }} />
+        </View>
+        <View style={styles.row}>
+          <View style={styles.fill}>
+            <AssignedBar
+              usedShare={supply.used_share}
+              usedUp={usedUp}
+              costCents={supply.cost_cents}
             />
           </View>
-          <View style={styles.row}>
-            <View style={styles.fill}>
-              <AssignedBar
-                usedShare={supply.used_share}
-                usedUp={usedUp}
-                costCents={supply.cost_cents}
-              />
-            </View>
-          </View>
-        </Card>
-      )}
+        </View>
+      </Card>
       <Card>
         <Pressable
           style={({ pressed }) => [styles.row, pressed && styles.buttonPressed]}

@@ -12,6 +12,8 @@ export const colors = {
   prep: '#5FC8A0',
   // Breaks, so they stand apart from work.
   accent: '#D18A6B',
+  // A record missing something, like a piece with no cost.
+  warning: '#E8C547',
   // Delete, the one action that can't be undone.
   danger: '#F06A6A',
   // Text on a primary or accent fill.
