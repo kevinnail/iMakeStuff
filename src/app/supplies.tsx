@@ -3,7 +3,7 @@ import { useCallback, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Chevron } from '@/components/Chevron';
-import { PrepLeftBar } from '@/components/PrepLeftBar';
+import { AssignedBar } from '@/components/AssignedBar';
 import { SupplyPanel } from '@/components/SupplyPanel';
 import {
   addSupply,
@@ -16,7 +16,7 @@ import { formatCost } from '@/utils/cost';
 import { formatDay } from '@/utils/formatTime';
 import { showError } from '@/utils/showError';
 
-// Every supply with what's left of it, the day it was bought, and its cost. Add supply in the
+// Every supply with how much of its cost is assigned, the day it was bought, and its cost. Add supply in the
 // header; a row opens the supply's page.
 export default function SuppliesScreen() {
   const [supplies, setSupplies] = useState<SupplyRecord[]>([]);
@@ -65,7 +65,11 @@ export default function SuppliesScreen() {
           >
             <View style={styles.details}>
               <Text style={styles.name}>{supply.name}</Text>
-              <PrepLeftBar usedShare={supply.used_share} usedUp={supply.used_up === 1} />
+              <AssignedBar
+                usedShare={supply.used_share}
+                usedUp={supply.used_up === 1}
+                costCents={supply.cost_cents}
+              />
               <View style={styles.bottomRow}>
                 <Text style={[styles.detailText, styles.fill]}>
                   Bought {formatDay(Date.parse(supply.bought_at))}
