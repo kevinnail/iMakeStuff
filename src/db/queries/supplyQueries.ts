@@ -1,15 +1,8 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { getDb } from '@/db/database';
-import { shareSql } from '@/db/queries/prepQueries';
-import {
-  formatPercent,
-  isUsedUp,
-  wholeShare,
-  type BatchSize,
-  type Share,
-  type UseShare,
-} from '@/utils/prepTime';
+import { shareSql, wholeUseSql } from '@/db/queries/prepQueries';
+import { type BatchSize, type Share, type UseShare } from '@/utils/prepTime';
 
 export interface SupplyRecord {
   id: number;
@@ -58,9 +51,14 @@ function usedShareSql(supplyTable: string) {
   return `(SELECT total(${shareSql}) FROM supply_uses WHERE supply_id = ${supplyTable}.id)`;
 }
 
-// The same rule as prep: Used up tapped on, or shares that add up to all of it.
+// A supply has no size, so its uses are guesses: one use of all of it closes it, and uses that
+// add up to 100% leave it open until the switch closes it, the same as prep with no size.
+function closedByUsesSql(supplyTable: string) {
+  return wholeUseSql('supply_uses', 'supply_id', `${supplyTable}.id`);
+}
+
 function usedUpSql(supplyTable: string) {
-  return `(${supplyTable}.used_up_at IS NOT NULL OR ${usedShareSql(supplyTable)} >= ${wholeShare})`;
+  return `(${supplyTable}.used_up_at IS NOT NULL OR ${closedByUsesSql(supplyTable)})`;
 }
 
 // The pieces and prep that used a supply directly.
@@ -119,14 +117,14 @@ export async function updateSupply(
   if (result.changes === 0) throw new Error('That supply no longer exists.');
 }
 
-// Used up takes the supply out of Add supply and scales its shares to all of it; off puts it
-// back. A supply whose shares add up to all of it stays used up, so turning it off is refused
-// until a share is lowered.
+// All used takes the supply out of Add supply and scales its shares to all of it; off puts it
+// back. A supply one use took all of stays all used, so turning it off is refused until that
+// share is lowered.
 export async function setSupplyUsedUp(supplyId: number, usedUp: boolean): Promise<void> {
   const database = await getDb();
   const result = await database.runAsync(
     `UPDATE supplies SET used_up_at = ?
-     WHERE id = ? AND (used_up_at IS NULL) = ? AND (? OR ${usedShareSql('supplies')} < ${wholeShare})`,
+     WHERE id = ? AND (used_up_at IS NULL) = ? AND (? OR NOT ${closedByUsesSql('supplies')})`,
     usedUp ? new Date().toISOString() : null,
     supplyId,
     usedUp ? 1 : 0,
@@ -134,15 +132,12 @@ export async function setSupplyUsedUp(supplyId: number, usedUp: boolean): Promis
   );
   if (result.changes > 0) return;
   if (usedUp) throw new Error('That supply is already marked all used.');
-  // The failure needs its reason: not used up, or shares that keep it used up.
-  const shares = await database.getFirstAsync<{ total: number }>(
-    `SELECT total(${shareSql}) AS total FROM supply_uses WHERE supply_id = ?`,
+  // The failure needs its reason: not all used, or a use that keeps it all used.
+  const supply = await database.getFirstAsync<{ closed: number }>(
+    `SELECT ${closedByUsesSql('supplies')} AS closed FROM supplies WHERE id = ?`,
     supplyId,
   );
-  const total = shares?.total ?? 0;
-  if (isUsedUp(total)) {
-    throw new Error(`Its uses add up to ${formatPercent(total)}. Lower one to turn All used off.`);
-  }
+  if (supply?.closed) throw new Error('One use takes all of it. Lower it to turn All used off.');
   throw new Error("That supply isn't marked all used.");
 }
 
@@ -181,7 +176,7 @@ export function getUsedSupplies(database: SQLiteDatabase, pieceId: number | null
     `SELECT supply_uses.id, supply_uses.piece_id, supply_uses.supply_id,
        supplies.name AS supply_name, supplies.cost_cents AS supply_cost_cents,
        ${noSizeSql}, supply_uses.share_numerator, supply_uses.share_denominator,
-       ${usedUpSql('supplies')} AS used_up,
+       ${usedUpSql('supplies')} AS used_up, 0 AS measured,
        (SELECT total(${shareSql}) FROM supply_uses AS sibling
         WHERE sibling.supply_id = supply_uses.supply_id) AS shares_total
      FROM supply_uses
