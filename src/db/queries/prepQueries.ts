@@ -2,8 +2,6 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { getDb } from '@/db/database';
 import {
-  formatPercent,
-  isUsedUp,
   wholeShare,
   type BatchSize,
   type PrepTimeShare,
@@ -51,13 +49,26 @@ export interface PieceUsingPrep extends UseShare {
 // the prep_uses or supply_uses row of the query it's in.
 export const shareSql = '(share_numerator * 1.0 / share_denominator)';
 
-// A query that already has the prep's shares added together passes that column in, so they
-// aren't added up twice.
-export function usedUpSql(
+// One use of all of it, the same rule for prep and supplies. A whole share is saved as n/n.
+export function wholeUseSql(useTable: string, batchColumn: string, batchIdSql: string) {
+  return `EXISTS (SELECT 1 FROM ${useTable}
+    WHERE ${batchColumn} = ${batchIdSql} AND share_numerator = share_denominator)`;
+}
+
+// All used by its uses, whatever the switch says: a measured prep whose uses reach its size, or
+// any prep with one use of all of it. Uses that add up to 100% on a prep with no size are
+// guesses, so they leave it open until the switch closes it. A query that already has the
+// prep's shares added together passes that column in, so they aren't added up twice.
+function closedByUsesSql(
   prepTable: string,
   usedShareSql = `(SELECT total(${shareSql}) FROM prep_uses WHERE prep_id = ${prepTable}.id)`,
 ) {
-  return `(${prepTable}.used_up_at IS NOT NULL OR ${usedShareSql} >= ${wholeShare})`;
+  return `((${prepTable}.size_amount IS NOT NULL AND ${usedShareSql} >= ${wholeShare})
+    OR ${wholeUseSql('prep_uses', 'prep_id', `${prepTable}.id`)})`;
+}
+
+export function usedUpSql(prepTable: string, usedShareSql?: string) {
+  return `(${prepTable}.used_up_at IS NOT NULL OR ${closedByUsesSql(prepTable, usedShareSql)})`;
 }
 
 // A finished piece made from a template that used prep, with none of its own: likely a missed
@@ -66,16 +77,20 @@ export const noPrepSql = `(pieces.finished_at IS NOT NULL
   AND EXISTS (SELECT 1 FROM prep_uses WHERE piece_id = pieces.template_id)
   AND NOT EXISTS (SELECT 1 FROM prep_uses WHERE piece_id = pieces.id))`;
 
-// The columns getActualShare needs: whether the prep is used up, and every share of it.
+// The columns getActualShare needs: whether the prep is used up or measured, and every share
+// of it.
 const shareColumnsSql = `
   prep_uses.share_numerator, prep_uses.share_denominator,
   (SELECT ${usedUpSql('prep')} FROM pieces AS prep WHERE prep.id = prep_uses.prep_id)
     AS used_up,
+  (SELECT size_amount IS NOT NULL FROM pieces AS prep WHERE prep.id = prep_uses.prep_id)
+    AS measured,
   (SELECT total(${shareSql}) FROM prep_uses AS sibling
    WHERE sibling.prep_id = prep_uses.prep_id) AS shares_total`;
 
 // The insert only matches finished prep that isn't used up or lost, so a piece, unfinished
-// prep, or prep that's gone can't be used. The share's range and one use per prep per piece are table rules.
+// prep, or prep that's gone can't be used. The share's range and one use per prep per piece are
+// table rules.
 export async function insertPrepUse(
   database: SQLiteDatabase,
   pieceId: number,
@@ -195,8 +210,8 @@ export async function removePrepUse(useId: number): Promise<void> {
   if (result.changes === 0) throw new Error('That prep use no longer exists.');
 }
 
-// Used up takes the prep out of Add prep and scales its shares to the whole prep; null puts it
-// back. Prep whose shares add up to all of it stays used up whatever the switch says, so
+// All used takes the prep out of Add prep, and on a prep with no size scales its shares to the
+// whole prep; off puts it back. Prep its uses close stays all used whatever the switch says, so
 // turning it off is refused until a share is lowered.
 export async function setPrepUsedUp(prepId: number, usedUp: boolean): Promise<void> {
   const database = await getDb();
@@ -204,7 +219,7 @@ export async function setPrepUsedUp(prepId: number, usedUp: boolean): Promise<vo
     `UPDATE pieces SET used_up_at = ?
      WHERE id = ? AND category = 'prep' AND finished_at IS NOT NULL
        AND (used_up_at IS NULL) = ?
-       AND (? OR (SELECT total(${shareSql}) FROM prep_uses WHERE prep_id = pieces.id) < ${wholeShare})`,
+       AND (? OR NOT ${closedByUsesSql('pieces')})`,
     usedUp ? new Date().toISOString() : null,
     prepId,
     usedUp ? 1 : 0,
@@ -212,14 +227,11 @@ export async function setPrepUsedUp(prepId: number, usedUp: boolean): Promise<vo
   );
   if (result.changes > 0) return;
   if (usedUp) throw new Error("Only finished prep that isn't all used yet can be marked all used.");
-  // The failure needs its reason: not used up, or shares that keep it used up.
-  const shares = await database.getFirstAsync<{ total: number }>(
-    `SELECT total(${shareSql}) AS total FROM prep_uses WHERE prep_id = ?`,
+  // The failure needs its reason: not all used, or uses that keep it all used.
+  const prep = await database.getFirstAsync<{ closed: number }>(
+    `SELECT ${closedByUsesSql('pieces')} AS closed FROM pieces WHERE id = ?`,
     prepId,
   );
-  const total = shares?.total ?? 0;
-  if (isUsedUp(total)) {
-    throw new Error(`Its uses add up to ${formatPercent(total)}. Lower one to turn All used off.`);
-  }
+  if (prep?.closed) throw new Error('Its uses take all of it. Lower one to turn All used off.');
   throw new Error("That prep isn't marked all used.");
 }
