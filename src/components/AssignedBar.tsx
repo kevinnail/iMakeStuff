@@ -2,16 +2,16 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import { colors } from '@/theme';
 import { formatCost } from '@/utils/cost';
-import { formatPercent } from '@/utils/prepTime';
+import { formatPercent, formatUsedAmount, type BatchSize } from '@/utils/prepTime';
 
 interface AssignedBarProps {
-  // Every piece's share of the prep or supply added together, 1 being all of it.
   usedShare: number;
   usedUp: boolean;
   costCents?: number;
+  size?: BatchSize;
 }
 
-export function AssignedBar({ usedShare, usedUp, costCents }: AssignedBarProps) {
+export function AssignedBar({ usedShare, usedUp, costCents, size }: AssignedBarProps) {
   const assigned = usedUp ? 1 : Math.min(1, usedShare);
 
   return (
@@ -22,6 +22,11 @@ export function AssignedBar({ usedShare, usedUp, costCents }: AssignedBarProps) 
       <Text style={styles.text}>
         {usedUp ? (
           'All used'
+        ) : size && size.size_amount !== null ? (
+          <>
+            <Text style={styles.value}>{formatUsedAmount(usedShare, size.size_amount)}</Text> of{' '}
+            {size.size_amount} {size.size_unit} used
+          </>
         ) : costCents === undefined ? (
           <>
             <Text style={styles.value}>{formatPercent(usedShare)}</Text> assigned, est.
