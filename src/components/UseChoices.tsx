@@ -14,11 +14,13 @@ import type { TemplatePrepUse } from '@/db/queries/prepQueries';
 import { colors } from '@/theme';
 import { formatAmount } from '@/utils/prepTime';
 
-// A template's prep that's all used or lost with no newer batch, shown so it's clear nothing was added for it.
+// A template's prep with nothing to add for it, shown so it's clear nothing was added: a by eye
+// prep all used or lost with no newer batch, or a counted prep whose template is lost or is no
+// longer a template.
 export interface MissingPrep {
   prepId: number;
   name: string;
-  reason: 'All used' | 'Lost';
+  reason: 'All used' | 'Lost' | 'Not a template';
 }
 
 interface UseChoicesProps {
@@ -35,8 +37,8 @@ interface UseChoicesProps {
 }
 
 // A template's prep as a form starts with it: each one with a batch available, filled in at the
-// template's amount (a newer batch swapped in where the template's own is gone), and the rest
-// as missing lines.
+// template's amount (a newer by eye batch swapped in where the template's own is gone), and the
+// rest as missing lines.
 export function getTemplateChoices(uses: TemplatePrepUse[]) {
   const chosen = uses.flatMap(
     ({ prep_id, share_numerator, share_denominator, replacement }): UseChoice[] =>
@@ -61,7 +63,7 @@ export function getTemplateChoices(uses: TemplatePrepUse[]) {
     .map((use): MissingPrep => ({
       prepId: use.prep_id,
       name: use.prep_name,
-      reason: use.prep_lost ? 'Lost' : 'All used',
+      reason: use.prep_lost ? 'Lost' : use.counted ? 'Not a template' : 'All used',
     }));
   return { chosen, missing };
 }
