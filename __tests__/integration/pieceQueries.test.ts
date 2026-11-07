@@ -62,6 +62,8 @@ describe('startPiece', () => {
         worked_milliseconds: 0,
         template_id: null,
         running_since: segments[0].started_at,
+        size_amount: null,
+        size_unit: null,
       },
     ]);
   });
@@ -187,6 +189,8 @@ describe('getUnfinishedPieces', () => {
         worked_milliseconds: 105 * 60 * 1000,
         template_id: null,
         running_since: null,
+        size_amount: null,
+        size_unit: null,
       },
     ]);
   });
@@ -208,6 +212,8 @@ describe('endDay', () => {
         worked_milliseconds: expect.any(Number),
         template_id: null,
         running_since: null,
+        size_amount: null,
+        size_unit: null,
       },
     ]);
   });
@@ -250,6 +256,8 @@ describe('finishPiece', () => {
       notes: null,
       photoFileName: 'vase.jpg',
       lost: false,
+      sizeAmount: null,
+      sizeUnit: null,
       supplyUses: [],
       prepUses: [],
     });
@@ -275,6 +283,8 @@ describe('finishPiece', () => {
       notes: 'Cobalt glaze',
       photoFileName: null,
       lost: false,
+      sizeAmount: null,
+      sizeUnit: null,
       supplyUses: [],
       prepUses: [],
     });
@@ -293,6 +303,8 @@ describe('finishPiece', () => {
       notes: 'Cobalt glaze',
       photoFileName: null,
       lost: false,
+      sizeAmount: null,
+      sizeUnit: null,
       supplyUses: [],
       prepUses: [],
     });
@@ -314,6 +326,8 @@ describe('finishPiece', () => {
         notes: null,
         photoFileName: null,
         lost: false,
+        sizeAmount: null,
+        sizeUnit: null,
         supplyUses: [],
         prepUses: [],
       }),
@@ -337,6 +351,8 @@ describe('finishPiece', () => {
       notes: null,
       photoFileName: 'vase.jpg',
       lost: false,
+      sizeAmount: null,
+      sizeUnit: null,
       supplyUses: [],
       prepUses: [],
     });
@@ -347,6 +363,8 @@ describe('finishPiece', () => {
         notes: null,
         photoFileName: 'other.jpg',
         lost: false,
+        sizeAmount: null,
+        sizeUnit: null,
         supplyUses: [],
         prepUses: [],
       }),
@@ -371,6 +389,8 @@ describe('finishPiece as lost', () => {
       notes: null,
       photoFileName: 'crack.jpg',
       lost: true,
+      sizeAmount: null,
+      sizeUnit: null,
       supplyUses: [],
       prepUses: [],
     });
@@ -392,6 +412,8 @@ describe('finishPiece as lost', () => {
         notes: null,
         photoFileName: null,
         lost: true,
+        sizeAmount: null,
+        sizeUnit: null,
         supplyUses: [],
         prepUses: [],
       }),
@@ -422,6 +444,8 @@ describe('setPiecePhoto', () => {
       notes: null,
       photoFileName: 'vase.jpg',
       lost: false,
+      sizeAmount: null,
+      sizeUnit: null,
       supplyUses: [],
       prepUses: [],
     });
@@ -447,6 +471,8 @@ describe('setPieceLost', () => {
       notes: 'Cobalt',
       photoFileName: null,
       lost: false,
+      sizeAmount: null,
+      sizeUnit: null,
       supplyUses: [],
       prepUses: [],
     });
@@ -491,6 +517,8 @@ describe('getPieces', () => {
         photo_file_name: null,
         finished_at: null,
         lost: 0,
+        size_amount: null,
+        size_unit: null,
         worked_milliseconds: 30 * 60 * 1000,
         prep_milliseconds: null,
         prep_estimated: false,
@@ -507,6 +535,8 @@ describe('getPieces', () => {
         photo_file_name: null,
         finished_at: '2026-10-31T17:00:00.000Z',
         lost: 0,
+        size_amount: null,
+        size_unit: null,
         worked_milliseconds: 2 * 60 * 60 * 1000,
         prep_milliseconds: null,
         prep_estimated: false,
@@ -523,6 +553,8 @@ describe('getPieces', () => {
         photo_file_name: null,
         finished_at: '2026-10-30T17:00:00.000Z',
         lost: 0,
+        size_amount: null,
+        size_unit: null,
         worked_milliseconds: 60 * 60 * 1000,
         prep_milliseconds: null,
         prep_estimated: false,
@@ -575,6 +607,8 @@ describe('getPieceDetail', () => {
         used_up_at: null,
         lost: 0,
         is_template: 0,
+        size_amount: null,
+        size_unit: null,
       },
       segments: [
         { started_at: '2026-10-31T09:00:00.000Z', ended_at: '2026-10-31T10:00:00.000Z' },
@@ -618,7 +652,11 @@ const vaseChanges = {
   category: 'piece' as const,
   notes: null,
   photoFileName: 'vase.jpg',
+  sizeAmount: null,
+  sizeUnit: null,
 };
+
+const noSize = { sizeAmount: null, sizeUnit: null };
 
 const pieceRowSql = 'SELECT name, category, notes, photo_file_name FROM pieces WHERE id = ?';
 
@@ -650,7 +688,13 @@ describe('updatePiece', () => {
     [
       'clearing the notes on a piece with no photo',
       2,
-      { name: 'Green bowl', category: 'piece' as const, notes: null, photoFileName: null },
+      {
+        name: 'Green bowl',
+        category: 'piece' as const,
+        notes: null,
+        photoFileName: null,
+        ...noSize,
+      },
     ],
   ])('rejects %s', async (_change, pieceId, changes) => {
     await expect(updatePiece(pieceId, changes)).rejects.toThrow(/CHECK constraint/);
@@ -663,10 +707,39 @@ describe('updatePiece', () => {
     expect(await database.getFirstAsync(pieceRowSql, 1)).toMatchObject({ category: 'prep' });
   });
 
+  // Otherwise a cane couldn't be measured in points after it was made.
+  it('saves a size on prep', async () => {
+    await updatePiece(3, {
+      name: 'Dichroic cane',
+      category: 'prep',
+      notes: 'Blue',
+      photoFileName: null,
+      sizeAmount: 8,
+      sizeUnit: 'points',
+    });
+
+    expect(
+      await database.getFirstAsync('SELECT size_amount, size_unit FROM pieces WHERE id = 3'),
+    ).toEqual({ size_amount: 8, size_unit: 'points' });
+  });
+
+  // Otherwise a piece, which nothing uses, could carry a size that means nothing.
+  it('rejects a size on a piece', async () => {
+    await expect(
+      updatePiece(1, { ...vaseChanges, sizeAmount: 8, sizeUnit: 'points' }),
+    ).rejects.toThrow(/CHECK constraint/);
+  });
+
   // Otherwise prep would end up made from other prep, which nothing in the app can show.
   it('rejects changing a piece that uses prep to prep', async () => {
     await expect(
-      updatePiece(2, { name: 'Green bowl', category: 'prep', notes: 'Lime', photoFileName: null }),
+      updatePiece(2, {
+        name: 'Green bowl',
+        category: 'prep',
+        notes: 'Lime',
+        photoFileName: null,
+        ...noSize,
+      }),
     ).rejects.toThrow("A piece that uses prep can't become prep.");
   });
 
@@ -676,7 +749,7 @@ describe('updatePiece', () => {
     ['a used-up prep', 4, 'Frit mix', 'Green'],
   ])('rejects changing %s to a piece', async (_kind, prepId, name, notes) => {
     await expect(
-      updatePiece(prepId, { name, category: 'piece', notes, photoFileName: null }),
+      updatePiece(prepId, { name, category: 'piece', notes, photoFileName: null, ...noSize }),
     ).rejects.toThrow("Prep that pieces used, or that's all used, can't become a piece.");
     expect(await database.getFirstAsync(pieceRowSql, prepId)).toMatchObject({ category: 'prep' });
   });
@@ -772,7 +845,7 @@ describe('setPieceTemplate', () => {
 });
 
 describe('getTemplates', () => {
-  // Otherwise Existing would offer every piece again, and adding to one would be back.
+  // Otherwise Existing would offer every piece again, adding to one would be back, or a prep template's size wouldn't fill in.
   it('lists only templates, pieces and prep, by name', async () => {
     await database.execAsync(`
       INSERT INTO pieces (id, name, category, notes, photo_file_name, finished_at, is_template)
@@ -781,11 +854,26 @@ describe('getTemplates', () => {
         (2, 'Green bowl', 'piece', 'Lime', NULL, '2026-10-30T13:00:00.000Z', 0),
         (3, 'Dichroic cane', 'prep', 'Blue', NULL, '2026-10-30T14:00:00.000Z', 1);
       INSERT INTO pieces (id, name, category) VALUES (4, 'Red cup', 'piece');
+      UPDATE pieces SET size_amount = 8, size_unit = 'points' WHERE id = 3;
     `);
 
     expect(await getTemplates()).toEqual([
-      { id: 1, name: 'blue vase', category: 'piece', photo_file_name: 'vase.jpg' },
-      { id: 3, name: 'Dichroic cane', category: 'prep', photo_file_name: null },
+      {
+        id: 1,
+        name: 'blue vase',
+        category: 'piece',
+        photo_file_name: 'vase.jpg',
+        size_amount: null,
+        size_unit: null,
+      },
+      {
+        id: 3,
+        name: 'Dichroic cane',
+        category: 'prep',
+        photo_file_name: null,
+        size_amount: 8,
+        size_unit: 'points',
+      },
     ]);
   });
 });
