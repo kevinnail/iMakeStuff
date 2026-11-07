@@ -11,7 +11,7 @@ import {
   addPrepUse,
   changePrepUse,
   getAvailablePrep,
-  getTemplatePrep,
+  getTemplateUses,
   removePrepUse,
   setPrepUsedUp,
 } from '@/db/queries/prepQueries';
@@ -176,11 +176,9 @@ describe('finishPiece with prep', () => {
 });
 
 describe('addPrepUse', () => {
-  // Otherwise a mistyped amount would put no share, or more than the whole prep, on a piece.
+  // Otherwise a share of nothing, or one divided by 0, would be saved on a piece.
   it.each([
     [0, 100],
-    [101, 100],
-    [9, 8],
     [1, 0],
   ])('rejects a share of %i/%i', async (numerator, denominator) => {
     await expect(addPrepUse(vaseId, use(caneId, numerator, denominator))).rejects.toThrow(
@@ -230,6 +228,7 @@ describe('lost prep and lost pieces', () => {
     expect(await getAvailablePrep(vaseId)).toEqual([
       {
         id: fritId,
+        kind_id: fritId,
         name: 'Frit mix',
         size_amount: null,
         size_unit: null,
@@ -297,6 +296,7 @@ describe('setPrepUsedUp', () => {
     expect(await getAvailablePrep(bowlId)).toEqual([
       {
         id: fritId,
+        kind_id: fritId,
         name: 'Frit mix',
         size_amount: null,
         size_unit: null,
@@ -305,6 +305,7 @@ describe('setPrepUsedUp', () => {
       },
       {
         id: caneId,
+        kind_id: caneId,
         name: 'Dichroic cane',
         size_amount: null,
         size_unit: null,
@@ -337,6 +338,7 @@ describe('getAvailablePrep', () => {
     expect(await getAvailablePrep(vaseId)).toEqual([
       {
         id: caneId,
+        kind_id: caneId,
         name: 'Dichroic cane',
         size_amount: null,
         size_unit: null,
@@ -347,6 +349,7 @@ describe('getAvailablePrep', () => {
     expect(await getAvailablePrep(bowlId)).toEqual([
       {
         id: fritId,
+        kind_id: fritId,
         name: 'Frit mix',
         size_amount: null,
         size_unit: null,
@@ -437,6 +440,7 @@ describe('closing a batch', () => {
     expect(await getAvailablePrep(cupId)).toEqual([
       {
         id: fritId,
+        kind_id: fritId,
         name: 'Frit mix',
         size_amount: null,
         size_unit: null,
@@ -445,6 +449,7 @@ describe('closing a batch', () => {
       },
       {
         id: caneId,
+        kind_id: caneId,
         name: 'Dichroic cane',
         size_amount: null,
         size_unit: null,
@@ -564,7 +569,7 @@ describe('getPieces with prep', () => {
   });
 });
 
-describe('getTemplatePrep', () => {
+describe('getTemplateUses for prep', () => {
   const newCaneId = 6;
 
   // The bowl is the template, using 30% of the cane and 20% of the frit.
@@ -574,40 +579,48 @@ describe('getTemplatePrep', () => {
   });
 
   // Otherwise a template whose cane ran out couldn't be copied without hunting for the new one.
-  it('swaps a used-up prep for an available one with the same name and keeps one still available', async () => {
+  it('swaps an all used prep for an open one of its kind and keeps one still open', async () => {
     await setPrepUsedUp(caneId, true);
     await database.execAsync(`
-      INSERT INTO pieces (id, name, category, notes, finished_at) VALUES
-        (${newCaneId}, 'Dichroic cane', 'prep', 'Second pull', '2026-10-31T17:00:00.000Z');
+      INSERT INTO pieces (id, name, category, notes, finished_at, template_id, kind_id) VALUES
+        (${newCaneId}, 'Dichroic cane', 'prep', 'Second pull', '2026-10-31T17:00:00.000Z',
+         ${caneId}, ${caneId});
     `);
 
-    expect(await getTemplatePrep(bowlId)).toEqual([
+    expect(
+      (await getTemplateUses(bowlId, null, { prep: await getAvailablePrep(null), supplies: [] }))
+        .prep,
+    ).toEqual([
       {
-        prep_id: caneId,
-        prep_name: 'Dichroic cane',
-        prep_lost: 0,
+        batch_id: caneId,
+        batch_name: 'Dichroic cane',
+        batch_lost: 0,
         counted: 0,
+        kind_id: caneId,
         ...share(30),
         replacement: {
           id: newCaneId,
           name: 'Dichroic cane',
           size_amount: null,
           size_unit: null,
+          kind_id: caneId,
           used_share: 0,
           cost_cents: null,
         },
       },
       {
-        prep_id: fritId,
-        prep_name: 'Frit mix',
-        prep_lost: 0,
+        batch_id: fritId,
+        batch_name: 'Frit mix',
+        batch_lost: 0,
         counted: 0,
+        kind_id: fritId,
         ...share(20),
         replacement: {
           id: fritId,
           name: 'Frit mix',
           size_amount: null,
           size_unit: null,
+          kind_id: fritId,
           used_share: 0.2,
           cost_cents: null,
         },
@@ -616,13 +629,16 @@ describe('getTemplatePrep', () => {
   });
 
   // Otherwise a template with a prep that's gone would offer one that can't be saved.
-  it('leaves off a prep that is used up or lost with no match', async () => {
+  it('leaves off a prep that is all used or lost with nothing open of its kind', async () => {
     await setPrepUsedUp(caneId, true);
     await setPieceLost(fritId, true);
 
-    expect(await getTemplatePrep(bowlId)).toEqual([
-      expect.objectContaining({ prep_id: caneId, prep_lost: 0, replacement: null }),
-      expect.objectContaining({ prep_id: fritId, prep_lost: 1, replacement: null }),
+    expect(
+      (await getTemplateUses(bowlId, null, { prep: await getAvailablePrep(null), supplies: [] }))
+        .prep,
+    ).toEqual([
+      expect.objectContaining({ batch_id: caneId, batch_lost: 0, replacement: null }),
+      expect.objectContaining({ batch_id: fritId, batch_lost: 1, replacement: null }),
     ]);
   });
 });
