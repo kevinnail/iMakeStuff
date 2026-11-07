@@ -14,6 +14,7 @@ import {
 import { Chevron } from '@/components/Chevron';
 import { getNotesPlaceholder } from '@/components/FinishPiecePanel';
 import { JoinedButtons } from '@/components/JoinedButtons';
+import { getSizeTexts, readSize, SizeField, sizeError } from '@/components/SizeField';
 import {
   deletePiece,
   updatePiece,
@@ -23,6 +24,7 @@ import {
 import { colors } from '@/theme';
 import { formatDuration } from '@/utils/formatTime';
 import { deletePhoto, getPhotoUri, showPhotoChoices, withSavedPhoto } from '@/utils/photoStorage';
+import type { SizeInput } from '@/utils/prepTime';
 import { showError } from '@/utils/showError';
 
 // The saved photo, a new one to copy in, or none.
@@ -67,6 +69,9 @@ export function PieceEditForm({
   const [photo, setPhoto] = useState<PhotoChoice>(
     piece.photo_file_name ? { kind: 'saved' } : { kind: 'none' },
   );
+  const savedSizeTexts = getSizeTexts(piece);
+  const [sizeAmountText, setSizeAmountText] = useState(savedSizeTexts.amountText);
+  const [sizeUnitText, setSizeUnitText] = useState(savedSizeTexts.unitText);
   const [saving, setSaving] = useState(false);
   const trimmedName = name.trim();
   const trimmedNotes = notes.trim();
@@ -87,8 +92,9 @@ export function PieceEditForm({
     });
   }
 
-  async function save() {
-    const details = { name: trimmedName, category, notes: trimmedNotes || null };
+  // A piece has no size, so switching to Piece drops it.
+  async function save(size: SizeInput) {
+    const details = { name: trimmedName, category, notes: trimmedNotes || null, ...size };
     if (photo.kind === 'new') {
       await withSavedPhoto(photo.uri, (photoFileName) =>
         updatePiece(piece.id, { ...details, photoFileName }),
@@ -101,8 +107,16 @@ export function PieceEditForm({
   }
 
   function handleSave() {
+    const size =
+      category === 'prep'
+        ? readSize(sizeAmountText, sizeUnitText)
+        : { sizeAmount: null, sizeUnit: null };
+    if (size === null) {
+      Alert.alert(sizeError);
+      return;
+    }
     setSaving(true);
-    save()
+    save(size)
       .then(onSaved)
       .catch((error: Error) => {
         setSaving(false);
@@ -169,6 +183,18 @@ export function PieceEditForm({
             />
           </View>
         </View>
+        {category === 'prep' && (
+          <View style={[styles.cardRow, styles.separator]}>
+            <View style={styles.fill}>
+              <SizeField
+                amountText={sizeAmountText}
+                unitText={sizeUnitText}
+                onChangeAmount={setSizeAmountText}
+                onChangeUnit={setSizeUnitText}
+              />
+            </View>
+          </View>
+        )}
       </View>
       <View style={styles.card}>
         <Pressable
