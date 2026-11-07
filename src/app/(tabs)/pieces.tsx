@@ -12,18 +12,16 @@ import { formatDay, formatDuration } from '@/utils/formatTime';
 import { colors } from '@/theme';
 import { getPhotoUri } from '@/utils/photoStorage';
 
-type PieceFilter = 'all' | 'unfinished' | 'finished' | 'lost' | 'prep';
+type Section = 'work' | 'prep';
 
-const filters: { value: PieceFilter; label: string; emptyText: string }[] = [
+type PieceFilter = 'all' | 'unfinished' | 'finished' | 'lost';
+
+const pieceFilters: { value: PieceFilter; label: string; emptyText: string }[] = [
   { value: 'all', label: 'All', emptyText: 'No pieces yet.' },
   { value: 'unfinished', label: 'Working', emptyText: 'No unfinished pieces.' },
   { value: 'finished', label: 'Finished', emptyText: 'No finished pieces.' },
   { value: 'lost', label: 'Lost', emptyText: 'No lost pieces.' },
-  { value: 'prep', label: 'Prep', emptyText: 'No prep yet.' },
 ];
-
-// All covers pieces only, so Prep sits apart from the joined buttons.
-const pieceFilters = filters.filter(({ value }) => value !== 'prep');
 
 // A counted prep shows what it made; a by eye one, how much of its cost is assigned.
 function PrepLeft({ prep }: { prep: PieceListItem }) {
@@ -41,10 +39,11 @@ function PrepLeft({ prep }: { prep: PieceListItem }) {
 
 export default function PiecesScreen() {
   const [pieces, setPieces] = useState<PieceListItem[]>([]);
+  const [section, setSection] = useState<Section>('work');
   const [filter, setFilter] = useState<PieceFilter>('all');
-  // Prep shows only under Prep; the other filters list pieces. Finished means finished good.
+  // Prep shows only under Prep; Work lists pieces by its filter. Finished means finished good.
   const shownPieces = pieces.filter((piece) => {
-    if (filter === 'prep') return piece.category === 'prep';
+    if (section === 'prep') return piece.category === 'prep';
     if (piece.category !== 'piece') return false;
     if (filter === 'unfinished') return piece.finished_at === null;
     if (filter === 'finished') return piece.finished_at !== null && !piece.lost;
@@ -52,10 +51,13 @@ export default function PiecesScreen() {
     return true;
   });
   const listedPieces =
-    filter === 'prep'
+    section === 'prep'
       ? [...shownPieces].sort((first, second) => second.usable - first.usable)
       : shownPieces;
-  const emptyText = filters.find(({ value }) => value === filter)?.emptyText;
+  const emptyText =
+    section === 'prep'
+      ? 'No prep yet.'
+      : pieceFilters.find(({ value }) => value === filter)?.emptyText;
 
   // Reloads every time the tab is shown, so a piece finished on Work appears here.
   useFocusEffect(
@@ -75,19 +77,26 @@ export default function PiecesScreen() {
       ItemSeparatorComponent={() => <View style={styles.separator} />}
       ListHeaderComponent={
         <View style={styles.header}>
-          <JoinedButtons options={pieceFilters} selected={filter} onSelect={setFilter} />
-          <View style={styles.secondRow}>
+          <View style={styles.sectionRow}>
             <Pressable
-              style={[styles.halfButton, filter === 'prep' && styles.prepFilterSelected]}
-              onPress={() => setFilter('prep')}
+              style={[styles.sectionButton, section === 'work' && styles.workSelected]}
+              onPress={() => setSection('work')}
             >
-              <Text style={[styles.buttonText, filter === 'prep' && styles.prepFilterTextSelected]}>
+              <Text style={[styles.buttonText, section === 'work' && styles.buttonTextSelected]}>
+                Work
+              </Text>
+            </Pressable>
+            <Pressable
+              style={[styles.sectionButton, section === 'prep' && styles.prepSelected]}
+              onPress={() => setSection('prep')}
+            >
+              <Text style={[styles.buttonText, section === 'prep' && styles.buttonTextSelected]}>
                 Prep
               </Text>
             </Pressable>
             <Pressable
               style={({ pressed }) => [
-                styles.halfButton,
+                styles.sectionButton,
                 styles.suppliesButton,
                 pressed && styles.rowPressed,
               ]}
@@ -97,6 +106,9 @@ export default function PiecesScreen() {
               <Chevron />
             </Pressable>
           </View>
+          {section === 'work' && (
+            <JoinedButtons options={pieceFilters} selected={filter} onSelect={setFilter} />
+          )}
         </View>
       }
       ListEmptyComponent={<Text style={styles.detailText}>{emptyText}</Text>}
@@ -113,6 +125,7 @@ export default function PiecesScreen() {
           <View style={styles.details}>
             <View style={styles.nameRow}>
               <Text style={styles.name}>{piece.name}</Text>
+              {piece.no_cost === 1 && <Tag label="No cost" warning />}
             </View>
             {piece.category === 'prep' ? (
               <>
@@ -169,7 +182,6 @@ export default function PiecesScreen() {
                     <Text style={styles.timeValue}>{formatCost(piece.cost_cents)}</Text>
                   </View>
                 )}
-                {piece.no_prep === 1 && <Tag label="No prep" />}
               </View>
             )}
           </View>
@@ -188,12 +200,12 @@ const styles = StyleSheet.create({
   header: {
     gap: 12,
   },
-  secondRow: {
+  sectionRow: {
     flexDirection: 'row',
     gap: 12,
   },
-  // As tall as the joined buttons above: their 6 of padding plus the row's 2, around 18 of text.
-  halfButton: {
+  // As tall as the joined buttons below: their 6 of padding plus the row's 2, around 18 of text.
+  sectionButton: {
     flex: 1,
     flexDirection: 'row',
     justifyContent: 'center',
@@ -203,11 +215,14 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     backgroundColor: colors.surface,
   },
-  // The arrow's 24 line height takes 6 off the padding, so it stays as tall as Prep.
+  // The arrow's 24 line height takes 6 off the padding, so it stays as tall as Work and Prep.
   suppliesButton: {
     paddingVertical: 5,
   },
-  prepFilterSelected: {
+  workSelected: {
+    backgroundColor: colors.primary,
+  },
+  prepSelected: {
     backgroundColor: colors.prep,
   },
   buttonText: {
@@ -215,7 +230,7 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     color: colors.text,
   },
-  prepFilterTextSelected: {
+  buttonTextSelected: {
     color: colors.textOnFill,
   },
   separator: {
