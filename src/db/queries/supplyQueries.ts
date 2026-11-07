@@ -2,13 +2,20 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { getDb } from '@/db/database';
 import { shareSql } from '@/db/queries/prepQueries';
-import { formatPercent, isUsedUp, wholeShare, type Share, type UseShare } from '@/utils/prepTime';
+import {
+  formatPercent,
+  isUsedUp,
+  wholeShare,
+  type BatchSize,
+  type Share,
+  type UseShare,
+} from '@/utils/prepTime';
 
 export interface SupplyRecord {
   id: number;
   name: string;
   cost_cents: number;
-  bought_at: string;
+  created_at: string;
   used_up_at: string | null;
   // Every share of it added together, 1 being all of it.
   used_share: number;
@@ -22,7 +29,6 @@ export interface SupplyRecord {
 export interface SupplyDetails {
   name: string;
   costCents: number;
-  boughtAt: string;
 }
 
 export interface NewSupplyUse {
@@ -34,13 +40,13 @@ export interface FinishSupplyUse extends NewSupplyUse {
   useId?: number;
 }
 
-export interface AvailableSupply {
+export interface AvailableSupply extends BatchSize {
   id: number;
   name: string;
   used_share: number;
 }
 
-export interface UsedSupply extends UseShare {
+export interface UsedSupply extends UseShare, BatchSize {
   id: number;
   piece_id: number;
   supply_id: number;
@@ -60,7 +66,11 @@ function usedUpSql(supplyTable: string) {
 // The pieces and prep that used a supply directly.
 const directUsersSql = 'SELECT piece_id FROM supply_uses WHERE supply_id = supplies.id';
 
-const supplyColumnsSql = `id, name, cost_cents, bought_at, used_up_at,
+// A supply has no size; the use panel reads every batch the same way, so its uses come back
+// with an empty one, as a prep with no size does.
+const noSizeSql = 'NULL AS size_amount, NULL AS size_unit';
+
+const supplyColumnsSql = `id, name, cost_cents, used_up_at, created_at,
   ${usedShareSql('supplies')} AS used_share, ${usedUpSql('supplies')} AS used_up,
   (SELECT count(*) FROM pieces WHERE category = 'prep' AND id IN (${directUsersSql}))
     AS prep_count,
@@ -68,11 +78,11 @@ const supplyColumnsSql = `id, name, cost_cents, bought_at, used_up_at,
      OR id IN (SELECT piece_id FROM prep_uses WHERE prep_id IN (${directUsersSql}))))
     AS piece_count`;
 
-// Supplies that can still be used first, then newest bought first.
+// Supplies that can still be used first, then newest first.
 export async function getSupplies(): Promise<SupplyRecord[]> {
   const database = await getDb();
   return database.getAllAsync<SupplyRecord>(
-    `SELECT ${supplyColumnsSql} FROM supplies ORDER BY used_up, bought_at DESC, id DESC`,
+    `SELECT ${supplyColumnsSql} FROM supplies ORDER BY used_up, created_at DESC, id DESC`,
   );
 }
 
@@ -85,27 +95,25 @@ export async function getSupply(supplyId: number): Promise<SupplyRecord | null> 
 }
 
 // A blank name and a negative cost are table rules.
-export async function addSupply({ name, costCents, boughtAt }: SupplyDetails): Promise<number> {
+export async function addSupply({ name, costCents }: SupplyDetails): Promise<number> {
   const database = await getDb();
   const result = await database.runAsync(
-    'INSERT INTO supplies (name, cost_cents, bought_at) VALUES (?, ?, ?)',
+    'INSERT INTO supplies (name, cost_cents) VALUES (?, ?)',
     name,
     costCents,
-    boughtAt,
   );
   return result.lastInsertRowId;
 }
 
 export async function updateSupply(
   supplyId: number,
-  { name, costCents, boughtAt }: SupplyDetails,
+  { name, costCents }: SupplyDetails,
 ): Promise<void> {
   const database = await getDb();
   const result = await database.runAsync(
-    'UPDATE supplies SET name = ?, cost_cents = ?, bought_at = ? WHERE id = ?',
+    'UPDATE supplies SET name = ?, cost_cents = ? WHERE id = ?',
     name,
     costCents,
-    boughtAt,
     supplyId,
   );
   if (result.changes === 0) throw new Error('That supply no longer exists.');
@@ -172,7 +180,7 @@ export function getUsedSupplies(database: SQLiteDatabase, pieceId: number | null
   return database.getAllAsync<UsedSupply>(
     `SELECT supply_uses.id, supply_uses.piece_id, supply_uses.supply_id,
        supplies.name AS supply_name, supplies.cost_cents AS supply_cost_cents,
-       supply_uses.share_numerator, supply_uses.share_denominator,
+       ${noSizeSql}, supply_uses.share_numerator, supply_uses.share_denominator,
        ${usedUpSql('supplies')} AS used_up,
        (SELECT total(${shareSql}) FROM supply_uses AS sibling
         WHERE sibling.supply_id = supply_uses.supply_id) AS shares_total
@@ -193,16 +201,15 @@ export async function getPieceSupplies(pieceId: number): Promise<UsedSupply[]> {
   return uses.filter((use) => use.piece_id === pieceId);
 }
 
-// Newest bought first, leaving out supplies this piece already uses. A piece not saved yet has
-// no id.
+// Newest first, leaving out supplies this piece already uses. A piece not saved yet has no id.
 export async function getAvailableSupplies(pieceId: number | null): Promise<AvailableSupply[]> {
   const database = await getDb();
   return database.getAllAsync<AvailableSupply>(
-    `SELECT id, name, ${usedShareSql('supplies')} AS used_share
+    `SELECT id, name, ${noSizeSql}, ${usedShareSql('supplies')} AS used_share
      FROM supplies
      WHERE NOT ${usedUpSql('supplies')}
        AND id NOT IN (SELECT supply_id FROM supply_uses WHERE piece_id = ?)
-     ORDER BY bought_at DESC, id DESC`,
+     ORDER BY created_at DESC, id DESC`,
     pieceId,
   );
 }
@@ -221,7 +228,6 @@ export async function changeSupplyUse(useId: number, share: Share): Promise<void
   );
   if (result.changes === 0) throw new Error('That supply use no longer exists.');
 }
-1;
 
 export async function removeSupplyUse(useId: number): Promise<void> {
   const database = await getDb();
