@@ -11,7 +11,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { JoinedButtons } from '@/components/JoinedButtons';
 import { confirmTemplateUseUp, UseChoices, type MissingPrep } from '@/components/UseChoices';
@@ -64,7 +64,6 @@ export function FinishPiecePanel({
   onCancel,
   onSave,
 }: FinishPiecePanelProps) {
-  const insets = useSafeAreaInsets();
   const [outcome, setOutcome] = useState<Outcome>('good');
   const [notes, setNotes] = useState('');
   const [chosenPrep, setChosenPrep] = useState(initialPrep);
@@ -95,11 +94,17 @@ export function FinishPiecePanel({
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onCancel}>
       <KeyboardAvoidingView style={styles.overlay} behavior="padding">
-        <View style={[styles.panel, { paddingBottom: insets.bottom + 16 }]}>
-          <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        <SafeAreaView edges={{ bottom: 'additive' }} style={styles.panel}>
+          <ScrollView
+            style={styles.scroll}
+            contentContainerStyle={styles.content}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+          >
             <JoinedButtons options={outcomeOptions} selected={outcome} onSelect={setOutcome} />
             <Text style={styles.pieceName}>{pieceName}</Text>
             {photoUri && <Image source={{ uri: photoUri }} style={styles.photo} />}
+
             <TextInput
               style={styles.notesInput}
               value={notes}
@@ -107,28 +112,29 @@ export function FinishPiecePanel({
               placeholder={getNotesPlaceholder(outcome === 'lost', photoUri !== null)}
               placeholderTextColor={colors.secondaryText}
               multiline
+              returnKeyType="done"
+              submitBehavior="blurAndSubmit"
               autoFocus={!photoUri}
             />
-            {availablePrep &&
-              (availablePrep.length > 0 || chosenPrep.length > 0 || missingPrep.length > 0) && (
-                <UseChoices
-                  kind="prep"
-                  availableItems={availablePrep}
-                  chosen={chosenPrep}
-                  missing={missingPrep}
-                  onChange={setChosenPrep}
-                  style={styles.useCard}
-                />
-              )}
-            {(availableSupplies.length > 0 || chosenSupplies.length > 0) && (
+            {availablePrep && (
               <UseChoices
-                kind="supply"
-                availableItems={availableSupplies}
-                chosen={chosenSupplies}
-                onChange={setChosenSupplies}
+                kind="prep"
+                usedBy="piece"
+                availableItems={availablePrep}
+                chosen={chosenPrep}
+                missing={missingPrep}
+                onChange={setChosenPrep}
                 style={styles.useCard}
               />
             )}
+            <UseChoices
+              kind="supply"
+              usedBy={availablePrep ? 'piece' : 'prep'}
+              availableItems={availableSupplies}
+              chosen={chosenSupplies}
+              onChange={setChosenSupplies}
+              style={styles.useCard}
+            />
           </ScrollView>
           <View style={styles.buttonRow}>
             <Pressable style={styles.cancelButton} onPress={onCancel}>
@@ -142,7 +148,7 @@ export function FinishPiecePanel({
               <Text style={styles.saveButtonText}>Save</Text>
             </Pressable>
           </View>
-        </View>
+        </SafeAreaView>
       </KeyboardAvoidingView>
     </Modal>
   );
@@ -161,6 +167,10 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
     backgroundColor: colors.surface,
+  },
+  // Shrinks to the room left above Cancel and Save, so nothing scrolls behind them.
+  scroll: {
+    flexShrink: 1,
   },
   content: {
     gap: 12,
