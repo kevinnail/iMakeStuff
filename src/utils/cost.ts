@@ -1,4 +1,4 @@
-import { getActualShare, type UseShare } from '@/utils/prepTime';
+import { getActualShare, isEstimated, type UseShare } from '@/utils/prepTime';
 
 // A use of a supply by a piece or a prep, with the supply's cost.
 export interface SupplyCostShare extends UseShare {
@@ -36,14 +36,14 @@ function getSupplyLines<SupplyUse extends SupplyCostShare>(
     .filter((use) => use.piece_id === pieceId)
     .map((use) => ({
       ...use,
-      estimated: !use.used_up,
+      estimated: isEstimated(use),
       cents: Math.round(use.supply_cost_cents * getActualShare(use)),
     }));
 }
 
 // A piece's cost: its own supplies, plus its share of each prep's cost, the prep's own supplies
 // worked out the same way. Each line is rounded to the cent before adding, so the lines shown
-// add up to the total. It's estimated until every supply and prep behind it is used up.
+// add up to the total. It's estimated while any batch behind it is estimated (isEstimated).
 // supplyUses has to hold the supplies of every prep in prepUses.
 export function getCost<SupplyUse extends SupplyCostShare, PrepUse extends PrepCostShare>(
   pieceId: number,
@@ -57,7 +57,7 @@ export function getCost<SupplyUse extends SupplyCostShare, PrepUse extends PrepC
     return {
       ...use,
       cents: Math.round(sumCents(prepSupplies) * getActualShare(use)),
-      estimated: hasSupplies && (!use.used_up || prepSupplies.some((line) => line.estimated)),
+      estimated: hasSupplies && (isEstimated(use) || prepSupplies.some((line) => line.estimated)),
       hasSupplies,
     };
   });
