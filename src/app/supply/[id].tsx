@@ -18,7 +18,7 @@ import { formatCost } from '@/utils/cost';
 import { formatDay } from '@/utils/formatTime';
 import { showError } from '@/utils/showError';
 
-// A supply's cost and the day it was bought, Edit to change them, All used with how much of its
+// A supply's cost and the day it was added, Edit to change them, All used with how much of its
 // cost is assigned, and Delete supply.
 export default function SupplyScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -97,8 +97,8 @@ export default function SupplyScreen() {
           <Text style={styles.value}>{formatCost(supply.cost_cents)}</Text>
         </View>
         <View style={styles.row}>
-          <Text style={[styles.text, styles.fill]}>Bought</Text>
-          <Text style={styles.value}>{formatDay(Date.parse(supply.bought_at))}</Text>
+          <Text style={[styles.text, styles.fill]}>Added</Text>
+          <Text style={styles.value}>{formatDay(Date.parse(supply.created_at))}</Text>
         </View>
       </Card>
       <Card>
