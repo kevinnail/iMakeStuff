@@ -125,7 +125,7 @@ export async function setSupplyUsedUp(supplyId: number, usedUp: boolean): Promis
     usedUp ? 1 : 0,
   );
   if (result.changes > 0) return;
-  if (usedUp) throw new Error('That supply is already used up.');
+  if (usedUp) throw new Error('That supply is already marked all used.');
   // The failure needs its reason: not used up, or shares that keep it used up.
   const shares = await database.getFirstAsync<{ total: number }>(
     `SELECT total(${shareSql}) AS total FROM supply_uses WHERE supply_id = ?`,
@@ -133,9 +133,9 @@ export async function setSupplyUsedUp(supplyId: number, usedUp: boolean): Promis
   );
   const total = shares?.total ?? 0;
   if (isUsedUp(total)) {
-    throw new Error(`Its uses add up to ${formatPercent(total)}. Lower one to put it back in use.`);
+    throw new Error(`Its uses add up to ${formatPercent(total)}. Lower one to turn All used off.`);
   }
-  throw new Error("That supply isn't used up.");
+  throw new Error("That supply isn't marked all used.");
 }
 
 // Its uses go with it, so its cost comes off everything that used it.
@@ -163,7 +163,7 @@ export async function insertSupplyUse(
     share.share_denominator,
     supplyId,
   );
-  if (result.changes === 0) throw new Error("Only a supply that isn't used up can be used.");
+  if (result.changes === 0) throw new Error("Only a supply that isn't all used can be added.");
 }
 
 // The supplies a piece used and the supplies behind the prep it used, so its cost can be worked
