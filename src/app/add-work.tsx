@@ -26,11 +26,11 @@ import {
 import { Dropdown } from '@/components/Dropdown';
 import { getNotesPlaceholder, outcomeOptions, type Outcome } from '@/components/FinishPiecePanel';
 import { JoinedButtons } from '@/components/JoinedButtons';
-import { getTemplateChoices, UseChoices, type MissingPrep } from '@/components/UseChoices';
+import { getTemplateChoices, UseChoices, type MissingUse } from '@/components/UseChoices';
 import type { UseChoice } from '@/components/UsePanel';
 import { addPastWork } from '@/db/queries/entryQueries';
 import { getTemplates, type PieceCategory, type Template } from '@/db/queries/pieceQueries';
-import { getAvailablePrep, getTemplatePrep, type AvailablePrep } from '@/db/queries/prepQueries';
+import { getAvailablePrep, getTemplateUses, type AvailablePrep } from '@/db/queries/prepQueries';
 import { getAvailableSupplies, type AvailableSupply } from '@/db/queries/supplyQueries';
 import { colors } from '@/theme';
 import { showPhotoChoices, withSavedPhoto } from '@/utils/photoStorage';
@@ -68,9 +68,10 @@ export default function AddWorkScreen() {
   const [category, setCategory] = useState<PieceCategory>('piece');
   const [name, setName] = useState('');
   const [chosenPrep, setChosenPrep] = useState<UseChoice[]>([]);
-  const [missingPrep, setMissingPrep] = useState<MissingPrep[]>([]);
+  const [missingPrep, setMissingPrep] = useState<MissingUse[]>([]);
   const [chosenSupplies, setChosenSupplies] = useState<UseChoice[]>([]);
-  const [prepKind, setPrepKind] = useState<PrepKind>('byEye');
+  const [missingSupplies, setMissingSupplies] = useState<MissingUse[]>([]);
+  const [prepKind, setPrepKind] = useState<PrepKind>('counted');
   const [countTexts, setCountTexts] = useState({ amountText: '', unitText: '' });
   const [startedAt, setStartedAt] = useState(() => yesterdayAt(9));
   const [endedAt, setEndedAt] = useState(() => yesterdayAt(10));
@@ -128,28 +129,34 @@ export default function AddWorkScreen() {
     });
   }
 
-  // Each source starts with no template, no prep, and by eye.
+  // Each source starts with no template, no prep or supplies, and counted.
   function chooseSource(value: Source) {
     setSource(value);
     setTemplate(null);
     setChosenPrep([]);
     setMissingPrep([]);
-    setPrepKind('byEye');
+    setChosenSupplies([]);
+    setMissingSupplies([]);
+    setPrepKind('counted');
     setCountTexts({ amountText: '', unitText: '' });
     setTemplateChoice(null);
     if (value !== 'existing') setCategory(value);
   }
 
-  // Fills in the new piece from the template. Nothing on the template changes.
+  // Fills in the new piece from the template. Nothing on the template changes. A batch of a
+  // counted prep saves no supplies, so it takes none.
   function chooseTemplate(chosen: Template) {
-    getTemplatePrep(chosen.id)
+    getTemplateUses(chosen.id, null, { prep: availablePrep, supplies: availableSupplies })
       .then((uses) => {
-        const prep = getTemplateChoices(uses);
+        const prep = getTemplateChoices(uses.prep);
+        const supplies = getTemplateChoices(chosen.size_amount === null ? uses.supplies : []);
         setTemplate(chosen);
         setName(chosen.name);
         setCategory(chosen.category);
         setChosenPrep(prep.chosen);
         setMissingPrep(prep.missing);
+        setChosenSupplies(supplies.chosen);
+        setMissingSupplies(supplies.missing);
         setPrepKind(getPrepKind(chosen));
         setCountTexts(getCountTexts(chosen));
       })
@@ -236,7 +243,6 @@ export default function AddWorkScreen() {
                     onChangeKind={setPrepKind}
                     texts={countTexts}
                     onChangeTexts={setCountTexts}
-                    trackStyle={styles.trackOnCard}
                   />
                 </View>
               </View>
@@ -280,6 +286,7 @@ export default function AddWorkScreen() {
               usedBy={category}
               availableItems={availableSupplies}
               chosen={chosenSupplies}
+              missing={missingSupplies}
               onChange={setChosenSupplies}
             />
           )}
