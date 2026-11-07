@@ -18,12 +18,7 @@ import { Dropdown } from '@/components/Dropdown';
 import { getNotesPlaceholder, outcomeOptions, type Outcome } from '@/components/FinishPiecePanel';
 import { JoinedButtons } from '@/components/JoinedButtons';
 import { getSizeTexts, readSize, SizeField, sizeError } from '@/components/SizeField';
-import {
-  confirmTemplateUseUp,
-  getTemplateChoices,
-  UseChoices,
-  type MissingPrep,
-} from '@/components/UseChoices';
+import { getTemplateChoices, UseChoices, type MissingPrep } from '@/components/UseChoices';
 import type { UseChoice } from '@/components/UsePanel';
 import { addPastWork } from '@/db/queries/entryQueries';
 import { getTemplates, type PieceCategory, type Template } from '@/db/queries/pieceQueries';
@@ -309,7 +304,7 @@ export default function AddWorkScreen() {
           <View style={styles.buttonRow}>
             <Pressable
               style={[styles.saveButton, !canSave && styles.buttonDisabled]}
-              onPress={() => confirmTemplateUseUp(usesPrep ? chosenPrep : [], save)}
+              onPress={save}
               disabled={!canSave}
             >
               <Text style={styles.saveButtonText}>Save</Text>

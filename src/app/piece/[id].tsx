@@ -47,7 +47,6 @@ import {
   getActualShare,
   getPrepTime,
   getShareValue,
-  isUsedUp,
   type BatchSize,
   type Share,
   type UseShare,
@@ -239,12 +238,16 @@ function UsesSection({ kind, usedBy, lines, uses, onChange }: UsesSectionProps) 
             style={({ pressed }) => [styles.row, pressed && styles.buttonPressed]}
             onPress={() => setChangingLine(line)}
           >
+            {/* A measured batch's share is exact, so it needs no mark. One with no size is a
+                guess until it's all used, then shows what it really took. */}
             <View style={styles.fill}>
               <Text style={styles.text}>{line.item.name}</Text>
-              <Text style={styles.note}>{line.use.used_up ? 'Actual' : 'Estimated'}</Text>
+              {!line.use.measured && (
+                <Text style={styles.note}>{line.use.used_up ? 'Actual' : 'Estimated'}</Text>
+              )}
             </View>
             <Text style={styles.value}>
-              {line.use.used_up
+              {line.use.used_up && !line.use.measured
                 ? formatPercent(getActualShare(line.use))
                 : formatAmount(line.use, line.item)}
             </Text>
@@ -290,8 +293,11 @@ function UsesSection({ kind, usedBy, lines, uses, onChange }: UsesSectionProps) 
   );
 }
 
-// A prep's uses: each piece's estimate, and once the prep is all used, what it really took.
+// A prep's uses: each piece's estimate, and once the prep is all used, what it really took. A
+// measured prep's uses are exact, so they're what each piece used, with no Actual.
 function UsedBy({ usedBy, usedUp, size }: UsedByProps) {
+  const measured = size.size_amount !== null;
+  const showActual = usedUp && !measured;
   const rows = usedBy.map((use) => ({ ...use, actual_share: getActualShare(use) }));
   const estimatedTotal = rows.reduce((total, row) => total + getShareValue(row), 0);
   const actualTotal = rows.reduce((total, row) => total + row.actual_share, 0);
@@ -310,9 +316,9 @@ function UsedBy({ usedBy, usedUp, size }: UsedByProps) {
           <View style={styles.row}>
             <Text style={[styles.secondaryText, styles.fill]}>Piece</Text>
             <Text style={[styles.secondaryText, styles.numberColumn, styles.estimatedColumn]}>
-              Estimated
+              {measured ? 'Used' : 'Estimated'}
             </Text>
-            {usedUp && (
+            {showActual && (
               <Text style={[styles.secondaryText, styles.numberColumn, styles.actualColumn]}>
                 Actual
               </Text>
@@ -329,7 +335,7 @@ function UsedBy({ usedBy, usedUp, size }: UsedByProps) {
               <Text style={[styles.tableValue, styles.numberColumn, styles.estimatedColumn]}>
                 {formatAmount(row, size)}
               </Text>
-              {usedUp && (
+              {showActual && (
                 <Text style={[styles.tableValue, styles.numberColumn, styles.actualColumn]}>
                   {formatPercent(row.actual_share)}
                 </Text>
@@ -344,7 +350,7 @@ function UsedBy({ usedBy, usedUp, size }: UsedByProps) {
             <Text style={[styles.tableValue, styles.numberColumn, styles.estimatedColumn]}>
               {formatPercent(estimatedTotal)}
             </Text>
-            {usedUp && (
+            {showActual && (
               <Text style={[styles.tableValue, styles.numberColumn, styles.actualColumn]}>
                 {formatPercent(actualTotal)}
               </Text>
@@ -401,7 +407,8 @@ export default function PieceScreen() {
   const cost = getCost(piece.id, usedPrep, usedSupplies);
   const finishedPrep = piece.category === 'prep' && piece.finished_at !== null;
   const usedShare = usedBy.reduce((total, use) => total + getShareValue(use), 0);
-  const usedUp = piece.used_up_at !== null || isUsedUp(usedShare);
+  // Every use carries whether its uses have closed the prep, so the page follows the same rule.
+  const usedUp = piece.used_up_at !== null || usedBy.some((use) => use.used_up === 1);
 
   const prepLines = prepTime.lines.map((line, index): UseLine => {
     const costLine = cost.prepLines[index];
@@ -510,7 +517,11 @@ export default function PieceScreen() {
           <View style={styles.row}>
             <View style={styles.fill}>
               <Text style={styles.text}>All used</Text>
-              <Text style={styles.note}>Its full cost goes to what used it.</Text>
+              <Text style={styles.note}>
+                {piece.size_amount === null
+                  ? 'Its full cost goes to what used it.'
+                  : 'Takes it off the list to pick from.'}
+              </Text>
             </View>
             <Switch
               value={usedUp}

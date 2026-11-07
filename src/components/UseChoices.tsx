@@ -1,13 +1,5 @@
 import { useState } from 'react';
-import {
-  Alert,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-  type StyleProp,
-  type ViewStyle,
-} from 'react-native';
+import { Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { Chevron } from '@/components/Chevron';
 import {
@@ -20,7 +12,7 @@ import {
 import type { PieceCategory } from '@/db/queries/pieceQueries';
 import type { TemplatePrepUse } from '@/db/queries/prepQueries';
 import { colors } from '@/theme';
-import { formatAmount, getShareValue, isPastWhole } from '@/utils/prepTime';
+import { formatAmount } from '@/utils/prepTime';
 
 // A template's prep that's all used or lost with no newer batch, shown so it's clear nothing was added for it.
 export interface MissingPrep {
@@ -55,12 +47,10 @@ export function getTemplateChoices(uses: TemplatePrepUse[]) {
                 id: replacement.id,
                 name: replacement.name,
                 otherUsesShare: replacement.used_share,
-                usedUp: false,
                 size_amount: replacement.size_amount,
                 size_unit: replacement.size_unit,
               },
               share: { share_numerator, share_denominator },
-              fromTemplate: true,
               ...(replacement.id === prep_id ? {} : { note: 'Newer batch' }),
             },
           ]
@@ -74,27 +64,6 @@ export function getTemplateChoices(uses: TemplatePrepUse[]) {
       reason: use.prep_lost ? 'Lost' : 'All used',
     }));
   return { chosen, missing };
-}
-
-// A template's amount hasn't been through the prep panel, which asks before a use goes past 100%,
-// so the form's Save asks instead when one would.
-export function confirmTemplateUseUp(chosen: UseChoice[], save: () => void) {
-  const usingUp = chosen.filter(
-    ({ item, share, fromTemplate }) =>
-      fromTemplate && isPastWhole(item.otherUsesShare + getShareValue(share)),
-  );
-  if (usingUp.length === 0) {
-    save();
-    return;
-  }
-  Alert.alert(
-    `All of ${usingUp.map(({ item }) => item.name).join(' and ')} used?`,
-    "The template's amount brings it past 100%, so saving marks it all used and scales every share to add up to 100%.",
-    [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'All used', onPress: save },
-    ],
-  );
 }
 
 // Prep or supplies used on a piece: the heading, then the list as one card. Each chosen one is
@@ -125,14 +94,9 @@ export function UseChoices({
     setPicking(false);
   }
 
-  // Keeps the line's note and saved use, since only the share changes. The panel has asked
-  // about using it up, so it's no longer the template's amount.
+  // Keeps the line's note and saved use, since only the share changes.
   function change({ item, share }: UseChoice) {
-    onChange(
-      chosen.map((choice) =>
-        choice.item.id === item.id ? { ...choice, share, fromTemplate: false } : choice,
-      ),
-    );
+    onChange(chosen.map((choice) => (choice.item.id === item.id ? { ...choice, share } : choice)));
     setChanging(null);
   }
 
