@@ -23,7 +23,6 @@ import {
   formatUnitAmount,
   formatUsedAmount,
   getShareValue,
-  isPastWhole,
   parseAmount,
   type BatchSize,
   type Share,
@@ -62,11 +61,10 @@ export interface AvailableItem extends BatchSize {
 
 export interface UseChoice {
   // otherUsesShare: every other piece's share of it added together, 1 being all of it.
-  item: { id: number; name: string; otherUsesShare: number; usedUp: boolean } & BatchSize;
+  item: { id: number; name: string; otherUsesShare: number } & BatchSize;
   share: Share;
   note?: string;
   useId?: number;
-  fromTemplate?: boolean;
 }
 
 // A use already saved on the piece, as a choice the panel can change or remove.
@@ -78,7 +76,6 @@ export function getSavedChoice(
     item: {
       ...item,
       otherUsesShare: use.shares_total - getShareValue(use),
-      usedUp: use.used_up === 1,
     },
     share: { share_numerator: use.share_numerator, share_denominator: use.share_denominator },
     useId: use.id,
@@ -150,7 +147,6 @@ export function UsePanel({
       id: item.id,
       name: item.name,
       otherUsesShare: item.used_share,
-      usedUp: false,
       size_amount: item.size_amount,
       size_unit: item.size_unit,
     });
@@ -168,22 +164,7 @@ export function UsePanel({
       );
       return;
     }
-    const choice = { item: chosenItem, share: typedShare };
-    const total = chosenItem.otherUsesShare + getShareValue(typedShare);
-    // Exactly all of it is marked all used without asking, since nothing scales. Past it asks,
-    // since every share scales down.
-    if (chosenItem.usedUp || !isPastWhole(total)) {
-      onSave(choice);
-      return;
-    }
-    Alert.alert(
-      `All of ${chosenItem.name} used?`,
-      `This brings it to ${formatPercent(total)}. Saving marks it all used and scales every share to add up to 100%.`,
-      [
-        { text: 'Change amount', style: 'cancel' },
-        { text: 'All used', onPress: () => onSave(choice) },
-      ],
-    );
+    onSave({ item: chosenItem, share: typedShare });
   }
 
   // The new supply is saved now, whatever happens to this piece, and picked in the list.
