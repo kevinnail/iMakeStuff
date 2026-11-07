@@ -6,7 +6,7 @@ import { Card } from '@/components/Card';
 import { Chevron } from '@/components/Chevron';
 import { EntryTimesPanel } from '@/components/EntryTimesPanel';
 import { PieceEditForm } from '@/components/PieceEditForm';
-import { PrepLeftBar } from '@/components/PrepLeftBar';
+import { AssignedBar } from '@/components/AssignedBar';
 import { Tag } from '@/components/Tag';
 import {
   getSavedChoice,
@@ -20,6 +20,7 @@ import {
   getPieceDetail,
   setPieceLost,
   setPieceTemplate,
+  type PieceCategory,
   type PieceRecord,
 } from '@/db/queries/pieceQueries';
 import {
@@ -92,6 +93,7 @@ interface UseQueries {
 
 interface UsesSectionProps {
   kind: UseKind;
+  usedBy: PieceCategory;
   lines: UseLine[];
   uses: UseQueries;
   onChange: () => Promise<void>;
@@ -205,7 +207,7 @@ function DayTable({ days }: { days: WorkDay[] }) {
 // The heading, then the prep or supplies as one card: a row per use with its share and what it
 // adds to the piece (prep time and cost, or a supply's cost), tapped to change or remove it, and
 // Add prep or Add supply as the last row, the same as on Add Work.
-function UsesSection({ kind, lines, uses, onChange }: UsesSectionProps) {
+function UsesSection({ kind, usedBy, lines, uses, onChange }: UsesSectionProps) {
   const labels = useLabels[kind];
   const [itemList, setItemList] = useState<AvailableItem[] | null>(null);
   const [changingLine, setChangingLine] = useState<UseLine | null>(null);
@@ -237,7 +239,7 @@ function UsesSection({ kind, lines, uses, onChange }: UsesSectionProps) {
           >
             <View style={styles.fill}>
               <Text style={styles.text}>{line.item.name}</Text>
-              <Text style={styles.note}>{line.use.used_up ? 'Used up' : 'Estimated'}</Text>
+              <Text style={styles.note}>{line.use.used_up ? 'Actual' : 'Estimated'}</Text>
             </View>
             <Text style={styles.value}>
               {line.use.used_up ? formatPercent(getActualShare(line.use)) : formatShare(line.use)}
@@ -262,6 +264,7 @@ function UsesSection({ kind, lines, uses, onChange }: UsesSectionProps) {
       {itemList && (
         <UsePanel
           kind={kind}
+          usedBy={usedBy}
           itemList={itemList}
           initial={null}
           onCancel={() => setItemList(null)}
@@ -271,6 +274,7 @@ function UsesSection({ kind, lines, uses, onChange }: UsesSectionProps) {
       {changingLine && (
         <UsePanel
           kind={kind}
+          usedBy={usedBy}
           itemList={null}
           initial={getSavedChoice(changingLine.use, changingLine.item)}
           onCancel={() => setChangingLine(null)}
@@ -282,7 +286,7 @@ function UsesSection({ kind, lines, uses, onChange }: UsesSectionProps) {
   );
 }
 
-// A prep's uses: each piece's estimate, and once the prep is used up, what it really took.
+// A prep's uses: each piece's estimate, and once the prep is all used, what it really took.
 function UsedBy({ usedBy, usedUp }: UsedByProps) {
   const rows = usedBy.map((use) => ({ ...use, actual_share: getActualShare(use) }));
   const estimatedTotal = rows.reduce((total, row) => total + getShareValue(row), 0);
@@ -485,12 +489,15 @@ export default function PieceScreen() {
         cost={cost}
         tag={!piece.finished_at ? 'Unfinished' : piece.lost ? 'Lost' : null}
       />
-      {/* The rows that change the piece: a finished prep's Used up and what's left of it, a
-          finished piece's switches, then Add time. */}
+      {/* The rows that change the piece: a finished prep's All used and how much of it is
+          assigned, a finished piece's switches, then Add time. */}
       <Card>
         {finishedPrep && (
           <View style={styles.row}>
-            <Text style={[styles.text, styles.fill]}>Used up</Text>
+            <View style={styles.fill}>
+              <Text style={styles.text}>All used</Text>
+              <Text style={styles.note}>Its full cost goes to what used it.</Text>
+            </View>
             <Switch
               value={usedUp}
               onValueChange={setUsedUp}
@@ -501,7 +508,7 @@ export default function PieceScreen() {
         {finishedPrep && !piece.lost && (
           <View style={styles.row}>
             <View style={styles.fill}>
-              <PrepLeftBar usedShare={usedShare} usedUp={usedUp} />
+              <AssignedBar usedShare={usedShare} usedUp={usedUp} />
             </View>
           </View>
         )}
@@ -534,11 +541,23 @@ export default function PieceScreen() {
         </Pressable>
       </Card>
       {piece.category === 'piece' ? (
-        <UsesSection kind="prep" lines={prepLines} uses={prepQueries} onChange={load} />
+        <UsesSection
+          kind="prep"
+          usedBy="piece"
+          lines={prepLines}
+          uses={prepQueries}
+          onChange={load}
+        />
       ) : (
         <UsedBy usedBy={usedBy} usedUp={usedUp} />
       )}
-      <UsesSection kind="supply" lines={supplyLines} uses={supplyQueries} onChange={load} />
+      <UsesSection
+        kind="supply"
+        usedBy={piece.category}
+        lines={supplyLines}
+        uses={supplyQueries}
+        onChange={load}
+      />
       {days.length > 1 && <DayTable days={days} />}
       {piece.notes && (
         <Card>
