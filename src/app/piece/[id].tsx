@@ -42,12 +42,13 @@ import {
 import { formatCost, getCost } from '@/utils/cost';
 import { formatClockTime, formatDay, formatDuration } from '@/utils/formatTime';
 import {
+  formatAmount,
   formatPercent,
-  formatShare,
   getActualShare,
   getPrepTime,
   getShareValue,
   isUsedUp,
+  type BatchSize,
   type Share,
   type UseShare,
 } from '@/utils/prepTime';
@@ -80,7 +81,7 @@ interface TotalsProps {
 
 interface UseLine {
   use: UseShare & { id: number };
-  item: { id: number; name: string };
+  item: { id: number; name: string } & BatchSize;
   values: string[];
 }
 
@@ -102,6 +103,7 @@ interface UsesSectionProps {
 interface UsedByProps {
   usedBy: PieceUsingPrep[];
   usedUp: boolean;
+  size: BatchSize;
 }
 
 type DayField = 'worked' | 'otherPieces' | 'onBreak';
@@ -242,7 +244,9 @@ function UsesSection({ kind, usedBy, lines, uses, onChange }: UsesSectionProps) 
               <Text style={styles.note}>{line.use.used_up ? 'Actual' : 'Estimated'}</Text>
             </View>
             <Text style={styles.value}>
-              {line.use.used_up ? formatPercent(getActualShare(line.use)) : formatShare(line.use)}
+              {line.use.used_up
+                ? formatPercent(getActualShare(line.use))
+                : formatAmount(line.use, line.item)}
             </Text>
             <View style={styles.valuesColumn}>
               {line.values.map((value) => (
@@ -287,7 +291,7 @@ function UsesSection({ kind, usedBy, lines, uses, onChange }: UsesSectionProps) 
 }
 
 // A prep's uses: each piece's estimate, and once the prep is all used, what it really took.
-function UsedBy({ usedBy, usedUp }: UsedByProps) {
+function UsedBy({ usedBy, usedUp, size }: UsedByProps) {
   const rows = usedBy.map((use) => ({ ...use, actual_share: getActualShare(use) }));
   const estimatedTotal = rows.reduce((total, row) => total + getShareValue(row), 0);
   const actualTotal = rows.reduce((total, row) => total + row.actual_share, 0);
@@ -323,7 +327,7 @@ function UsedBy({ usedBy, usedUp }: UsedByProps) {
             >
               <Text style={[styles.tableValue, styles.fill]}>{row.piece_name}</Text>
               <Text style={[styles.tableValue, styles.numberColumn, styles.estimatedColumn]}>
-                {formatShare(row)}
+                {formatAmount(row, size)}
               </Text>
               {usedUp && (
                 <Text style={[styles.tableValue, styles.numberColumn, styles.actualColumn]}>
@@ -403,7 +407,12 @@ export default function PieceScreen() {
     const costLine = cost.prepLines[index];
     return {
       use: line,
-      item: { id: line.prep_id, name: line.prep_name },
+      item: {
+        id: line.prep_id,
+        name: line.prep_name,
+        size_amount: line.size_amount,
+        size_unit: line.size_unit,
+      },
       values: [
         formatDuration(line.milliseconds),
         ...(costLine.hasSupplies ? [formatCost(costLine.cents)] : []),
@@ -412,7 +421,12 @@ export default function PieceScreen() {
   });
   const supplyLines = cost.supplyLines.map((line): UseLine => ({
     use: line,
-    item: { id: line.supply_id, name: line.supply_name },
+    item: {
+      id: line.supply_id,
+      name: line.supply_name,
+      size_amount: line.size_amount,
+      size_unit: line.size_unit,
+    },
     values: [formatCost(line.cents)],
   }));
   const prepQueries: UseQueries = {
@@ -508,7 +522,7 @@ export default function PieceScreen() {
         {finishedPrep && !piece.lost && (
           <View style={styles.row}>
             <View style={styles.fill}>
-              <AssignedBar usedShare={usedShare} usedUp={usedUp} />
+              <AssignedBar usedShare={usedShare} usedUp={usedUp} size={piece} />
             </View>
           </View>
         )}
@@ -549,7 +563,7 @@ export default function PieceScreen() {
           onChange={load}
         />
       ) : (
-        <UsedBy usedBy={usedBy} usedUp={usedUp} />
+        <UsedBy usedBy={usedBy} usedUp={usedUp} size={piece} />
       )}
       <UsesSection
         kind="supply"
