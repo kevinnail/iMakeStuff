@@ -20,7 +20,7 @@ import {
 import type { PieceCategory } from '@/db/queries/pieceQueries';
 import type { TemplatePrepUse } from '@/db/queries/prepQueries';
 import { colors } from '@/theme';
-import { formatShare, getShareValue, isPastWhole } from '@/utils/prepTime';
+import { formatAmount, getShareValue, isPastWhole } from '@/utils/prepTime';
 
 // A template's prep that's all used or lost with no newer batch, shown so it's clear nothing was added for it.
 export interface MissingPrep {
@@ -56,6 +56,8 @@ export function getTemplateChoices(uses: TemplatePrepUse[]) {
                 name: replacement.name,
                 otherUsesShare: replacement.used_share,
                 usedUp: false,
+                size_amount: replacement.size_amount,
+                size_unit: replacement.size_unit,
               },
               share: { share_numerator, share_denominator },
               fromTemplate: true,
@@ -162,7 +164,7 @@ export function UseChoices({
               <Text style={styles.text}>{choice.item.name}</Text>
               {choice.note ? <Text style={styles.note}>{choice.note}</Text> : null}
             </View>
-            <Text style={styles.text}>{formatShare(choice.share)}</Text>
+            <Text style={styles.text}>{formatAmount(choice.share, choice.item)}</Text>
             <Chevron />
           </Pressable>
         ))}
