@@ -53,6 +53,8 @@ const finish = {
   notes: 'Cobalt glaze',
   photoFileName: null,
   lost: false,
+  sizeAmount: null,
+  sizeUnit: null,
   supplyUses: [],
 };
 
@@ -102,6 +104,23 @@ beforeEach(async () => {
 });
 
 describe('finishPiece with prep', () => {
+  // Otherwise the points counted at Done would be lost, and pieces couldn't enter theirs in points.
+  it('saves the size given when prep is finished', async () => {
+    await finishPiece(unfinishedPrepId, {
+      ...finish,
+      prepUses: [],
+      sizeAmount: 8,
+      sizeUnit: 'points',
+    });
+
+    expect(
+      await database.getFirstAsync(
+        'SELECT size_amount, size_unit FROM pieces WHERE id = ?',
+        unfinishedPrepId,
+      ),
+    ).toEqual({ size_amount: 8, size_unit: 'points' });
+  });
+
   // Otherwise the prep picked in the panel after Done would be lost when the piece is saved.
   it('saves each prep used with its share and the prep worked time', async () => {
     await finishPiece(vaseId, { ...finish, prepUses: [use(caneId, 25), use(fritId, 10)] });
@@ -114,6 +133,8 @@ describe('finishPiece with prep', () => {
         piece_id: vaseId,
         prep_id: caneId,
         prep_name: 'Dichroic cane',
+        size_amount: null,
+        size_unit: null,
         ...share(25),
         used_up: 0,
         shares_total: 0.25,
@@ -124,6 +145,8 @@ describe('finishPiece with prep', () => {
         piece_id: vaseId,
         prep_id: fritId,
         prep_name: 'Frit mix',
+        size_amount: null,
+        size_unit: null,
         ...share(10),
         used_up: 0,
         shares_total: 0.1,
@@ -203,7 +226,7 @@ describe('lost prep and lost pieces', () => {
       "Only finished prep that isn't all used or lost can be added.",
     );
     expect(await getAvailablePrep(vaseId)).toEqual([
-      { id: fritId, name: 'Frit mix', used_share: 0 },
+      { id: fritId, name: 'Frit mix', size_amount: null, size_unit: null, used_share: 0 },
     ]);
   });
 
@@ -263,8 +286,8 @@ describe('setPrepUsedUp', () => {
     expect(await getUsedUpAt(caneId)).toBeNull();
     expect(await getActualPercents(caneId)).toEqual([25]);
     expect(await getAvailablePrep(bowlId)).toEqual([
-      { id: fritId, name: 'Frit mix', used_share: 0 },
-      { id: caneId, name: 'Dichroic cane', used_share: 0.25 },
+      { id: fritId, name: 'Frit mix', size_amount: null, size_unit: null, used_share: 0 },
+      { id: caneId, name: 'Dichroic cane', size_amount: null, size_unit: null, used_share: 0.25 },
     ]);
   });
 
@@ -289,10 +312,10 @@ describe('getAvailablePrep', () => {
     await addPrepUse(vaseId, use(fritId, 10));
 
     expect(await getAvailablePrep(vaseId)).toEqual([
-      { id: caneId, name: 'Dichroic cane', used_share: 0.3 },
+      { id: caneId, name: 'Dichroic cane', size_amount: null, size_unit: null, used_share: 0.3 },
     ]);
     expect(await getAvailablePrep(bowlId)).toEqual([
-      { id: fritId, name: 'Frit mix', used_share: 0.1 },
+      { id: fritId, name: 'Frit mix', size_amount: null, size_unit: null, used_share: 0.1 },
     ]);
   });
 });
@@ -315,7 +338,7 @@ describe('shares reaching 100%', () => {
     expect(await isUsedUp(caneId)).toBe(true);
     expect(await getActualPercents(caneId)).toEqual([25, 25, 50]);
     expect(await getAvailablePrep(cupId)).toEqual([
-      { id: fritId, name: 'Frit mix', used_share: 0 },
+      { id: fritId, name: 'Frit mix', size_amount: null, size_unit: null, used_share: 0 },
     ]);
   });
 
@@ -391,7 +414,7 @@ describe('shares reaching 100%', () => {
 
     expect(await isUsedUp(caneId)).toBe(true);
     expect(await getAvailablePrep(cupId)).toEqual([
-      { id: fritId, name: 'Frit mix', used_share: 0 },
+      { id: fritId, name: 'Frit mix', size_amount: null, size_unit: null, used_share: 0 },
     ]);
     await expect(setPrepUsedUp(caneId, false)).rejects.toThrow(
       'Its uses add up to 100%. Lower one to turn All used off.',
@@ -430,8 +453,8 @@ describe('shares reaching 100%', () => {
     expect(await isUsedUp(caneId)).toBe(false);
     expect(await getActualPercents(caneId)).toEqual([50]);
     expect(await getAvailablePrep(cupId)).toEqual([
-      { id: fritId, name: 'Frit mix', used_share: 0 },
-      { id: caneId, name: 'Dichroic cane', used_share: 0.5 },
+      { id: fritId, name: 'Frit mix', size_amount: null, size_unit: null, used_share: 0 },
+      { id: caneId, name: 'Dichroic cane', size_amount: null, size_unit: null, used_share: 0.5 },
     ]);
   });
 
@@ -569,14 +592,26 @@ describe('getTemplatePrep', () => {
         prep_name: 'Dichroic cane',
         prep_lost: 0,
         ...share(30),
-        replacement: { id: newCaneId, name: 'Dichroic cane', used_share: 0 },
+        replacement: {
+          id: newCaneId,
+          name: 'Dichroic cane',
+          size_amount: null,
+          size_unit: null,
+          used_share: 0,
+        },
       },
       {
         prep_id: fritId,
         prep_name: 'Frit mix',
         prep_lost: 0,
         ...share(20),
-        replacement: { id: fritId, name: 'Frit mix', used_share: 0.2 },
+        replacement: {
+          id: fritId,
+          name: 'Frit mix',
+          size_amount: null,
+          size_unit: null,
+          used_share: 0.2,
+        },
       },
     ]);
   });
@@ -633,6 +668,22 @@ describe('startFromTemplate', () => {
       finished_at: '2026-10-30T17:00:00.000Z',
       photo_file_name: 'bowl.jpg',
     });
+  });
+
+  // Otherwise every new batch of points would need its size typed again before it could be used.
+  it('copies a prep template size and unit', async () => {
+    await database.execAsync(
+      `UPDATE pieces SET is_template = 1, size_amount = 8, size_unit = 'points' WHERE id = ${caneId}`,
+    );
+
+    const prepId = await startFromTemplate(caneId);
+
+    expect(
+      await database.getFirstAsync(
+        'SELECT size_amount, size_unit FROM pieces WHERE id = ?',
+        prepId,
+      ),
+    ).toEqual({ size_amount: 8, size_unit: 'points' });
   });
 
   // Otherwise any piece could be started as a copy, bypassing the switch that picks which ones are offered.
