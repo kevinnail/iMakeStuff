@@ -91,7 +91,7 @@ export async function insertPrepUse(
     prepId,
   );
   if (result.changes === 0)
-    throw new Error("Only finished prep that isn't used up or lost can be used.");
+    throw new Error("Only finished prep that isn't all used or lost can be added.");
 }
 
 // The prep one piece used, or with no piece given, the prep every piece used.
@@ -209,7 +209,7 @@ export async function setPrepUsedUp(prepId: number, usedUp: boolean): Promise<vo
     usedUp ? 1 : 0,
   );
   if (result.changes > 0) return;
-  if (usedUp) throw new Error("Only finished prep that isn't used up can be marked used up.");
+  if (usedUp) throw new Error("Only finished prep that isn't all used yet can be marked all used.");
   // The failure needs its reason: not used up, or shares that keep it used up.
   const shares = await database.getFirstAsync<{ total: number }>(
     `SELECT total(${shareSql}) AS total FROM prep_uses WHERE prep_id = ?`,
@@ -217,7 +217,7 @@ export async function setPrepUsedUp(prepId: number, usedUp: boolean): Promise<vo
   );
   const total = shares?.total ?? 0;
   if (isUsedUp(total)) {
-    throw new Error(`Its uses add up to ${formatPercent(total)}. Lower one to put it back in use.`);
+    throw new Error(`Its uses add up to ${formatPercent(total)}. Lower one to turn All used off.`);
   }
-  throw new Error("That prep isn't used up.");
+  throw new Error("That prep isn't marked all used.");
 }
