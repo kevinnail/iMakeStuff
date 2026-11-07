@@ -14,11 +14,13 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { JoinedButtons } from '@/components/JoinedButtons';
+import { getSizeTexts, readSize, SizeField, sizeError } from '@/components/SizeField';
 import { confirmTemplateUseUp, UseChoices, type MissingPrep } from '@/components/UseChoices';
 import type { AvailableItem, UseChoice } from '@/components/UsePanel';
 import type { FinishPrepUse } from '@/db/queries/prepQueries';
 import type { FinishSupplyUse } from '@/db/queries/supplyQueries';
 import { colors } from '@/theme';
+import type { BatchSize, SizeInput } from '@/utils/prepTime';
 
 interface FinishPiecePanelProps {
   pieceName: string;
@@ -30,12 +32,15 @@ interface FinishPiecePanelProps {
   missingPrep: MissingPrep[];
   availableSupplies: AvailableItem[];
   initialSupplies: UseChoice[];
+  // Prep's size so far, from its template if it has one.
+  initialSize: BatchSize;
   onCancel: () => void;
   onSave: (
     notes: string | null,
     lost: boolean,
     prepUses: FinishPrepUse[],
     supplyUses: FinishSupplyUse[],
+    size: SizeInput,
   ) => Promise<void>;
 }
 
@@ -61,6 +66,7 @@ export function FinishPiecePanel({
   missingPrep,
   availableSupplies,
   initialSupplies,
+  initialSize,
   onCancel,
   onSave,
 }: FinishPiecePanelProps) {
@@ -68,11 +74,20 @@ export function FinishPiecePanel({
   const [notes, setNotes] = useState('');
   const [chosenPrep, setChosenPrep] = useState(initialPrep);
   const [chosenSupplies, setChosenSupplies] = useState(initialSupplies);
+  const [sizeTexts, setSizeTexts] = useState(() => getSizeTexts(initialSize));
+  const finishingPrep = availablePrep === null;
   const [saving, setSaving] = useState(false);
   const trimmedNotes = notes.trim();
   const canSave = !saving && (photoUri !== null || trimmedNotes !== '');
 
   function save() {
+    const size = finishingPrep
+      ? readSize(sizeTexts.amountText, sizeTexts.unitText)
+      : { sizeAmount: null, sizeUnit: null };
+    if (size === null) {
+      Alert.alert(sizeError);
+      return;
+    }
     setSaving(true);
     // A use already on the piece keeps its id, so it's changed rather than added again.
     const prepUses = chosenPrep.map(({ item, share, useId }) => ({
@@ -85,10 +100,12 @@ export function FinishPiecePanel({
       share,
       useId,
     }));
-    onSave(trimmedNotes || null, outcome === 'lost', prepUses, supplyUses).catch((error: Error) => {
-      setSaving(false);
-      Alert.alert('Could not save', error.message);
-    });
+    onSave(trimmedNotes || null, outcome === 'lost', prepUses, supplyUses, size).catch(
+      (error: Error) => {
+        setSaving(false);
+        Alert.alert('Could not save', error.message);
+      },
+    );
   }
 
   return (
@@ -125,6 +142,14 @@ export function FinishPiecePanel({
                 missing={missingPrep}
                 onChange={setChosenPrep}
                 style={styles.useCard}
+              />
+            )}
+            {finishingPrep && (
+              <SizeField
+                amountText={sizeTexts.amountText}
+                unitText={sizeTexts.unitText}
+                onChangeAmount={(amountText) => setSizeTexts({ ...sizeTexts, amountText })}
+                onChangeUnit={(unitText) => setSizeTexts({ ...sizeTexts, unitText })}
               />
             )}
             <UseChoices
