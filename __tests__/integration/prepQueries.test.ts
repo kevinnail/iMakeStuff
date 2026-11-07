@@ -136,7 +136,7 @@ describe('finishPiece with prep', () => {
   it('leaves the piece unfinished when a prep use is rejected', async () => {
     await expect(
       finishPiece(vaseId, { ...finish, prepUses: [use(caneId, 25), use(unfinishedPrepId, 10)] }),
-    ).rejects.toThrow("Only finished prep that isn't used up or lost can be used.");
+    ).rejects.toThrow("Only finished prep that isn't all used or lost can be added.");
 
     const detail = await getPieceDetail(vaseId);
     expect(detail?.piece.finished_at).toBeNull();
@@ -179,7 +179,7 @@ describe('addPrepUse', () => {
     ['unfinished prep', unfinishedPrepId],
   ])('rejects using %s as prep', async (_kind, prepId) => {
     await expect(addPrepUse(vaseId, use(prepId, 25))).rejects.toThrow(
-      "Only finished prep that isn't used up or lost can be used.",
+      "Only finished prep that isn't all used or lost can be added.",
     );
     expect((await getPieceDetail(vaseId))?.usedPrep).toEqual([]);
   });
@@ -189,7 +189,7 @@ describe('addPrepUse', () => {
     await setPrepUsedUp(caneId, true);
 
     await expect(addPrepUse(vaseId, use(caneId, 25))).rejects.toThrow(
-      "Only finished prep that isn't used up or lost can be used.",
+      "Only finished prep that isn't all used or lost can be added.",
     );
   });
 });
@@ -200,7 +200,7 @@ describe('lost prep and lost pieces', () => {
     await setPieceLost(caneId, true);
 
     await expect(addPrepUse(vaseId, use(caneId, 25))).rejects.toThrow(
-      "Only finished prep that isn't used up or lost can be used.",
+      "Only finished prep that isn't all used or lost can be added.",
     );
     expect(await getAvailablePrep(vaseId)).toEqual([
       { id: fritId, name: 'Frit mix', used_share: 0 },
@@ -273,12 +273,12 @@ describe('setPrepUsedUp', () => {
     await setPrepUsedUp(caneId, true);
 
     await expect(setPrepUsedUp(caneId, true)).rejects.toThrow(
-      "Only finished prep that isn't used up can be marked used up.",
+      "Only finished prep that isn't all used yet can be marked all used.",
     );
     await expect(setPrepUsedUp(unfinishedPrepId, true)).rejects.toThrow(
-      "Only finished prep that isn't used up can be marked used up.",
+      "Only finished prep that isn't all used yet can be marked all used.",
     );
-    await expect(setPrepUsedUp(fritId, false)).rejects.toThrow("That prep isn't used up.");
+    await expect(setPrepUsedUp(fritId, false)).rejects.toThrow("That prep isn't marked all used.");
   });
 });
 
@@ -394,7 +394,7 @@ describe('shares reaching 100%', () => {
       { id: fritId, name: 'Frit mix', used_share: 0 },
     ]);
     await expect(setPrepUsedUp(caneId, false)).rejects.toThrow(
-      'Its uses add up to 100%. Lower one to put it back in use.',
+      'Its uses add up to 100%. Lower one to turn All used off.',
     );
   });
 
@@ -404,7 +404,7 @@ describe('shares reaching 100%', () => {
     await addPrepUse(bowlId, use(caneId, 50));
 
     await expect(setPrepUsedUp(caneId, false)).rejects.toThrow(
-      'Its uses add up to 100%. Lower one to put it back in use.',
+      'Its uses add up to 100%. Lower one to turn All used off.',
     );
     expect(await isUsedUp(caneId)).toBe(true);
   });
