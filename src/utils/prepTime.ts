@@ -57,6 +57,12 @@ export function isUsedUp(sharesTotal: number) {
   return sharesTotal >= wholeShare;
 }
 
+// Shares past all of it, so marking it all used scales every share down. Exactly all of it
+// scales nothing, with the same tolerance as isUsedUp.
+export function isPastWhole(sharesTotal: number) {
+  return sharesTotal - 1 > 1 - wholeShare;
+}
+
 // Times show as whole minutes, rounded down.
 function wholeMinutes(milliseconds: number) {
   return Math.floor(milliseconds / minute) * minute;
