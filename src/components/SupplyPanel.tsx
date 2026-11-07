@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { CountField, getCountTexts, noCount, readCount } from '@/components/CountField';
 import type { SupplyDetails, SupplyRecord } from '@/db/queries/supplyQueries';
 import { colors } from '@/theme';
 import { parseCost } from '@/utils/cost';
@@ -21,9 +22,13 @@ interface SupplyPanelProps {
   onSave: (details: SupplyDetails) => Promise<void>;
 }
 
+// A supply's name, its cost, and what it holds when it's counted, like a box of 16 tubes.
 export function SupplyPanel({ initial, onCancel, onSave }: SupplyPanelProps) {
   const [name, setName] = useState(initial?.name ?? '');
   const [costText, setCostText] = useState(initial ? (initial.cost_cents / 100).toFixed(2) : '');
+  const [countTexts, setCountTexts] = useState(() =>
+    getCountTexts(initial ?? { size_amount: null, size_unit: null }),
+  );
   const [saving, setSaving] = useState(false);
   const trimmedName = name.trim();
   const canSave = !saving && trimmedName !== '' && costText.trim() !== '';
@@ -34,8 +39,14 @@ export function SupplyPanel({ initial, onCancel, onSave }: SupplyPanelProps) {
       Alert.alert('Enter a cost like 40 or 12.50.');
       return;
     }
+    const noCountTyped = countTexts.amountText.trim() === '' && countTexts.unitText.trim() === '';
+    const count = noCountTyped ? noCount : readCount(countTexts);
+    if (count === null) {
+      Alert.alert('Enter what it holds, like 16 tubes, or leave both empty.');
+      return;
+    }
     setSaving(true);
-    onSave({ name: trimmedName, costCents }).catch((error: Error) => {
+    onSave({ name: trimmedName, costCents, ...count }).catch((error: Error) => {
       setSaving(false);
       Alert.alert('Could not save', error.message);
     });
@@ -64,6 +75,14 @@ export function SupplyPanel({ initial, onCancel, onSave }: SupplyPanelProps) {
               keyboardType="decimal-pad"
             />
           </View>
+          <CountField
+            label="Holds"
+            amountPlaceholder="16"
+            unitPlaceholder="tubes"
+            note="Leave empty for one thing used by eye, like a rod."
+            texts={countTexts}
+            onChange={setCountTexts}
+          />
           <View style={styles.buttonRow}>
             <Pressable style={styles.textButton} onPress={onCancel}>
               <Text style={styles.textButtonText}>Cancel</Text>
