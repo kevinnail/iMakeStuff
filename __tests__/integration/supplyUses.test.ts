@@ -120,7 +120,7 @@ describe('finishPiece with supplies', () => {
 
     await expect(
       finishPiece(vaseId, { ...finish, supplyUses: [supplyUse(tubeId, 1, 4)] }),
-    ).rejects.toThrow("Only a supply that isn't used up can be used.");
+    ).rejects.toThrow("Only a supply that isn't all used can be added.");
     expect((await getPieceDetail(vaseId))?.piece.finished_at).toBeNull();
   });
 
@@ -150,7 +150,7 @@ describe('addSupplyUse', () => {
 
     for (const supplyId of [bailId, tubeId]) {
       await expect(addSupplyUse(caneId, supplyUse(supplyId, 1, 8))).rejects.toThrow(
-        "Only a supply that isn't used up can be used.",
+        "Only a supply that isn't all used can be added.",
       );
     }
     expect(await getAvailableSupplies(caneId)).toEqual([]);
@@ -269,7 +269,7 @@ describe('setSupplyUsedUp with uses', () => {
     await addSupplyUse(bowlId, supplyUse(tubeId, 1, 2));
 
     await expect(setSupplyUsedUp(tubeId, false)).rejects.toThrow(
-      'Its uses add up to 100%. Lower one to put it back in use.',
+      'Its uses add up to 100%. Lower one to turn All used off.',
     );
   });
 });
