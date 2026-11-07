@@ -18,8 +18,8 @@ import { formatCost } from '@/utils/cost';
 import { formatDay } from '@/utils/formatTime';
 import { showError } from '@/utils/showError';
 
-// A supply's cost and the day it was added, Edit to change them, All used with how much of its
-// cost is assigned, and Delete supply.
+// A supply's cost, what a counted one holds, and the day it was added, Edit to change them, All
+// used with how much of a by eye one's cost is assigned, and Delete supply.
 export default function SupplyScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const supplyId = Number(id);
@@ -96,29 +96,52 @@ export default function SupplyScreen() {
           <Text style={[styles.text, styles.fill]}>Cost</Text>
           <Text style={styles.value}>{formatCost(supply.cost_cents)}</Text>
         </View>
+        {supply.size_amount !== null && (
+          <View style={styles.row}>
+            <Text style={[styles.text, styles.fill]}>Holds</Text>
+            <Text style={styles.value}>
+              {supply.size_amount} {supply.size_unit}
+            </Text>
+          </View>
+        )}
+        {supply.size_amount !== null && (
+          <View style={styles.row}>
+            <Text style={[styles.text, styles.fill]}>Cost per part</Text>
+            <Text style={styles.value}>
+              {formatCost(Math.round(supply.cost_cents / supply.size_amount))}
+            </Text>
+          </View>
+        )}
         <View style={styles.row}>
           <Text style={[styles.text, styles.fill]}>Added</Text>
           <Text style={styles.value}>{formatDay(Date.parse(supply.created_at))}</Text>
         </View>
       </Card>
-      <Card>
-        <View style={styles.row}>
-          <View style={styles.fill}>
-            <Text style={styles.text}>All used</Text>
-            <Text style={styles.note}>Its full cost goes to what used it.</Text>
-          </View>
-          <Switch value={usedUp} onValueChange={setUsedUp} trackColor={{ true: colors.primary }} />
-        </View>
-        <View style={styles.row}>
-          <View style={styles.fill}>
-            <AssignedBar
-              usedShare={supply.used_share}
-              usedUp={usedUp}
-              costCents={supply.cost_cents}
+      {/* A counted supply never closes, so only a by eye one has All used. */}
+      {supply.size_amount === null && (
+        <Card>
+          <View style={styles.row}>
+            <View style={styles.fill}>
+              <Text style={styles.text}>All used</Text>
+              <Text style={styles.note}>Its full cost goes to what used it.</Text>
+            </View>
+            <Switch
+              value={usedUp}
+              onValueChange={setUsedUp}
+              trackColor={{ true: colors.primary }}
             />
           </View>
-        </View>
-      </Card>
+          <View style={styles.row}>
+            <View style={styles.fill}>
+              <AssignedBar
+                usedShare={supply.used_share}
+                usedUp={usedUp}
+                costCents={supply.cost_cents}
+              />
+            </View>
+          </View>
+        </Card>
+      )}
       <Card>
         <Pressable
           style={({ pressed }) => [styles.row, pressed && styles.buttonPressed]}
