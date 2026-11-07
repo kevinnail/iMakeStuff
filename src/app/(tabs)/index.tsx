@@ -105,7 +105,12 @@ async function loadFinishPrep(piece: UnfinishedPiece) {
     piece.template_id === null ? [] : getTemplatePrep(piece.template_id),
   ]);
   const savedPrep = usedPrep.map((use) =>
-    getSavedChoice(use, { id: use.prep_id, name: use.prep_name }),
+    getSavedChoice(use, {
+      id: use.prep_id,
+      name: use.prep_name,
+      size_amount: use.size_amount,
+      size_unit: use.size_unit,
+    }),
   );
   const template = getTemplateChoices(
     templateUses.filter((use) => !usedPrep.some((saved) => saved.prep_name === use.prep_name)),
@@ -129,7 +134,12 @@ async function loadFinishUses(piece: UnfinishedPiece) {
     ...prep,
     availableSupplies,
     initialSupplies: usedSupplies.map((use) =>
-      getSavedChoice(use, { id: use.supply_id, name: use.supply_name }),
+      getSavedChoice(use, {
+        id: use.supply_id,
+        name: use.supply_name,
+        size_amount: use.size_amount,
+        size_unit: use.size_unit,
+      }),
     ),
   };
 }
@@ -323,8 +333,9 @@ export default function WorkScreen() {
       missingPrep={finishing.missingPrep}
       availableSupplies={finishing.availableSupplies}
       initialSupplies={finishing.initialSupplies}
+      initialSize={finishing.piece}
       onCancel={() => setFinishing(null)}
-      onSave={(notes, lost, prepUses, supplyUses) =>
+      onSave={(notes, lost, prepUses, supplyUses, size) =>
         finish(finishing.piece.id, {
           notes,
           cameraPhotoUri: finishing.cameraPhotoUri,
@@ -332,6 +343,7 @@ export default function WorkScreen() {
           lost,
           prepUses,
           supplyUses,
+          ...size,
         }).then(() => setFinishing(null))
       }
     />
