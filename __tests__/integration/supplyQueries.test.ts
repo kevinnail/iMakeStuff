@@ -13,24 +13,24 @@ jest.mock('@/db/database', () => ({
   getDb: jest.fn(),
 }));
 
-const tube = { name: '5 ft tube', costCents: 4000, boughtAt: '2026-11-01T17:00:00.000Z' };
-const bail = { name: 'Silver bail', costCents: 300, boughtAt: '2026-11-03T17:00:00.000Z' };
+const tube = { name: '5 ft tube', costCents: 4000 };
+const bail = { name: 'Silver bail', costCents: 300 };
 
 beforeEach(() => {
   (getDb as jest.Mock).mockResolvedValue(createTestDb());
 });
 
 describe('addSupply', () => {
-  // Otherwise a supply added from the panel would be missing from the list or carry the wrong cost.
-  it('saves its name, cost in cents, and the day it was bought', async () => {
+  // Otherwise a supply added from the panel would be missing from the list, carry the wrong cost, or lose when its price was entered.
+  it('saves its name, cost in cents, and when it was added', async () => {
     const supplyId = await addSupply(tube);
 
     expect(await getSupply(supplyId)).toEqual({
       id: supplyId,
       name: '5 ft tube',
       cost_cents: 4000,
-      bought_at: '2026-11-01T17:00:00.000Z',
       used_up_at: null,
+      created_at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
       used_share: 0,
       used_up: 0,
       prep_count: 0,
@@ -52,32 +52,24 @@ describe('addSupply', () => {
 
 describe('getSupplies', () => {
   // Otherwise a used-up tube would sit above the ones that can still be used.
-  it('lists supplies that can be used first, newest bought first', async () => {
+  it('lists supplies that can be used first, newest first', async () => {
     const tubeId = await addSupply(tube);
     const bailId = await addSupply(bail);
-    const olderTubeId = await addSupply({ ...tube, boughtAt: '2026-10-01T17:00:00.000Z' });
+    const newerTubeId = await addSupply(tube);
     await setSupplyUsedUp(bailId, true);
 
-    expect((await getSupplies()).map((supply) => supply.id)).toEqual([tubeId, olderTubeId, bailId]);
+    expect((await getSupplies()).map((supply) => supply.id)).toEqual([newerTubeId, tubeId, bailId]);
   });
 });
 
 describe('updateSupply', () => {
   // Otherwise a cost typed wrong when the supply was added could never be corrected.
-  it('changes its name, cost, and the day it was bought', async () => {
+  it('changes its name and cost', async () => {
     const supplyId = await addSupply(tube);
 
-    await updateSupply(supplyId, {
-      name: '4 ft tube',
-      costCents: 3550,
-      boughtAt: '2026-10-30T17:00:00.000Z',
-    });
+    await updateSupply(supplyId, { name: '4 ft tube', costCents: 3550 });
 
-    expect(await getSupply(supplyId)).toMatchObject({
-      name: '4 ft tube',
-      cost_cents: 3550,
-      bought_at: '2026-10-30T17:00:00.000Z',
-    });
+    expect(await getSupply(supplyId)).toMatchObject({ name: '4 ft tube', cost_cents: 3550 });
   });
 
   // Otherwise a stale page could report a change to a deleted supply as saved.
