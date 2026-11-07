@@ -25,6 +25,9 @@ jest.mock('@/db/database', () => ({
 const hour = 60 * 60 * 1000;
 const minute = 60 * 1000;
 
+const addPrepError =
+  "Only finished prep that isn't all used or lost can be added, and counted prep only by its template.";
+
 // Two finished preps (4h 40m and 2h worked), an unfinished prep, and two pieces.
 const caneId = 1;
 const fritId = 2;
@@ -53,6 +56,7 @@ const finish = {
   notes: 'Cobalt glaze',
   photoFileName: null,
   lost: false,
+  isTemplate: false,
   sizeAmount: null,
   sizeUnit: null,
   supplyUses: [],
@@ -140,6 +144,7 @@ describe('finishPiece with prep', () => {
         measured: 0,
         shares_total: 0.25,
         prep_worked_milliseconds: 4 * hour + 40 * minute,
+        prep_cost_cents: null,
       },
       {
         id: expect.any(Number),
@@ -153,6 +158,7 @@ describe('finishPiece with prep', () => {
         measured: 0,
         shares_total: 0.1,
         prep_worked_milliseconds: 2 * hour,
+        prep_cost_cents: null,
       },
     ]);
   });
@@ -161,7 +167,7 @@ describe('finishPiece with prep', () => {
   it('leaves the piece unfinished when a prep use is rejected', async () => {
     await expect(
       finishPiece(vaseId, { ...finish, prepUses: [use(caneId, 25), use(unfinishedPrepId, 10)] }),
-    ).rejects.toThrow("Only finished prep that isn't all used or lost can be added.");
+    ).rejects.toThrow(addPrepError);
 
     const detail = await getPieceDetail(vaseId);
     expect(detail?.piece.finished_at).toBeNull();
@@ -203,9 +209,7 @@ describe('addPrepUse', () => {
     ['a piece', bowlId],
     ['unfinished prep', unfinishedPrepId],
   ])('rejects using %s as prep', async (_kind, prepId) => {
-    await expect(addPrepUse(vaseId, use(prepId, 25))).rejects.toThrow(
-      "Only finished prep that isn't all used or lost can be added.",
-    );
+    await expect(addPrepUse(vaseId, use(prepId, 25))).rejects.toThrow(addPrepError);
     expect((await getPieceDetail(vaseId))?.usedPrep).toEqual([]);
   });
 
@@ -213,9 +217,7 @@ describe('addPrepUse', () => {
   it('rejects a new use on used-up prep', async () => {
     await setPrepUsedUp(caneId, true);
 
-    await expect(addPrepUse(vaseId, use(caneId, 25))).rejects.toThrow(
-      "Only finished prep that isn't all used or lost can be added.",
-    );
+    await expect(addPrepUse(vaseId, use(caneId, 25))).rejects.toThrow(addPrepError);
   });
 });
 
@@ -224,11 +226,16 @@ describe('lost prep and lost pieces', () => {
   it('rejects a use of lost prep and leaves it out of Add prep', async () => {
     await setPieceLost(caneId, true);
 
-    await expect(addPrepUse(vaseId, use(caneId, 25))).rejects.toThrow(
-      "Only finished prep that isn't all used or lost can be added.",
-    );
+    await expect(addPrepUse(vaseId, use(caneId, 25))).rejects.toThrow(addPrepError);
     expect(await getAvailablePrep(vaseId)).toEqual([
-      { id: fritId, name: 'Frit mix', size_amount: null, size_unit: null, used_share: 0 },
+      {
+        id: fritId,
+        name: 'Frit mix',
+        size_amount: null,
+        size_unit: null,
+        used_share: 0,
+        cost_cents: null,
+      },
     ]);
   });
 
@@ -288,8 +295,22 @@ describe('setPrepUsedUp', () => {
     expect(await getUsedUpAt(caneId)).toBeNull();
     expect(await getActualPercents(caneId)).toEqual([25]);
     expect(await getAvailablePrep(bowlId)).toEqual([
-      { id: fritId, name: 'Frit mix', size_amount: null, size_unit: null, used_share: 0 },
-      { id: caneId, name: 'Dichroic cane', size_amount: null, size_unit: null, used_share: 0.25 },
+      {
+        id: fritId,
+        name: 'Frit mix',
+        size_amount: null,
+        size_unit: null,
+        used_share: 0,
+        cost_cents: null,
+      },
+      {
+        id: caneId,
+        name: 'Dichroic cane',
+        size_amount: null,
+        size_unit: null,
+        used_share: 0.25,
+        cost_cents: null,
+      },
     ]);
   });
 
@@ -314,10 +335,24 @@ describe('getAvailablePrep', () => {
     await addPrepUse(vaseId, use(fritId, 10));
 
     expect(await getAvailablePrep(vaseId)).toEqual([
-      { id: caneId, name: 'Dichroic cane', size_amount: null, size_unit: null, used_share: 0.3 },
+      {
+        id: caneId,
+        name: 'Dichroic cane',
+        size_amount: null,
+        size_unit: null,
+        used_share: 0.3,
+        cost_cents: null,
+      },
     ]);
     expect(await getAvailablePrep(bowlId)).toEqual([
-      { id: fritId, name: 'Frit mix', size_amount: null, size_unit: null, used_share: 0.1 },
+      {
+        id: fritId,
+        name: 'Frit mix',
+        size_amount: null,
+        size_unit: null,
+        used_share: 0.1,
+        cost_cents: null,
+      },
     ]);
   });
 });
@@ -325,15 +360,6 @@ describe('getAvailablePrep', () => {
 describe('closing a batch', () => {
   const cupId = 6;
   const firstBeadId = 10;
-
-  // Prep with a size is measured: the cane becomes 8 points.
-  async function measureCane(sizeAmount = 8) {
-    await database.runAsync(
-      "UPDATE pieces SET size_amount = ?, size_unit = 'points' WHERE id = ?",
-      sizeAmount,
-      caneId,
-    );
-  }
 
   async function addBeads(count: number) {
     await database.execAsync(`
@@ -350,7 +376,7 @@ describe('closing a batch', () => {
   });
 
   // Otherwise guesses on a cane that runs long would close it at 100% and refuse the next piece.
-  it('leaves prep with no size open at 100% and past it, taking another use', async () => {
+  it('leaves by eye prep open at 100% and past it, taking another use', async () => {
     await addPrepUse(vaseId, use(caneId, 25));
     await addPrepUse(bowlId, use(caneId, 25));
     await addPrepUse(cupId, use(caneId, 50));
@@ -362,7 +388,7 @@ describe('closing a batch', () => {
   });
 
   // Otherwise closing a cane that ran past its guesses would put more than its time on its pieces.
-  it('scales the shares of prep with no size to 100% when its switch closes it', async () => {
+  it('scales the shares of by eye prep to 100% when its switch closes it', async () => {
     await addPrepUse(vaseId, use(caneId, 75));
     await addPrepUse(bowlId, use(caneId, 50));
 
@@ -372,7 +398,7 @@ describe('closing a batch', () => {
   });
 
   // Otherwise a cane past 100% could never be opened again for one more piece.
-  it('turns All used off on prep with no size past 100%', async () => {
+  it('turns All used off on by eye prep past 100%', async () => {
     await addPrepUse(vaseId, use(caneId, 75));
     await addPrepUse(bowlId, use(caneId, 50));
     await setPrepUsedUp(caneId, true);
@@ -383,7 +409,7 @@ describe('closing a batch', () => {
   });
 
   // Otherwise a cane one piece took all of would stay open and keep its cost marked estimated.
-  it('closes prep with no size on one use of all of it, and refuses to turn it off', async () => {
+  it('closes by eye prep on one use of all of it, and refuses to turn it off', async () => {
     await addPrepUse(vaseId, use(caneId, 100));
 
     expect(await isUsedUp(caneId)).toBe(true);
@@ -392,102 +418,45 @@ describe('closing a batch', () => {
     );
   });
 
-  // Otherwise points pulled from a tube would never close, or close a point early.
-  it('closes a measured prep on the eighth point and not the seventh', async () => {
-    await measureCane();
-    await addBeads(8);
+  // Otherwise a whole cane entered by mistake could never be given back to Add prep.
+  it('opens prep again when a use of all of it is lowered', async () => {
+    await addPrepUse(vaseId, use(caneId, 100));
 
-    for (let index = 0; index < 7; index++) {
-      await addPrepUse(firstBeadId + index, use(caneId, 1, 8));
-    }
-    expect(await isUsedUp(caneId)).toBe(false);
-
-    await addPrepUse(firstBeadId + 7, use(caneId, 1, 8));
-    expect(await isUsedUp(caneId)).toBe(true);
-    expect(await getActualPercents(caneId)).toEqual(Array(8).fill(12.5));
-  });
-
-  // Otherwise ten uses of 1/10 would add to just under the whole prep in floating point and leave it open.
-  it('closes a measured prep after ten uses of 1/10', async () => {
-    await measureCane(10);
-    await addBeads(10);
-
-    for (let index = 0; index < 10; index++) {
-      await addPrepUse(firstBeadId + index, use(caneId, 1, 10));
-    }
-
-    expect(await isUsedUp(caneId)).toBe(true);
-    expect(await getAvailablePrep(cupId)).toEqual([
-      { id: fritId, name: 'Frit mix', size_amount: null, size_unit: null, used_share: 0 },
-    ]);
-  });
-
-  // Otherwise scrapping the short end of a batch of points would raise every piece's cost.
-  it('leaves the shares of a measured prep closed by hand as they were', async () => {
-    await measureCane();
-    await addPrepUse(vaseId, use(caneId, 2, 8));
-    await addPrepUse(bowlId, use(caneId, 2, 8));
-    await addPrepUse(cupId, use(caneId, 2, 8));
-
-    await setPrepUsedUp(caneId, true);
-
-    expect(await getActualPercents(caneId)).toEqual([25, 25, 25]);
-  });
-
-  // Otherwise a piece's share of points would change when another piece entered more than were made.
-  it('keeps every share of a measured prep as entered past its size', async () => {
-    await measureCane();
-    await addPrepUse(vaseId, use(caneId, 6, 8));
-    await addPrepUse(bowlId, use(caneId, 1, 8));
-
-    await addPrepUse(cupId, use(caneId, 2, 8));
-
-    expect(await getActualPercents(caneId)).toEqual([75, 12.5, 25]);
-  });
-
-  // Otherwise turning All used off would look like it worked on points that are all used.
-  it('refuses to turn All used off while a measured prep uses reach its size', async () => {
-    await measureCane();
-    await addPrepUse(vaseId, use(caneId, 4, 8));
-    await addPrepUse(bowlId, use(caneId, 4, 8));
-
-    await expect(setPrepUsedUp(caneId, false)).rejects.toThrow(
-      'Its uses take all of it. Lower one to turn All used off.',
-    );
-    expect(await isUsedUp(caneId)).toBe(true);
-  });
-
-  // Otherwise lowering a use on full points would leave the rest out of Add prep.
-  it('puts a measured prep back in use when a use is lowered below its size', async () => {
-    await measureCane();
-    await addPrepUse(vaseId, use(caneId, 4, 8));
-    await addPrepUse(bowlId, use(caneId, 4, 8));
-
-    await changePrepUse(await getUseId(bowlId, caneId), share(2, 8));
+    await changePrepUse(await getUseId(vaseId, caneId), share(50));
 
     expect(await isUsedUp(caneId)).toBe(false);
   });
 
-  // Otherwise the remaining piece would keep points the removed one gave back.
-  it('puts a measured prep back in use when a use is removed', async () => {
-    await measureCane();
-    await addPrepUse(vaseId, use(caneId, 4, 8));
-    await addPrepUse(bowlId, use(caneId, 4, 8));
+  // Otherwise removing the use that took a whole cane would keep the cane out of Add prep.
+  it('opens prep again when a use of all of it is removed', async () => {
+    await addPrepUse(vaseId, use(caneId, 100));
 
-    await removePrepUse(await getUseId(bowlId, caneId));
+    await removePrepUse(await getUseId(vaseId, caneId));
 
     expect(await isUsedUp(caneId)).toBe(false);
     expect(await getAvailablePrep(cupId)).toEqual([
-      { id: fritId, name: 'Frit mix', size_amount: null, size_unit: null, used_share: 0 },
-      { id: caneId, name: 'Dichroic cane', size_amount: 8, size_unit: 'points', used_share: 0.5 },
+      {
+        id: fritId,
+        name: 'Frit mix',
+        size_amount: null,
+        size_unit: null,
+        used_share: 0,
+        cost_cents: null,
+      },
+      {
+        id: caneId,
+        name: 'Dichroic cane',
+        size_amount: null,
+        size_unit: null,
+        used_share: 0,
+        cost_cents: null,
+      },
     ]);
   });
 
-  // Otherwise deleting a piece that used half the points would leave the rest out of Add prep.
-  it('puts a measured prep back in use when a piece that used it is deleted', async () => {
-    await measureCane();
-    await addPrepUse(vaseId, use(caneId, 4, 8));
-    await addPrepUse(bowlId, use(caneId, 4, 8));
+  // Otherwise deleting the piece that took a whole cane would keep the cane out of Add prep.
+  it('opens prep again when the piece that used all of it is deleted', async () => {
+    await addPrepUse(bowlId, use(caneId, 100));
 
     await deletePiece(bowlId);
 
@@ -617,6 +586,7 @@ describe('getTemplatePrep', () => {
         prep_id: caneId,
         prep_name: 'Dichroic cane',
         prep_lost: 0,
+        counted: 0,
         ...share(30),
         replacement: {
           id: newCaneId,
@@ -624,12 +594,14 @@ describe('getTemplatePrep', () => {
           size_amount: null,
           size_unit: null,
           used_share: 0,
+          cost_cents: null,
         },
       },
       {
         prep_id: fritId,
         prep_name: 'Frit mix',
         prep_lost: 0,
+        counted: 0,
         ...share(20),
         replacement: {
           id: fritId,
@@ -637,6 +609,7 @@ describe('getTemplatePrep', () => {
           size_amount: null,
           size_unit: null,
           used_share: 0.2,
+          cost_cents: null,
         },
       },
     ]);
