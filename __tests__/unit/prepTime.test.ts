@@ -6,8 +6,6 @@ import {
   getActualShare,
   getPrepTime,
   parseAmount,
-  isPastWhole,
-  isUsedUp,
   type UseShare,
 } from '@/utils/prepTime';
 
@@ -15,8 +13,9 @@ const hour = 60 * 60 * 1000;
 const minute = 60 * 1000;
 const second = 1000;
 
-// A prep's uses as the database returns them, from shares written as "1/8" or "25".
-function getShares(amounts: string[], usedUp: boolean): UseShare[] {
+// A prep's uses as the database returns them, from shares written as "1/8" or "25". A measured
+// prep is one with a size.
+function getShares(amounts: string[], usedUp: boolean, measured = false): UseShare[] {
   const shares = amounts.map((amount) => parseAmount(amount)!);
   const sharesTotal = shares.reduce(
     (total, share) => total + share.share_numerator / share.share_denominator,
@@ -25,6 +24,7 @@ function getShares(amounts: string[], usedUp: boolean): UseShare[] {
   return shares.map((share) => ({
     ...share,
     used_up: usedUp ? 1 : 0,
+    measured: measured ? 1 : 0,
     shares_total: sharesTotal,
   }));
 }
@@ -34,9 +34,14 @@ function getActualPercents(amounts: string[], usedUp = true) {
   return getShares(amounts, usedUp).map((share) => getActualShare(share) * 100);
 }
 
-function timeShare(amount: string, prepWorkedMilliseconds: number, usedUp = false) {
+function timeShare(
+  amount: string,
+  prepWorkedMilliseconds: number,
+  usedUp = false,
+  measured = false,
+) {
   return {
-    ...getShares([amount], usedUp)[0],
+    ...getShares([amount], usedUp, measured)[0],
     prep_worked_milliseconds: prepWorkedMilliseconds,
   };
 }
@@ -66,6 +71,13 @@ describe('getActualShare', () => {
   it('keeps the estimates of a prep that is not used up', () => {
     expect(getActualPercents(['25', '1/8'], false)).toEqual([25, 12.5]);
   });
+
+  // Otherwise scrapping the last points of a batch would raise the cost of every piece made from it.
+  it('keeps the shares of a measured prep once it is all used', () => {
+    const shares = getShares(['1/8', '1/8', '1/4'], true, true);
+
+    expect(shares.map((share) => getActualShare(share) * 100)).toEqual([12.5, 12.5, 25]);
+  });
 });
 
 describe('getPrepTime', () => {
@@ -92,6 +104,16 @@ describe('getPrepTime', () => {
 
     expect(lines).toEqual([
       expect.objectContaining({ share: 1, estimated: false, milliseconds: 4 * hour }),
+    ]);
+    expect(estimated).toBe(false);
+  });
+
+  // Otherwise a piece made from points would show its prep time as a guess when it's exact.
+  it('marks a share of an open measured prep as not estimated', () => {
+    const { lines, estimated } = getPrepTime(hour, [timeShare('1/8', 8 * hour, false, true)]);
+
+    expect(lines).toEqual([
+      expect.objectContaining({ share: 0.125, estimated: false, milliseconds: hour }),
     ]);
     expect(estimated).toBe(false);
   });
@@ -205,35 +227,5 @@ describe('amounts in a batch unit', () => {
     expect(parseSize('2.5')).toBe(2.5);
     expect(parseSize('0')).toBeNull();
     expect(parseSize('lots')).toBeNull();
-  });
-});
-
-describe('isUsedUp', () => {
-  // Otherwise ten pieces at 1/10 would add to 0.9999999999999999 and leave the cane in use.
-  it('counts shares that add to the whole prep in floating point as all of it', () => {
-    const tenths = Array.from({ length: 10 }, () => 1 / 10).reduce((total, tenth) => total + tenth);
-
-    expect(tenths).toBeLessThan(1);
-    expect(isUsedUp(tenths)).toBe(true);
-  });
-
-  // Otherwise a cane with one eighth still on the bench would read as used up.
-  it('leaves seven eighths in use', () => {
-    expect(isUsedUp(7 / 8)).toBe(false);
-  });
-});
-
-describe('isPastWhole', () => {
-  // Otherwise a prep using a whole tube, or ten pieces at 1/10, would get a warning for an exact fit.
-  it('counts exactly all of it, in floating point too, as not past it', () => {
-    const tenths = Array.from({ length: 10 }, () => 1 / 10).reduce((total, tenth) => total + tenth);
-
-    expect(isPastWhole(1)).toBe(false);
-    expect(isPastWhole(tenths)).toBe(false);
-  });
-
-  // Otherwise estimates that run over would scale every share down without asking.
-  it('counts 101% as past it', () => {
-    expect(isPastWhole(1.01)).toBe(true);
   });
 });
