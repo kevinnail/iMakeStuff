@@ -3,6 +3,7 @@ import {
   getActualShare,
   getPrepTime,
   parseAmount,
+  isPastWhole,
   isUsedUp,
   type UseShare,
 } from '@/utils/prepTime';
@@ -165,5 +166,20 @@ describe('isUsedUp', () => {
   // Otherwise a cane with one eighth still on the bench would read as used up.
   it('leaves seven eighths in use', () => {
     expect(isUsedUp(7 / 8)).toBe(false);
+  });
+});
+
+describe('isPastWhole', () => {
+  // Otherwise a prep using a whole tube, or ten pieces at 1/10, would get a warning for an exact fit.
+  it('counts exactly all of it, in floating point too, as not past it', () => {
+    const tenths = Array.from({ length: 10 }, () => 1 / 10).reduce((total, tenth) => total + tenth);
+
+    expect(isPastWhole(1)).toBe(false);
+    expect(isPastWhole(tenths)).toBe(false);
+  });
+
+  // Otherwise estimates that run over would scale every share down without asking.
+  it('counts 101% as past it', () => {
+    expect(isPastWhole(1.01)).toBe(true);
   });
 });
