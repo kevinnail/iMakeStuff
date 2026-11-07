@@ -219,23 +219,23 @@ export default function AddWorkScreen() {
               />
             </View>
           </View>
-          {usesPrep && (availablePrep.length > 0 || missingPrep.length > 0) && (
+          {usesPrep && (
             <UseChoices
               kind="prep"
+              usedBy={category}
               availableItems={availablePrep}
               chosen={chosenPrep}
               missing={missingPrep}
               onChange={setChosenPrep}
             />
           )}
-          {availableSupplies.length > 0 && (
-            <UseChoices
-              kind="supply"
-              availableItems={availableSupplies}
-              chosen={chosenSupplies}
-              onChange={setChosenSupplies}
-            />
-          )}
+          <UseChoices
+            kind="supply"
+            usedBy={category}
+            availableItems={availableSupplies}
+            chosen={chosenSupplies}
+            onChange={setChosenSupplies}
+          />
           <View style={styles.card}>
             <Pressable
               style={({ pressed }) => [styles.cardRow, pressed && styles.buttonPressed]}
