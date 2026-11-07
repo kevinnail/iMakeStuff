@@ -9,6 +9,8 @@ export interface Share {
 export interface UseShare extends Share {
   // 1 once the prep or supply is used up.
   used_up: number;
+  // 1 when the batch has a size: its shares are exact, so they're final and never scale.
+  measured: number;
   // Every piece's share of it added together, 1 being all of it.
   shares_total: number;
 }
@@ -136,14 +138,9 @@ export function formatPercent(value: number) {
   return `${Math.round(value * 100)}%`;
 }
 
-export function isUsedUp(sharesTotal: number) {
-  return sharesTotal >= wholeShare;
-}
-
-// Shares past all of it, so marking it all used scales every share down. Exactly all of it
-// scales nothing, with the same tolerance as isUsedUp.
-export function isPastWhole(sharesTotal: number) {
-  return sharesTotal - 1 > 1 - wholeShare;
+// A share is a guess while its batch has no size and isn't all used yet.
+export function isEstimated(use: UseShare) {
+  return !use.used_up && !use.measured;
 }
 
 // Times show as whole minutes, rounded down.
@@ -151,9 +148,11 @@ function wholeMinutes(milliseconds: number) {
   return Math.floor(milliseconds / minute) * minute;
 }
 
+// A batch with no size, once all used, spreads all of it over what used it. A measured batch's
+// shares are exact, so leftovers stay off the books.
 export function getActualShare(share: UseShare) {
   const estimate = getShareValue(share);
-  return share.used_up ? estimate / share.shares_total : estimate;
+  return share.used_up && !share.measured ? estimate / share.shares_total : estimate;
 }
 
 export function getPrepTime<Use extends PrepTimeShare>(worked: number, uses: Use[]) {
@@ -162,7 +161,7 @@ export function getPrepTime<Use extends PrepTimeShare>(worked: number, uses: Use
     return {
       ...use,
       share,
-      estimated: !use.used_up,
+      estimated: isEstimated(use),
       milliseconds: wholeMinutes(use.prep_worked_milliseconds * share),
     };
   });
