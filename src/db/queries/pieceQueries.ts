@@ -250,7 +250,7 @@ export async function updatePiece(pieceId: number, changes: PieceChanges): Promi
       throw new Error("A piece that uses prep can't become prep.");
     }
     if (changes.category === 'piece' && (current.used_by_pieces || current.used_up_at)) {
-      throw new Error("Prep that pieces used, or that's used up, can't become a piece.");
+      throw new Error("Prep that pieces used, or that's all used, can't become a piece.");
     }
     await database.runAsync(
       'UPDATE pieces SET name = ?, category = ?, notes = ?, photo_file_name = ? WHERE id = ?',
