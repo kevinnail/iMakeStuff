@@ -4,11 +4,14 @@ import { parseAmount, parseSize } from '@/utils/prepTime';
 export type MissingField =
   'name' | 'identity' | 'countNumber' | 'countUnit' | 'overlap' | 'cost' | 'item' | 'amount';
 
-export const missingMessages: Record<Exclude<MissingField, 'overlap' | 'amount'>, string> = {
+// The count's two boxes share countNumber's message.
+export const missingMessages: Record<
+  Exclude<MissingField, 'overlap' | 'amount' | 'countUnit'>,
+  string
+> = {
   name: 'Needs a name.',
   identity: 'Needs a photo or notes, so you can tell later which one it was.',
   countNumber: "Enter how many it made, like 8 points, or tap I didn't count it.",
-  countUnit: "Enter how many it made, like 8 points, or tap I didn't count it.",
   cost: 'Enter a cost, like 40 or 12.50.',
   item: 'Choose one first.',
 };
