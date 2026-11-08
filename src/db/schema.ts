@@ -130,4 +130,12 @@ export const SCHEMA_SQL = `
     CHECK (share_numerator <= share_denominator),
     UNIQUE (piece_id, supply_id)
   );
+
+  -- The app's own settings, one row, made with the database.
+  CREATE TABLE IF NOT EXISTS settings (
+    id            INTEGER PRIMARY KEY CHECK (id = 1),
+    -- When the first-run guide was finished or skipped. Null until then, so it shows.
+    guide_seen_at TEXT
+  );
+  INSERT OR IGNORE INTO settings (id) VALUES (1);
 `;
