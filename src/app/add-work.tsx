@@ -27,6 +27,7 @@ import { getOverlapMessage, useEntryTimes, yesterdayAt } from '@/components/Entr
 import { FieldError, useMissingFields } from '@/components/FieldError';
 import { getNotesPlaceholder, outcomeOptions, type Outcome } from '@/components/FinishPiecePanel';
 import { JoinedButtons } from '@/components/JoinedButtons';
+import { NewPrepPanel } from '@/components/NewPrepPanel';
 import { getTemplateChoices, UseChoices, type MissingUse } from '@/components/UseChoices';
 import type { UseChoice } from '@/components/UsePanel';
 import { addPastWork } from '@/db/queries/entryQueries';
@@ -289,7 +290,8 @@ export default function AddWorkScreen() {
               missing={missingPrep}
               onChange={setChosenPrep}
               onItemAdded={reloadOverlaps}
-              newPrepEndsAt={startedAt}
+              // Ends where this work starts, which isn't saved yet for its check to see.
+              renderNewPrep={(handlers) => <NewPrepPanel endsAt={startedAt} {...handlers} />}
             />
           )}
           {!laterBatch && (
