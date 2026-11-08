@@ -23,7 +23,7 @@ const tabs: { name: string; route: Href }[] = [
   { name: 'Days', route: '/days' },
 ];
 
-const arrowWidth = 120;
+const arrowWidth = 150;
 // How far apart the tab bar's buttons are, as a share of the screen width. iOS draws the tab bar
 // as a pill in the middle, narrower than the screen, and React Native can't measure it, so this is
 // measured off the phone (2026-11-07).
@@ -121,7 +121,7 @@ const guideSteps: GuideStep[] = [
     target: 'addWork',
     title: 'Manual Work Entry',
     body: [
-      'If you forget to use the app to track your time , you can use the Add Work feature to catch up afterward here on the Days tab, with the date & times it really took.',
+      'If you forget to use the app to track your time, you can use the Add Work feature to catch up afterward here on the Days tab, with the date & times it really took.',
     ],
     panelAt: 'top',
   },
@@ -544,8 +544,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     backgroundColor: colors.background,
     boxShadow: `0px 0px 16px ${colors.warning}`,
-    width: 150,
-    padding: 20,
+    width: arrowWidth,
   },
   tabArrowLabel: {
     fontSize: 18,
