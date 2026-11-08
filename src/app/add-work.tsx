@@ -67,7 +67,7 @@ export default function AddWorkScreen() {
   const [missingSupplies, setMissingSupplies] = useState<MissingUse[]>([]);
   const [prepKind, setPrepKind] = useState<PrepKind>('counted');
   const [countTexts, setCountTexts] = useState({ amountText: '', unitText: '' });
-  const { startedAt, endedAt, overlaps, changeStart, setEndedAt } = useEntryTimes(
+  const { startedAt, endedAt, overlaps, changeStart, setEndedAt, reloadOverlaps } = useEntryTimes(
     yesterdayAt(9),
     yesterdayAt(10),
   );
@@ -260,6 +260,7 @@ export default function AddWorkScreen() {
                 mode="datetime"
                 display="compact"
                 accentColor={colors.primary}
+                maximumDate={new Date()}
                 onValueChange={(_event, date) => changeStart(date.getTime())}
               />
             </View>
@@ -271,6 +272,7 @@ export default function AddWorkScreen() {
                 display="compact"
                 accentColor={colors.primary}
                 minimumDate={new Date(startedAt)}
+                maximumDate={new Date()}
                 onValueChange={(_event, date) => setEndedAt(date.getTime())}
               />
             </View>
@@ -286,6 +288,8 @@ export default function AddWorkScreen() {
               chosen={chosenPrep}
               missing={missingPrep}
               onChange={setChosenPrep}
+              onItemAdded={reloadOverlaps}
+              newPrepEndsAt={startedAt}
             />
           )}
           {!laterBatch && (

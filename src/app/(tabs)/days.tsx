@@ -17,7 +17,7 @@ import { getWorkRecords, type FinishedPiece } from '@/db/queries/dayQueries';
 import { useGuideStore } from '@/store/guideStore';
 import { formatDay, formatDuration } from '@/utils/formatTime';
 import { getMonthWeeks } from '@/utils/monthGrid';
-import { colors } from '@/theme';
+import { colors, guideOutline } from '@/theme';
 import { getPhotoUri } from '@/utils/photoStorage';
 import { getWholeDays, startOfDay, type WorkDay } from '@/utils/workDays';
 
@@ -169,7 +169,7 @@ export default function DaysScreen() {
             <Pressable
               style={({ pressed }) => [
                 styles.addButton,
-                guideTarget === 'addWork' && styles.guideOutline,
+                guideTarget === 'addWork' && guideOutline,
                 pressed && styles.buttonPressed,
               ]}
               onPress={() => router.push('/add-work')}
@@ -251,14 +251,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     borderRadius: 8,
     backgroundColor: colors.primary,
-  },
-  // The first-run guide's ring around the button it's pointing at. An outline takes no room, so
-  // nothing moves when it shows.
-  guideOutline: {
-    outlineWidth: 3,
-    outlineOffset: 4,
-    outlineColor: colors.warning,
-    boxShadow: `0px 0px 50px ${colors.warning}`,
   },
   buttonPressed: {
     opacity: 0.6,
