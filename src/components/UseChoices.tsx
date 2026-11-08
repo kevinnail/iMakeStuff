@@ -85,8 +85,8 @@ export function UseChoices({
   const labels = useLabels[kind];
   const [picking, setPicking] = useState(false);
   const [changing, setChanging] = useState<UseChoice | null>(null);
-  // Supplies added from the empty list, and every batch as it was last repriced, which only
-  // replaces one already in the list.
+  // Prep and supplies added from the empty list, and every batch as it was last repriced, which
+  // only replaces one already in the list.
   const [addedItems, setAddedItems] = useState<AvailableItem[]>([]);
   const [repricedItems, setRepricedItems] = useState<AvailableItem[]>([]);
   const items = [...availableItems, ...addedItems].map(
@@ -171,7 +171,7 @@ export function UseChoices({
           initial={null}
           onCancel={() => setPicking(false)}
           onSave={add}
-          onSupplyAdded={keepAdded}
+          onItemAdded={keepAdded}
           onRepriced={setRepricedItems}
         />
       )}
