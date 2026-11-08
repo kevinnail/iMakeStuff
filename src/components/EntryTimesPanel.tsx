@@ -29,9 +29,10 @@ export function yesterdayAt(hours: number) {
   return date.getTime();
 }
 
-// Start and End as they're picked. Moving Start past End moves End with it, keeping the length,
-// and End's picker can't go before Start. Everything the times overlap is loaded as they change;
-// a running entry (no end) is checked up to now.
+// Start and End as they're picked, neither after now. Moving Start past End moves End with it,
+// keeping the length up to now, and End's picker can't go before Start. Everything the times
+// overlap is loaded as they change, and again on reloadOverlaps after something is saved
+// elsewhere; a running entry (no end) is checked up to now.
 export function useEntryTimes<EndedAt extends number | null>(
   initialStartedAt: number,
   initialEndedAt: EndedAt,
@@ -39,6 +40,8 @@ export function useEntryTimes<EndedAt extends number | null>(
   const [startedAt, setStartedAt] = useState(initialStartedAt);
   const [endedAt, setEndedAt] = useState(initialEndedAt);
   const [overlaps, setOverlaps] = useState<TimelineEntry[]>([]);
+  // Counts reloads, so the times' overlaps load again with the times unchanged.
+  const [overlapsReloads, setOverlapsReloads] = useState(0);
 
   useEffect(() => {
     // Only the newest pick's overlaps are kept, whichever load finishes last.
@@ -51,16 +54,20 @@ export function useEntryTimes<EndedAt extends number | null>(
     return () => {
       newest = false;
     };
-  }, [startedAt, endedAt]);
+  }, [startedAt, endedAt, overlapsReloads]);
 
   function changeStart(newStartedAt: number) {
     setStartedAt(newStartedAt);
     if (endedAt !== null && newStartedAt > endedAt) {
-      setEndedAt((newStartedAt + endedAt - startedAt) as EndedAt);
+      setEndedAt(Math.min(newStartedAt + endedAt - startedAt, Date.now()) as EndedAt);
     }
   }
 
-  return { startedAt, endedAt, overlaps, changeStart, setEndedAt };
+  function reloadOverlaps() {
+    setOverlapsReloads((reloads) => reloads + 1);
+  }
+
+  return { startedAt, endedAt, overlaps, changeStart, setEndedAt, reloadOverlaps };
 }
 
 // "Overlaps Flower pendant, Nov 6, 9:15 AM to 10:00 AM". The end has its own day when it's on
@@ -116,6 +123,7 @@ export function EntryTimesPanel({
               mode="datetime"
               display="compact"
               accentColor={colors.primary}
+              maximumDate={new Date()}
               onValueChange={(_event, date) => changeStart(date.getTime())}
             />
           </View>
@@ -132,6 +140,7 @@ export function EntryTimesPanel({
                 display="compact"
                 accentColor={colors.primary}
                 minimumDate={new Date(startedAt)}
+                maximumDate={new Date()}
                 onValueChange={(_event, date) => setEndedAt(date.getTime())}
               />
             )}
