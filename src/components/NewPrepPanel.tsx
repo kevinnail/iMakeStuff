@@ -1,5 +1,5 @@
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Alert,
   Image,
@@ -18,11 +18,15 @@ import { Chevron } from '@/components/Chevron';
 import { PrepKindField, readPrepCount, type PrepKind } from '@/components/CountField';
 import { getOverlapMessage, useEntryTimes, yesterdayAt } from '@/components/EntryTimesPanel';
 import { FieldError, useMissingFields } from '@/components/FieldError';
+import { UseChoices } from '@/components/UseChoices';
+import type { UseChoice } from '@/components/UsePanel';
 import { addPastWork } from '@/db/queries/entryQueries';
 import { getAvailablePrep, type AvailablePrep } from '@/db/queries/prepQueries';
+import { getAvailableSupplies, type AvailableSupply } from '@/db/queries/supplyQueries';
 import { colors } from '@/theme';
 import { getOverlapMissing, getPieceMissing, missingMessages } from '@/utils/missingFields';
 import { showPhotoChoices, withSavedPhoto } from '@/utils/photoStorage';
+import { showError } from '@/utils/showError';
 
 interface NewPrepPanelProps {
   // Where the work it goes into starts, on a form not saved yet, so the prep's hour ends there
@@ -34,12 +38,15 @@ interface NewPrepPanelProps {
 }
 
 // Slides up over Add prep to record prep made earlier, the way Add supply does for a supply, so
-// a form in progress isn't left. It's Add Work's New prep, saved finished since it's being used.
-// Pieces pick counted prep through its template, so counted prep is saved as one.
+// a form in progress isn't left. It's Add Work's New prep, saved finished since it's being used,
+// with the supplies it was made from, which give it its cost. Pieces pick counted prep through
+// its template, so counted prep is saved as one.
 export function NewPrepPanel({ endsAt = yesterdayAt(10), onCancel, onSaved }: NewPrepPanelProps) {
   const [name, setName] = useState('');
   const [prepKind, setPrepKind] = useState<PrepKind>('counted');
   const [countTexts, setCountTexts] = useState({ amountText: '', unitText: '' });
+  const [availableSupplies, setAvailableSupplies] = useState<AvailableSupply[]>([]);
+  const [chosenSupplies, setChosenSupplies] = useState<UseChoice[]>([]);
   const { startedAt, endedAt, overlaps, changeStart, setEndedAt } = useEntryTimes(
     endsAt - 60 * 60 * 1000,
     endsAt,
@@ -62,6 +69,12 @@ export function NewPrepPanel({ endsAt = yesterdayAt(10), onCancel, onSaved }: Ne
     ...getOverlapMissing(overlap !== undefined),
   ]);
   const busy = saving || gettingPhoto;
+
+  useEffect(() => {
+    getAvailableSupplies(null)
+      .then(setAvailableSupplies)
+      .catch(showError('Could not load your supplies'));
+  }, []);
 
   function changePhoto() {
     showPhotoChoices({
@@ -88,7 +101,7 @@ export function NewPrepPanel({ endsAt = yesterdayAt(10), onCancel, onSaved }: Ne
         photoFileName,
         finish: { notes: notes.trim() || null, lost: false, isTemplate: prepKind === 'counted' },
         prepUses: [],
-        supplyUses: [],
+        supplyUses: chosenSupplies.map(({ item, share }) => ({ supplyId: item.id, share })),
       }),
     )
       .then(async (prepId) => {
@@ -152,6 +165,15 @@ export function NewPrepPanel({ endsAt = yesterdayAt(10), onCancel, onSaved }: Ne
               />
             </View>
             {overlap && <FieldError message={getOverlapMessage(overlap)} />}
+            <UseChoices
+              kind="supply"
+              usedBy="prep"
+              availableItems={availableSupplies}
+              chosen={chosenSupplies}
+              missing={[]}
+              onChange={setChosenSupplies}
+              style={styles.useCard}
+            />
             <Pressable
               style={({ pressed }) => [styles.row, pressed && styles.buttonPressed]}
               onPress={changePhoto}
@@ -253,6 +275,10 @@ const styles = StyleSheet.create({
   },
   missingInput: {
     borderColor: colors.danger,
+  },
+  // The supply list's card, on the page's color since this panel is the cards' color.
+  useCard: {
+    backgroundColor: colors.background,
   },
   photo: {
     width: '100%',
