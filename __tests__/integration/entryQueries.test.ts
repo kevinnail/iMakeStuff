@@ -5,10 +5,12 @@ import {
   addPieceTime,
   confirmRunningEntry,
   getDayEntries,
+  getOverlaps,
   getRunningEntry,
   stopRunningEntry,
   updateEntryTimes,
 } from '@/db/queries/entryQueries';
+import { getAvailablePrep } from '@/db/queries/prepQueries';
 import { createTestDb } from '../setup';
 
 jest.mock('@/db/database', () => ({
@@ -130,6 +132,53 @@ describe('updateEntryTimes', () => {
       started_at: '2026-10-31T12:30:00.000Z',
       ended_at: null,
     });
+  });
+});
+
+describe('getOverlaps', () => {
+  beforeEach(async () => {
+    await database.execAsync(`
+      INSERT INTO work_segments (id, piece_id, started_at, ended_at) VALUES
+        (1, 1, '2026-10-31T09:00:00.000Z', '2026-10-31T12:00:00.000Z'),
+        (2, 2, '2026-10-31T13:00:00.000Z', NULL);
+      INSERT INTO breaks (id, started_at, ended_at) VALUES
+        (1, '2026-10-31T12:00:00.000Z', '2026-10-31T13:00:00.000Z');
+    `);
+  });
+
+  // Otherwise the form couldn't say which piece or break is in the way, or when it ran.
+  it('names each entry the times overlap, with its times, in time order', async () => {
+    expect(await getOverlaps('2026-10-31T11:00:00.000Z', '2026-10-31T12:30:00.000Z')).toEqual([
+      {
+        kind: 'segment',
+        id: 1,
+        piece_id: 1,
+        piece_name: 'Blue vase',
+        started_at: '2026-10-31T09:00:00.000Z',
+        ended_at: '2026-10-31T12:00:00.000Z',
+      },
+      {
+        kind: 'break',
+        id: 1,
+        piece_id: null,
+        piece_name: null,
+        started_at: '2026-10-31T12:00:00.000Z',
+        ended_at: '2026-10-31T13:00:00.000Z',
+      },
+    ]);
+  });
+
+  // Otherwise past work added today would be let through over a piece whose clock is still running.
+  it('counts a running entry up to now, and not past it', async () => {
+    const running = await getOverlaps('2026-11-01T09:00:00.000Z', '2026-11-01T10:00:00.000Z');
+    expect(running.map(({ kind, id }) => ({ kind, id }))).toEqual([{ kind: 'segment', id: 2 }]);
+
+    expect(await getOverlaps('2099-01-01T09:00:00.000Z', '2099-01-01T10:00:00.000Z')).toEqual([]);
+  });
+
+  // Otherwise work starting the minute another ended would be flagged as overlapping it.
+  it('does not count entries that only touch at an end', async () => {
+    expect(await getOverlaps('2026-10-31T08:00:00.000Z', '2026-10-31T09:00:00.000Z')).toEqual([]);
   });
 });
 
@@ -399,6 +448,42 @@ describe('addPastWork', () => {
       }),
     ).rejects.toThrow('That overlaps another entry.');
     expect(await database.getAllAsync(segmentsSql)).toHaveLength(1);
+  });
+
+  // Otherwise New prep from Done would save prep the piece being finished can't pick.
+  it('returns the new id of finished prep, counted as a template, that Add prep then lists', async () => {
+    const newPrep = (
+      name: string,
+      sizeAmount: number | null,
+      isTemplate: boolean,
+      times: { startedAt: string; endedAt: string },
+    ) => ({
+      ...times,
+      piece: {
+        name,
+        category: 'prep' as const,
+        templateId: null,
+        sizeAmount,
+        sizeUnit: sizeAmount === null ? null : 'points',
+      },
+      photoFileName: null,
+      finish: { notes: 'For pendants', lost: false, isTemplate },
+      supplyUses: [],
+      prepUses: [],
+    });
+
+    const pointsId = await addPastWork(newPrep('Points', 8, true, { startedAt, endedAt }));
+    const caneId = await addPastWork(
+      newPrep('Dichro cane', null, false, {
+        startedAt: '2026-10-30T20:00:00.000Z',
+        endedAt: '2026-10-30T21:00:00.000Z',
+      }),
+    );
+
+    expect((await getAvailablePrep(null)).map(({ id, name }) => ({ id, name }))).toEqual([
+      { id: caneId, name: 'Dichro cane' },
+      { id: pointsId, name: 'Points' },
+    ]);
   });
 
   // Otherwise a photo added for a new piece that isn't finished yet would be thrown away.
