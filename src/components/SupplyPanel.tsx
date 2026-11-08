@@ -12,6 +12,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Dropdown } from '@/components/Dropdown';
+import { FieldError, useMissingFields } from '@/components/FieldError';
 import {
   getSupplyKinds,
   type SupplyDetails,
@@ -20,6 +21,7 @@ import {
 } from '@/db/queries/supplyQueries';
 import { colors } from '@/theme';
 import { formatCost, parseCost } from '@/utils/cost';
+import { getSupplyMissing, missingMessages } from '@/utils/missingFields';
 import { showError } from '@/utils/showError';
 
 interface SupplyPanelProps {
@@ -44,7 +46,7 @@ export function SupplyPanel({ initial, onCancel, onSave }: SupplyPanelProps) {
   const [sameAsId, setSameAsId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const trimmedName = name.trim();
-  const canSave = !saving && trimmedName !== '' && costText.trim() !== '';
+  const missingFields = useMissingFields(getSupplyMissing(name, costText));
   const kindOptions = [
     ...kinds.map((kind) => ({
       key: kind.id,
@@ -70,16 +72,14 @@ export function SupplyPanel({ initial, onCancel, onSave }: SupplyPanelProps) {
   }
 
   function handleSave() {
-    const costCents = parseCost(costText);
-    if (costCents === null) {
-      Alert.alert('Enter a cost like 40 or 12.50.');
-      return;
-    }
+    if (!missingFields.check()) return;
     setSaving(true);
-    onSave({ name: trimmedName, costCents }, sameAsId).catch((error: Error) => {
-      setSaving(false);
-      Alert.alert('Could not save', error.message);
-    });
+    onSave({ name: trimmedName, costCents: parseCost(costText)! }, sameAsId).catch(
+      (error: Error) => {
+        setSaving(false);
+        Alert.alert('Could not save', error.message);
+      },
+    );
   }
 
   return (
@@ -102,31 +102,37 @@ export function SupplyPanel({ initial, onCancel, onSave }: SupplyPanelProps) {
             </View>
           )}
           <TextInput
-            style={styles.input}
+            style={[styles.input, missingFields.shown.includes('name') && styles.missingInput]}
             value={name}
             onChangeText={setName}
             placeholder="Name, like 32.7 × 4 tube"
             placeholderTextColor={colors.secondaryText}
             autoFocus={!initial}
           />
+          {missingFields.shown.includes('name') && <FieldError message={missingMessages.name} />}
           <View style={styles.fieldRow}>
             <Text style={[styles.label, styles.fill]}>Cost</Text>
             <Text style={styles.label}>$</Text>
             <TextInput
-              style={[styles.input, styles.costInput]}
+              style={[
+                styles.input,
+                styles.costInput,
+                missingFields.shown.includes('cost') && styles.missingInput,
+              ]}
               value={costText}
               onChangeText={setCostText}
               keyboardType="decimal-pad"
             />
           </View>
+          {missingFields.shown.includes('cost') && <FieldError message={missingMessages.cost} />}
           <View style={styles.buttonRow}>
             <Pressable style={styles.textButton} onPress={onCancel}>
               <Text style={styles.textButtonText}>Cancel</Text>
             </Pressable>
             <Pressable
-              style={[styles.saveButton, !canSave && styles.buttonDisabled]}
+              style={[styles.saveButton, saving && styles.buttonDisabled]}
               onPress={handleSave}
-              disabled={!canSave}
+              disabled={saving}
             >
               <Text style={styles.saveButtonText}>{initial ? 'Save' : 'Add'}</Text>
             </Pressable>
@@ -178,6 +184,9 @@ const styles = StyleSheet.create({
   costInput: {
     width: 120,
     textAlign: 'right',
+  },
+  missingInput: {
+    borderColor: colors.danger,
   },
   buttonRow: {
     flexDirection: 'row',
