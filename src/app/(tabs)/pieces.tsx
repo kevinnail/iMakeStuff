@@ -10,7 +10,7 @@ import { getPieces, type PieceListItem } from '@/db/queries/pieceQueries';
 import { useGuideStore } from '@/store/guideStore';
 import { formatCost } from '@/utils/cost';
 import { formatDay, formatDuration } from '@/utils/formatTime';
-import { colors } from '@/theme';
+import { colors, guideOutline } from '@/theme';
 import { getPhotoUri } from '@/utils/photoStorage';
 
 type Section = 'work' | 'prep';
@@ -100,7 +100,7 @@ export default function PiecesScreen() {
               style={({ pressed }) => [
                 styles.sectionButton,
                 styles.suppliesButton,
-                guideTarget === 'supplies' && styles.guideOutline,
+                guideTarget === 'supplies' && guideOutline,
                 pressed && styles.rowPressed,
               ]}
               onPress={() => router.push('/supplies')}
@@ -221,14 +221,6 @@ const styles = StyleSheet.create({
   // The arrow's 24 line height takes 6 off the padding, so it stays as tall as Work and Prep.
   suppliesButton: {
     paddingVertical: 5,
-  },
-  // The first-run guide's ring around the button it's pointing at. An outline takes no room, so
-  // nothing moves when it shows.
-  guideOutline: {
-    outlineWidth: 3,
-    outlineOffset: 4,
-    outlineColor: colors.warning,
-    boxShadow: `0px 0px 50px ${colors.warning}`,
   },
   workSelected: {
     backgroundColor: colors.primary,
