@@ -13,10 +13,11 @@ import {
   type StyleProp,
   type TextStyle,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Dropdown } from '@/components/Dropdown';
 import { FinishPiecePanel } from '@/components/FinishPiecePanel';
+import { showQuickStart } from '@/components/FirstRunGuide';
 import { getDeleteMessage } from '@/components/PieceEditForm';
 import { JoinedButtons } from '@/components/JoinedButtons';
 import { getTemplateChoices, type MissingUse } from '@/components/UseChoices';
@@ -37,6 +38,7 @@ import {
   getPieceSupplies,
   type AvailableSupply,
 } from '@/db/queries/supplyQueries';
+import { useGuideStore } from '@/store/guideStore';
 import { useWorkStore } from '@/store/workStore';
 import { formatClockTime, formatDuration } from '@/utils/formatTime';
 import { getPhotoUri, takePhoto } from '@/utils/photoStorage';
@@ -269,6 +271,9 @@ export default function WorkScreen() {
     endDay,
     stopRunning,
   } = useWorkStore();
+  const guideTarget = useGuideStore((state) => state.target);
+  const setTabBarHeight = useGuideStore((state) => state.setTabBarHeight);
+  const { bottom: bottomInset } = useSafeAreaInsets();
   const [name, setName] = useState('');
   const [category, setCategory] = useState<PieceCategory>('piece');
   const [finishing, setFinishing] = useState<Finishing | null>(null);
@@ -286,6 +291,8 @@ export default function WorkScreen() {
       template,
     }));
   const working = pieces.some((piece) => piece.running_since !== null);
+
+  useEffect(() => setTabBarHeight(bottomInset), [bottomInset, setTabBarHeight]);
 
   // Reloads whenever the tab is shown, so fixes made on a day's page show here.
   useFocusEffect(
@@ -359,10 +366,23 @@ export default function WorkScreen() {
   );
 
   return (
-    // The tab bar has no header, so the screen keeps itself clear of the status bar and tab bar.
     <SafeAreaView edges={['top', 'bottom']} style={styles.screen}>
-      <JoinedButtons options={categoryOptions} selected={category} onSelect={setCategory} />
-      <View style={styles.startRow}>
+      <View style={styles.categoryRow}>
+        <JoinedButtons
+          options={categoryOptions}
+          selected={category}
+          onSelect={setCategory}
+          style={styles.categoryButtons}
+        />
+        <Pressable
+          style={({ pressed }) => [styles.helpButton, pressed && styles.buttonPressed]}
+          onPress={showQuickStart}
+          accessibilityLabel="Show Quick Start"
+        >
+          <Text style={styles.helpButtonText}>?</Text>
+        </Pressable>
+      </View>
+      <View style={[styles.startRow, guideTarget === 'start' && styles.guideOutline]}>
         <TextInput
           style={styles.nameInput}
           value={name}
@@ -522,10 +542,39 @@ const styles = StyleSheet.create({
     padding: 16,
     gap: 12,
   },
+  categoryRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  categoryButtons: {
+    flex: 1,
+  },
+  // As tall as Piece and Prep beside it: their 2 of track and 6 of padding, around 18 of text.
+  helpButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    backgroundColor: colors.surface,
+  },
+  helpButtonText: {
+    fontSize: 16,
+    lineHeight: 18,
+    fontWeight: '600',
+    color: colors.text,
+  },
   startRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+  },
+  // The first-run guide's ring around the button it's pointing at. An outline takes no room, so
+  // nothing moves when it shows.
+  guideOutline: {
+    outlineWidth: 3,
+    outlineOffset: 4,
+    outlineColor: colors.warning,
+    borderRadius: 8,
+    boxShadow: `0px 0px 50px ${colors.warning}`,
   },
   nameInput: {
     flex: 1,

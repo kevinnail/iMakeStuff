@@ -14,6 +14,7 @@ import {
 import { Chevron } from '@/components/Chevron';
 import { Tag } from '@/components/Tag';
 import { getWorkRecords, type FinishedPiece } from '@/db/queries/dayQueries';
+import { useGuideStore } from '@/store/guideStore';
 import { formatDay, formatDuration } from '@/utils/formatTime';
 import { getMonthWeeks } from '@/utils/monthGrid';
 import { colors } from '@/theme';
@@ -112,6 +113,7 @@ function MonthCalendar({ monthStart, today, workedDayStarts, onChangeMonth }: Mo
 }
 
 export default function DaysScreen() {
+  const guideTarget = useGuideStore((state) => state.target);
   const [days, setDays] = useState<DaySummary[]>([]);
   // Set when the tab loads, so the calendar marks the right day after midnight.
   const [today, setToday] = useState(() => startOfDay(Date.now()));
@@ -165,7 +167,11 @@ export default function DaysScreen() {
           <View style={styles.sectionRow}>
             <Text style={styles.listTitle}>Days worked</Text>
             <Pressable
-              style={({ pressed }) => [styles.addButton, pressed && styles.buttonPressed]}
+              style={({ pressed }) => [
+                styles.addButton,
+                guideTarget === 'addWork' && styles.guideOutline,
+                pressed && styles.buttonPressed,
+              ]}
               onPress={() => router.push('/add-work')}
             >
               <Text style={styles.addButtonText}>Add Work</Text>
@@ -245,6 +251,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     borderRadius: 8,
     backgroundColor: colors.primary,
+  },
+  // The first-run guide's ring around the button it's pointing at. An outline takes no room, so
+  // nothing moves when it shows.
+  guideOutline: {
+    outlineWidth: 3,
+    outlineOffset: 4,
+    outlineColor: colors.warning,
+    boxShadow: `0px 0px 50px ${colors.warning}`,
   },
   buttonPressed: {
     opacity: 0.6,

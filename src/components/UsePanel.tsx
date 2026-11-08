@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import {
-  Alert,
   KeyboardAvoidingView,
   Modal,
   Pressable,
@@ -12,11 +11,14 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Dropdown } from '@/components/Dropdown';
+import { FieldError, useMissingFields } from '@/components/FieldError';
+import { NewPrepPanel } from '@/components/NewPrepPanel';
 import { SupplyPanel } from '@/components/SupplyPanel';
 import type { PieceCategory } from '@/db/queries/pieceQueries';
 import { getAvailablePrep, getPrepPrice, type PartPrice } from '@/db/queries/prepQueries';
 import {
   addSupply,
+  getSupplies,
   updateSupply,
   type SupplyDetails,
   type SupplyRecord,
@@ -24,6 +26,7 @@ import {
 import { colors } from '@/theme';
 import { formatCost } from '@/utils/cost';
 import { formatDay, formatDuration } from '@/utils/formatTime';
+import { getUseMissing, missingMessages } from '@/utils/missingFields';
 import { showError } from '@/utils/showError';
 import {
   formatAmount,
@@ -47,7 +50,8 @@ export const useLabels = {
     noneAdded: 'No prep added',
     noneToUse: 'No open prep to pick from.',
     noneToUseHelp:
-      "Prep shows here once it's finished. On the Work screen, pick Prep, start it, and tap Done when it's made. Prep made earlier goes in with Add Work on the Days tab.",
+      "Made it already? Add it here with when you made it, and it's picked for you. Next time, time it on the Work screen: pick Prep, start it, and tap Done when it's made.",
+    newItem: 'New prep',
     choose: 'Choose prep',
   },
   supply: {
@@ -56,9 +60,14 @@ export const useLabels = {
     noneAdded: 'No supplies added',
     noneToUse: 'No open supplies to pick from.',
     noneToUseHelp: "Add what you bought, like a tube at $15, and it's picked for you here.",
+    newItem: 'Add supply',
     choose: 'Choose a supply',
   },
 };
+
+// Supplies are where every cost starts, so new prep waits for them to be set up first.
+const noSuppliesHelp =
+  'Prep costs what its supplies did, so add what you bought first, on the Pieces tab under Supplies. Then add the prep here.';
 
 // A prep or supply that can be picked, with every piece's share of it added together, and its
 // whole cost (null with no supply behind a prep), marked when a counted prep's holds a guess.
@@ -128,15 +137,16 @@ interface UsePanelProps {
   onCancel: () => void;
   onSave: (choice: UseChoice) => void;
   onRemove?: () => void;
-  // A supply added from the empty list, and every prep after Update price, so the list they
-  // came from offers them as they are now.
-  onSupplyAdded?: (item: AvailableItem) => void;
+  // A prep or supply added from the empty list, and every prep after Update price, so the list
+  // they came from offers them as they are now.
+  onItemAdded?: (item: AvailableItem) => void;
   onRepriced?: (items: AvailableItem[]) => void;
 }
 
 // Slides up from the bottom to add a use of a prep or supply, or change one: which one, and how
 // much of it the piece took. A prep takes the whole supply it picks, so picking adds it. With
-// nothing to pick, it says why and how to fix it, and a supply can be added right here. A counted
+// nothing to pick, it says why and how to fix it, and a prep or supply can be added right here,
+// on its own panel over this one, without leaving the form underneath. A counted
 // prep not saved on the piece yet shows what the amount typed costs, its price per part, and the
 // supplies that price comes from, each with Update price.
 export function UsePanel({
@@ -147,7 +157,7 @@ export function UsePanel({
   onCancel,
   onSave,
   onRemove,
-  onSupplyAdded,
+  onItemAdded,
   onRepriced,
 }: UsePanelProps) {
   const labels = useLabels[kind];
@@ -156,9 +166,13 @@ export function UsePanel({
   const [amountText, setAmountText] = useState(
     initial ? getAmountText(initial.share, initial.item.size_amount) : '',
   );
-  const [addingSupply, setAddingSupply] = useState(false);
+  const [addingItem, setAddingItem] = useState(false);
   const [price, setPrice] = useState<PartPrice | null>(null);
   const [repricing, setRepricing] = useState<SupplyRecord | null>(null);
+  // Whether any supply is saved, checked for an empty prep list. null until it's loaded.
+  const [hasSupplies, setHasSupplies] = useState<boolean | null>(null);
+  const emptyList = items !== null && items.length === 0;
+  const canAddNew = kind === 'supply' || hasSupplies === true;
   const sizeAmount = chosenItem?.size_amount ?? null;
   const sizeUnit = chosenItem?.size_unit ?? null;
   const takesWhole = usedBy === 'prep';
@@ -175,6 +189,13 @@ export function UsePanel({
       : null;
 
   useEffect(() => {
+    if (kind !== 'prep' || !emptyList) return;
+    getSupplies()
+      .then((supplies) => setHasSupplies(supplies.length > 0))
+      .catch(showError('Could not load your supplies'));
+  }, [kind, emptyList]);
+
+  useEffect(() => {
     if (pricedId === null) return;
     getPrepPrice(pricedId).then(setPrice).catch(showError('Could not load the price'));
   }, [pricedId]);
@@ -187,7 +208,10 @@ export function UsePanel({
         ? '%'
         : '';
   const unitHelp = `In ${sizeUnit}, like 1, 1/3, or 1 1/2.`;
-  const canSave = chosenItem !== null && amountText !== '';
+  const missingFields = useMissingFields(
+    getUseMissing(chosenItem !== null, amountText, sizeAmount),
+  );
+  const amountMissing = missingFields.shown.includes('amount');
 
   function choose(item: AvailableItem) {
     const choiceItem = {
@@ -208,31 +232,28 @@ export function UsePanel({
   }
 
   function handleSave() {
-    if (chosenItem === null) return;
-    if (typedShare === null) {
-      Alert.alert(
-        sizeAmount === null ? 'Enter a percent from 1 to 100, or a fraction like 1/8.' : unitHelp,
-      );
-      return;
-    }
-    onSave({ item: chosenItem, share: typedShare });
+    if (!missingFields.check()) return;
+    onSave({ item: chosenItem!, share: typedShare! });
   }
 
-  // The new supply is saved now, whatever happens to this piece, and picked in the list.
+  // A new prep or supply is saved now, whatever happens to this piece, and picked in the list.
+  function keepNewItem(item: AvailableItem) {
+    setItems([...(items ?? []), item]);
+    setAddingItem(false);
+    onItemAdded?.(item);
+    choose(item);
+  }
+
   async function saveNewSupply(details: SupplyDetails, sameAsId: number | null) {
     const id = await addSupply(details, sameAsId);
-    const item = {
+    keepNewItem({
       id,
       name: details.name,
       used_share: 0,
       size_amount: null,
       size_unit: null,
       cost_cents: details.costCents,
-    };
-    setItems([...(items ?? []), item]);
-    setAddingSupply(false);
-    onSupplyAdded?.(item);
-    choose(item);
+    });
   }
 
   // The new price goes on everything priced from that supply, here and in the form's list.
@@ -252,16 +273,18 @@ export function UsePanel({
             this panel covers. */}
         <SafeAreaView edges={{ bottom: 'additive' }} style={styles.panel}>
           <Text style={styles.title}>{initial ? initial.item.name : labels.add}</Text>
-          {items && items.length === 0 && (
+          {emptyList && (
             <>
               <Text style={styles.label}>{labels.noneToUse}</Text>
-              <Text style={styles.secondaryText}>{labels.noneToUseHelp}</Text>
-              {kind === 'supply' && (
+              <Text style={styles.secondaryText}>
+                {hasSupplies === false ? noSuppliesHelp : labels.noneToUseHelp}
+              </Text>
+              {canAddNew && (
                 <Pressable
                   style={({ pressed }) => [styles.addButton, pressed && styles.buttonPressed]}
-                  onPress={() => setAddingSupply(true)}
+                  onPress={() => setAddingItem(true)}
                 >
-                  <Text style={styles.saveButtonText}>Add supply</Text>
+                  <Text style={styles.saveButtonText}>{labels.newItem}</Text>
                 </Pressable>
               )}
             </>
@@ -279,6 +302,7 @@ export function UsePanel({
               onSelect={({ item }) => choose(item)}
             />
           )}
+          {missingFields.shown.includes('item') && <FieldError message={missingMessages.item} />}
           {chosenItem && !takesWhole && (
             <>
               <View style={styles.fieldRow}>
@@ -288,7 +312,7 @@ export function UsePanel({
                     : 'How much this piece took'}
                 </Text>
                 <TextInput
-                  style={styles.amountInput}
+                  style={[styles.amountInput, amountMissing && styles.missingInput]}
                   value={amountText}
                   onChangeText={setAmountText}
                   keyboardType="numbers-and-punctuation"
@@ -296,9 +320,19 @@ export function UsePanel({
                 />
                 <Text style={[styles.label, styles.unitText]}>{unitText}</Text>
               </View>
-              <Text style={styles.secondaryText}>
-                {sizeAmount === null ? '(Enter a number or fraction)' : (typedPrice ?? unitHelp)}
-              </Text>
+              {amountMissing ? (
+                <FieldError
+                  message={
+                    sizeAmount === null
+                      ? 'Enter a percent from 1 to 100, or a fraction like 1/8.'
+                      : unitHelp
+                  }
+                />
+              ) : (
+                <Text style={styles.secondaryText}>
+                  {sizeAmount === null ? '(Enter a number or fraction)' : (typedPrice ?? unitHelp)}
+                </Text>
+              )}
             </>
           )}
           {pricedId !== null && price && (
@@ -329,24 +363,20 @@ export function UsePanel({
             <Pressable style={styles.textButton} onPress={onCancel}>
               <Text style={styles.textButtonText}>Cancel</Text>
             </Pressable>
-            {!takesWhole && (
-              <Pressable
-                style={[styles.saveButton, !canSave && styles.buttonDisabled]}
-                onPress={handleSave}
-                disabled={!canSave}
-              >
+            {/* Picking adds a whole supply to a prep, and an empty list has nothing to add. */}
+            {!takesWhole && items?.length !== 0 && (
+              <Pressable style={styles.saveButton} onPress={handleSave}>
                 <Text style={styles.saveButtonText}>{initial ? 'Save' : 'Add'}</Text>
               </Pressable>
             )}
           </View>
         </SafeAreaView>
       </KeyboardAvoidingView>
-      {addingSupply && (
-        <SupplyPanel
-          initial={null}
-          onCancel={() => setAddingSupply(false)}
-          onSave={saveNewSupply}
-        />
+      {addingItem && kind === 'supply' && (
+        <SupplyPanel initial={null} onCancel={() => setAddingItem(false)} onSave={saveNewSupply} />
+      )}
+      {addingItem && kind === 'prep' && (
+        <NewPrepPanel onCancel={() => setAddingItem(false)} onSaved={keepNewItem} />
       )}
       {repricing && (
         <SupplyPanel
@@ -406,6 +436,9 @@ const styles = StyleSheet.create({
     borderColor: colors.separator,
     borderRadius: 8,
   },
+  missingInput: {
+    borderColor: colors.danger,
+  },
   unitText: {
     minWidth: 20,
   },
@@ -461,9 +494,6 @@ const styles = StyleSheet.create({
   },
   buttonPressed: {
     opacity: 0.6,
-  },
-  buttonDisabled: {
-    opacity: 0.4,
   },
   saveButtonText: {
     fontSize: 18,

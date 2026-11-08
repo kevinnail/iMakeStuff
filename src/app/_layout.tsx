@@ -1,5 +1,6 @@
 import { DarkTheme, Stack, ThemeProvider } from 'expo-router';
 
+import { FirstRunGuide } from '@/components/FirstRunGuide';
 import { colors } from '@/theme';
 
 // Colors the headers, back buttons, and every screen's background.
@@ -32,6 +33,7 @@ export default function RootLayout() {
         />
         <Stack.Screen name="supply/[id]" options={{ headerBackButtonDisplayMode: 'minimal' }} />
       </Stack>
+      <FirstRunGuide />
     </ThemeProvider>
   );
 }

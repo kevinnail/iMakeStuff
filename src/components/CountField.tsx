@@ -1,6 +1,8 @@
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { FieldError } from '@/components/FieldError';
 import { colors } from '@/theme';
+import { missingMessages, type MissingField } from '@/utils/missingFields';
 import { parseSize, type BatchSize, type SizeInput } from '@/utils/prepTime';
 
 export interface CountTexts {
@@ -13,11 +15,12 @@ export type PrepKind = 'counted' | 'byEye';
 
 interface CountFieldProps {
   label: string;
-  amountPlaceholder: string;
-  unitPlaceholder: string;
-  note?: string;
+  note: string;
   texts: CountTexts;
   onChange: (texts: CountTexts) => void;
+  // Save found the number or the unit missing.
+  missingNumber: boolean;
+  missingUnit: boolean;
 }
 
 interface PrepKindFieldProps {
@@ -25,11 +28,11 @@ interface PrepKindFieldProps {
   onChangeKind: (kind: PrepKind) => void;
   texts: CountTexts;
   onChangeTexts: (texts: CountTexts) => void;
+  // The form's missing fields as Save shows them.
+  missing: MissingField[];
 }
 
 export const noCount: SizeInput = { sizeAmount: null, sizeUnit: null };
-
-export const prepCountError = "Enter how many it made, like 8 points, or tap I didn't count it.";
 
 export function getPrepKind({ size_amount }: BatchSize): PrepKind {
   return size_amount === null ? 'byEye' : 'counted';
@@ -40,66 +43,70 @@ export function getCountTexts({ size_amount, size_unit }: BatchSize): CountTexts
   return { amountText: size_amount === null ? '' : String(size_amount), unitText: size_unit ?? '' };
 }
 
-// A count typed as a number and a unit, like 8 points, or null unless both read.
-export function readCount({ amountText, unitText }: CountTexts): SizeInput | null {
-  const sizeAmount = parseSize(amountText);
-  const sizeUnit = unitText.trim();
-  return sizeAmount === null || sizeUnit === '' ? null : { sizeAmount, sizeUnit };
-}
-
-// The count a prep is saved with: none by eye, or null when Counted has no count typed.
-export function readPrepCount(kind: PrepKind, texts: CountTexts): SizeInput | null {
-  return kind === 'byEye' ? noCount : readCount(texts);
+// The count a prep is saved with: none by eye. Read after Save's check (getPieceMissing), so a
+// counted one's number and unit both read.
+export function readPrepCount(kind: PrepKind, { amountText, unitText }: CountTexts): SizeInput {
+  return kind === 'byEye'
+    ? noCount
+    : { sizeAmount: parseSize(amountText)!, sizeUnit: unitText.trim() };
 }
 
 // A number and a unit the maker types: what a counted prep made. The app never interprets the
-// unit.
+// unit. The boxes start empty, since an example in them reads as filled in; the example is the
+// note under them, which Save's message replaces when either is missing.
 export function CountField({
   label,
-  amountPlaceholder,
-  unitPlaceholder,
   note,
   texts,
   onChange,
+  missingNumber,
+  missingUnit,
 }: CountFieldProps) {
   return (
     <View style={styles.field}>
       <View style={styles.row}>
         <Text style={[styles.label, styles.fill]}>{label}</Text>
         <TextInput
-          style={[styles.input, styles.amountInput]}
+          style={[styles.input, styles.amountInput, missingNumber && styles.missingInput]}
           value={texts.amountText}
           onChangeText={(amountText) => onChange({ ...texts, amountText })}
-          placeholder={amountPlaceholder}
-          placeholderTextColor={colors.secondaryText}
           keyboardType="decimal-pad"
         />
         <TextInput
-          style={[styles.input, styles.unitInput]}
+          style={[styles.input, styles.unitInput, missingUnit && styles.missingInput]}
           value={texts.unitText}
           onChangeText={(unitText) => onChange({ ...texts, unitText })}
-          placeholder={unitPlaceholder}
-          placeholderTextColor={colors.secondaryText}
           autoCapitalize="none"
         />
       </View>
-      {note && <Text style={styles.note}>{note}</Text>}
+      {missingNumber || missingUnit ? (
+        <FieldError message={missingMessages.countNumber} />
+      ) : (
+        <Text style={styles.note}>{note}</Text>
+      )}
     </View>
   );
 }
 
 // How many parts prep made, asked up front since that's what a piece's cost is divided from. A
 // cane that isn't counted is by eye: pieces guess how much they took.
-export function PrepKindField({ kind, onChangeKind, texts, onChangeTexts }: PrepKindFieldProps) {
+export function PrepKindField({
+  kind,
+  onChangeKind,
+  texts,
+  onChangeTexts,
+  missing,
+}: PrepKindFieldProps) {
   return (
     <View style={styles.field}>
       {kind === 'counted' ? (
         <CountField
           label="How many did it make?"
-          amountPlaceholder="8"
-          unitPlaceholder="points"
+          note="Like 8 points."
           texts={texts}
           onChange={onChangeTexts}
+          missingNumber={missing.includes('countNumber')}
+          missingUnit={missing.includes('countUnit')}
         />
       ) : (
         <Text style={styles.label}>Not counted: each piece guesses how much of it went in.</Text>
@@ -147,6 +154,9 @@ const styles = StyleSheet.create({
   },
   unitInput: {
     width: 110,
+  },
+  missingInput: {
+    borderColor: colors.danger,
   },
   note: {
     fontSize: 16,
