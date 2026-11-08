@@ -28,13 +28,13 @@ export function deletePhoto(fileName: string) {
   new File(getPhotoDirectory(), fileName).delete();
 }
 
-export async function withSavedPhoto(
+export async function withSavedPhoto<Saved>(
   temporaryUri: string | null,
-  save: (photoFileName: string | null) => Promise<void>,
-) {
+  save: (photoFileName: string | null) => Promise<Saved>,
+): Promise<Saved> {
   const photoFileName = temporaryUri ? await savePhoto(temporaryUri) : null;
   try {
-    await save(photoFileName);
+    return await save(photoFileName);
   } catch (error) {
     if (photoFileName) deletePhoto(photoFileName);
     throw error;
