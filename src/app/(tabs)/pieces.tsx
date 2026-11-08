@@ -7,6 +7,7 @@ import { JoinedButtons } from '@/components/JoinedButtons';
 import { AssignedBar } from '@/components/AssignedBar';
 import { Tag } from '@/components/Tag';
 import { getPieces, type PieceListItem } from '@/db/queries/pieceQueries';
+import { useGuideStore } from '@/store/guideStore';
 import { formatCost } from '@/utils/cost';
 import { formatDay, formatDuration } from '@/utils/formatTime';
 import { colors } from '@/theme';
@@ -38,6 +39,7 @@ function PrepLeft({ prep }: { prep: PieceListItem }) {
 }
 
 export default function PiecesScreen() {
+  const guideTarget = useGuideStore((state) => state.target);
   const [pieces, setPieces] = useState<PieceListItem[]>([]);
   const [section, setSection] = useState<Section>('work');
   const [filter, setFilter] = useState<PieceFilter>('all');
@@ -98,6 +100,7 @@ export default function PiecesScreen() {
               style={({ pressed }) => [
                 styles.sectionButton,
                 styles.suppliesButton,
+                guideTarget === 'supplies' && styles.guideOutline,
                 pressed && styles.rowPressed,
               ]}
               onPress={() => router.push('/supplies')}
@@ -218,6 +221,14 @@ const styles = StyleSheet.create({
   // The arrow's 24 line height takes 6 off the padding, so it stays as tall as Work and Prep.
   suppliesButton: {
     paddingVertical: 5,
+  },
+  // The first-run guide's ring around the button it's pointing at. An outline takes no room, so
+  // nothing moves when it shows.
+  guideOutline: {
+    outlineWidth: 3,
+    outlineOffset: 4,
+    outlineColor: colors.warning,
+    boxShadow: `0px 0px 50px ${colors.warning}`,
   },
   workSelected: {
     backgroundColor: colors.primary,
