@@ -19,11 +19,12 @@ import {
   getPrepKind,
   noCount,
   PrepKindField,
-  prepCountError,
   readPrepCount,
   type PrepKind,
 } from '@/components/CountField';
 import { Dropdown } from '@/components/Dropdown';
+import { getOverlapMessage, useEntryTimes, yesterdayAt } from '@/components/EntryTimesPanel';
+import { FieldError, useMissingFields } from '@/components/FieldError';
 import { getNotesPlaceholder, outcomeOptions, type Outcome } from '@/components/FinishPiecePanel';
 import { JoinedButtons } from '@/components/JoinedButtons';
 import { getTemplateChoices, UseChoices, type MissingUse } from '@/components/UseChoices';
@@ -33,6 +34,7 @@ import { getTemplates, type PieceCategory, type Template } from '@/db/queries/pi
 import { getAvailablePrep, getTemplateUses, type AvailablePrep } from '@/db/queries/prepQueries';
 import { getAvailableSupplies, type AvailableSupply } from '@/db/queries/supplyQueries';
 import { colors } from '@/theme';
+import { getOverlapMissing, getPieceMissing, missingMessages } from '@/utils/missingFields';
 import { showPhotoChoices, withSavedPhoto } from '@/utils/photoStorage';
 import { defaultsToTemplate } from '@/utils/prepTime';
 import { showError } from '@/utils/showError';
@@ -51,14 +53,6 @@ const categoryOptions: { value: PieceCategory; label: string; color?: string }[]
   { value: 'prep', label: 'Prep', color: colors.prep },
 ];
 
-// Yesterday at the given hour, the most likely day to be catching up on.
-function yesterdayAt(hours: number) {
-  const date = new Date();
-  date.setDate(date.getDate() - 1);
-  date.setHours(hours, 0, 0, 0);
-  return date.getTime();
-}
-
 export default function AddWorkScreen() {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [availablePrep, setAvailablePrep] = useState<AvailablePrep[]>([]);
@@ -73,8 +67,10 @@ export default function AddWorkScreen() {
   const [missingSupplies, setMissingSupplies] = useState<MissingUse[]>([]);
   const [prepKind, setPrepKind] = useState<PrepKind>('counted');
   const [countTexts, setCountTexts] = useState({ amountText: '', unitText: '' });
-  const [startedAt, setStartedAt] = useState(() => yesterdayAt(9));
-  const [endedAt, setEndedAt] = useState(() => yesterdayAt(10));
+  const { startedAt, endedAt, overlaps, changeStart, setEndedAt } = useEntryTimes(
+    yesterdayAt(9),
+    yesterdayAt(10),
+  );
   const [finishing, setFinishing] = useState(false);
   const [outcome, setOutcome] = useState<Outcome>('good');
   // null until the switch is tapped.
@@ -96,6 +92,8 @@ export default function AddWorkScreen() {
   const saveAsTemplate =
     templateChoice ??
     defaultsToTemplate(category === 'prep' && prepKind === 'counted', outcome === 'lost');
+  // Past work can't overlap anything.
+  const overlap = overlaps.at(0);
   const templateOptions = templates.map((option) => ({
     key: option.id,
     label: option.name,
@@ -103,12 +101,17 @@ export default function AddWorkScreen() {
     ...(option.category === 'prep' ? { detail: 'prep' } : {}),
     template: option,
   }));
-  const canSave =
-    !saving &&
-    !gettingPhoto &&
-    trimmedName !== '' &&
-    endedAt >= startedAt &&
-    (!finishing || photoUri !== null || trimmedNotes !== '');
+  const missingFields = useMissingFields([
+    ...getPieceMissing({
+      name,
+      finished: finishing,
+      hasPhoto: photoUri !== null,
+      notes,
+      countTexts: category === 'prep' && !laterBatch && prepKind === 'counted' ? countTexts : null,
+    }),
+    ...getOverlapMissing(overlap !== undefined),
+  ]);
+  const busy = saving || gettingPhoto;
 
   useEffect(() => {
     Promise.all([getTemplates(), getAvailablePrep(null), getAvailableSupplies(null)])
@@ -164,11 +167,8 @@ export default function AddWorkScreen() {
   }
 
   function save() {
+    if (!missingFields.check()) return;
     const size = category === 'prep' ? readPrepCount(prepKind, countTexts) : noCount;
-    if (size === null) {
-      Alert.alert(prepCountError);
-      return;
-    }
     setSaving(true);
     withSavedPhoto(photoUri, (photoFileName) =>
       addPastWork({
@@ -223,6 +223,9 @@ export default function AddWorkScreen() {
               placeholderTextColor={colors.secondaryText}
               autoFocus={source !== 'existing'}
             />
+            {missingFields.shown.includes('name') && (
+              <FieldError message={missingMessages.name} style={styles.cardError} />
+            )}
             {source === 'existing' && (
               <View style={[styles.cardRow, styles.separator]}>
                 <View style={styles.fill}>
@@ -243,6 +246,7 @@ export default function AddWorkScreen() {
                     onChangeKind={setPrepKind}
                     texts={countTexts}
                     onChangeTexts={setCountTexts}
+                    missing={missingFields.shown}
                   />
                 </View>
               </View>
@@ -256,7 +260,7 @@ export default function AddWorkScreen() {
                 mode="datetime"
                 display="compact"
                 accentColor={colors.primary}
-                onValueChange={(_event, date) => setStartedAt(date.getTime())}
+                onValueChange={(_event, date) => changeStart(date.getTime())}
               />
             </View>
             <View style={[styles.cardRow, styles.separator]}>
@@ -266,9 +270,13 @@ export default function AddWorkScreen() {
                 mode="datetime"
                 display="compact"
                 accentColor={colors.primary}
+                minimumDate={new Date(startedAt)}
                 onValueChange={(_event, date) => setEndedAt(date.getTime())}
               />
             </View>
+            {overlap && (
+              <FieldError message={getOverlapMessage(overlap)} style={styles.cardError} />
+            )}
           </View>
           {usesPrep && (
             <UseChoices
@@ -333,6 +341,9 @@ export default function AddWorkScreen() {
                   placeholderTextColor={colors.secondaryText}
                   multiline
                 />
+                {missingFields.shown.includes('identity') && (
+                  <FieldError message={missingMessages.identity} style={styles.cardError} />
+                )}
                 {template === null && (
                   <View style={[styles.cardRow, styles.separator]}>
                     <Text style={[styles.text, styles.fill]}>Save as template</Text>
@@ -348,9 +359,9 @@ export default function AddWorkScreen() {
           </View>
           <View style={styles.buttonRow}>
             <Pressable
-              style={[styles.saveButton, !canSave && styles.buttonDisabled]}
+              style={[styles.saveButton, busy && styles.buttonDisabled]}
               onPress={save}
-              disabled={!canSave}
+              disabled={busy}
             >
               <Text style={styles.saveButtonText}>Save</Text>
             </Pressable>
@@ -397,6 +408,10 @@ const styles = StyleSheet.create({
   secondaryText: {
     fontSize: 18,
     color: colors.secondaryText,
+  },
+  // Under the last field on a card, clear of the card's edge.
+  cardError: {
+    paddingBottom: 12,
   },
   nameInput: {
     fontSize: 18,
