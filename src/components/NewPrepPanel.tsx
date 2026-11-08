@@ -25,6 +25,9 @@ import { getOverlapMissing, getPieceMissing, missingMessages } from '@/utils/mis
 import { showPhotoChoices, withSavedPhoto } from '@/utils/photoStorage';
 
 interface NewPrepPanelProps {
+  // Where the work it goes into starts, on a form not saved yet, so the prep's hour ends there
+  // instead of overlapping it. Without one, it's yesterday 9 to 10.
+  endsAt?: number;
   onCancel: () => void;
   // The prep as Add prep lists it, so it can be picked straight away.
   onSaved: (prep: AvailablePrep) => void;
@@ -33,13 +36,13 @@ interface NewPrepPanelProps {
 // Slides up over Add prep to record prep made earlier, the way Add supply does for a supply, so
 // a form in progress isn't left. It's Add Work's New prep, saved finished since it's being used.
 // Pieces pick counted prep through its template, so counted prep is saved as one.
-export function NewPrepPanel({ onCancel, onSaved }: NewPrepPanelProps) {
+export function NewPrepPanel({ endsAt = yesterdayAt(10), onCancel, onSaved }: NewPrepPanelProps) {
   const [name, setName] = useState('');
   const [prepKind, setPrepKind] = useState<PrepKind>('counted');
   const [countTexts, setCountTexts] = useState({ amountText: '', unitText: '' });
   const { startedAt, endedAt, overlaps, changeStart, setEndedAt } = useEntryTimes(
-    yesterdayAt(9),
-    yesterdayAt(10),
+    endsAt - 60 * 60 * 1000,
+    endsAt,
   );
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   // From the camera or library opening until its photo is ready.
@@ -132,6 +135,7 @@ export function NewPrepPanel({ onCancel, onSaved }: NewPrepPanelProps) {
                 mode="datetime"
                 display="compact"
                 accentColor={colors.primary}
+                maximumDate={new Date()}
                 onValueChange={(_event, date) => changeStart(date.getTime())}
               />
             </View>
@@ -143,6 +147,7 @@ export function NewPrepPanel({ onCancel, onSaved }: NewPrepPanelProps) {
                 display="compact"
                 accentColor={colors.primary}
                 minimumDate={new Date(startedAt)}
+                maximumDate={new Date()}
                 onValueChange={(_event, date) => setEndedAt(date.getTime())}
               />
             </View>
