@@ -43,7 +43,7 @@ import { useWorkStore } from '@/store/workStore';
 import { formatClockTime, formatDuration } from '@/utils/formatTime';
 import { getPhotoUri, takePhoto } from '@/utils/photoStorage';
 import { getLastTouch, isQuestionDue } from '@/utils/stillWorking';
-import { colors } from '@/theme';
+import { colors, guideOutline } from '@/theme';
 import { getWholeDays, startOfDay } from '@/utils/workDays';
 import { showError } from '@/utils/showError';
 
@@ -382,7 +382,7 @@ export default function WorkScreen() {
           <Text style={styles.helpButtonText}>?</Text>
         </Pressable>
       </View>
-      <View style={[styles.startRow, guideTarget === 'start' && styles.guideOutline]}>
+      <View style={[styles.startRow, guideTarget === 'start' && guideOutline]}>
         <TextInput
           style={styles.nameInput}
           value={name}
@@ -566,15 +566,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-  },
-  // The first-run guide's ring around the button it's pointing at. An outline takes no room, so
-  // nothing moves when it shows.
-  guideOutline: {
-    outlineWidth: 3,
-    outlineOffset: 4,
-    outlineColor: colors.warning,
-    borderRadius: 8,
-    boxShadow: `0px 0px 50px ${colors.warning}`,
   },
   nameInput: {
     flex: 1,
