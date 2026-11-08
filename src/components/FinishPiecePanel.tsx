@@ -19,16 +19,17 @@ import {
   getPrepKind,
   noCount,
   PrepKindField,
-  prepCountError,
   readPrepCount,
   type PrepKind,
 } from '@/components/CountField';
+import { FieldError, useMissingFields } from '@/components/FieldError';
 import { JoinedButtons } from '@/components/JoinedButtons';
 import { UseChoices, type MissingUse } from '@/components/UseChoices';
 import type { AvailableItem, UseChoice } from '@/components/UsePanel';
 import type { FinishPrepUse } from '@/db/queries/prepQueries';
 import type { FinishSupplyUse } from '@/db/queries/supplyQueries';
 import { colors } from '@/theme';
+import { getPieceMissing, missingMessages } from '@/utils/missingFields';
 import { defaultsToTemplate, type BatchSize, type SizeInput } from '@/utils/prepTime';
 
 interface FinishPiecePanelProps {
@@ -107,18 +108,24 @@ export function FinishPiecePanel({
     defaultsToTemplate(finishingPrep && prepKind === 'counted', outcome === 'lost');
   const [saving, setSaving] = useState(false);
   const trimmedNotes = notes.trim();
-  const canSave = !saving && (photoUri !== null || trimmedNotes !== '');
+  const countsPrep = finishingPrep && !laterBatch;
+  const missingFields = useMissingFields(
+    getPieceMissing({
+      name: pieceName,
+      finished: true,
+      hasPhoto: photoUri !== null,
+      notes,
+      countTexts: countsPrep && prepKind === 'counted' ? countTexts : null,
+    }),
+  );
 
   function save() {
+    if (!missingFields.check()) return;
     const size = !finishingPrep
       ? noCount
       : laterBatch
         ? { sizeAmount: initialSize.size_amount, sizeUnit: initialSize.size_unit }
         : readPrepCount(prepKind, countTexts);
-    if (size === null) {
-      Alert.alert(prepCountError);
-      return;
-    }
     setSaving(true);
     // A use already on the piece keeps its id, so it's changed rather than added again.
     const prepUses = chosenPrep.map(({ item, share, useId }) => ({
@@ -166,16 +173,20 @@ export function FinishPiecePanel({
               <Text style={styles.pieceName}>{pieceName}</Text>
             </View>
             {/* Right under the name: what a piece's cost is divided from. */}
-            {finishingPrep && !laterBatch && (
+            {countsPrep && (
               <PrepKindField
                 kind={prepKind}
                 onChangeKind={setPrepKind}
                 texts={countTexts}
                 onChangeTexts={setCountTexts}
+                missing={missingFields.shown}
               />
             )}
             <TextInput
-              style={styles.notesInput}
+              style={[
+                styles.notesInput,
+                missingFields.shown.includes('identity') && styles.missingInput,
+              ]}
               value={notes}
               onChangeText={setNotes}
               placeholder={getNotesPlaceholder(outcome === 'lost', photoUri !== null)}
@@ -185,6 +196,9 @@ export function FinishPiecePanel({
               submitBehavior="blurAndSubmit"
               autoFocus={!photoUri}
             />
+            {missingFields.shown.includes('identity') && (
+              <FieldError message={missingMessages.identity} />
+            )}
             {availablePrep && (
               <UseChoices
                 kind="prep"
@@ -226,9 +240,9 @@ export function FinishPiecePanel({
                 <Text style={styles.cancelButtonText}>Cancel</Text>
               </Pressable>
               <Pressable
-                style={[styles.saveButton, !canSave && styles.buttonDisabled]}
+                style={[styles.saveButton, saving && styles.buttonDisabled]}
                 onPress={save}
-                disabled={!canSave}
+                disabled={saving}
               >
                 <Text style={styles.saveButtonText}>Save</Text>
               </Pressable>
@@ -312,6 +326,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.separator,
     borderRadius: 8,
+  },
+  missingInput: {
+    borderColor: colors.danger,
   },
   useCard: {
     backgroundColor: colors.background,
