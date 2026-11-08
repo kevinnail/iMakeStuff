@@ -24,6 +24,7 @@ import {
 } from '@/components/CountField';
 import { FieldError, useMissingFields } from '@/components/FieldError';
 import { JoinedButtons } from '@/components/JoinedButtons';
+import { NewPrepPanel } from '@/components/NewPrepPanel';
 import { UseChoices, type MissingUse } from '@/components/UseChoices';
 import type { AvailableItem, UseChoice } from '@/components/UsePanel';
 import type { FinishPrepUse } from '@/db/queries/prepQueries';
@@ -207,6 +208,7 @@ export function FinishPiecePanel({
                 chosen={chosenPrep}
                 missing={missingPrep}
                 onChange={setChosenPrep}
+                renderNewPrep={(handlers) => <NewPrepPanel {...handlers} />}
                 style={styles.useCard}
               />
             )}

@@ -11,6 +11,7 @@ import {
   updateEntryTimes,
 } from '@/db/queries/entryQueries';
 import { getAvailablePrep } from '@/db/queries/prepQueries';
+import { addSupply } from '@/db/queries/supplyQueries';
 import { createTestDb } from '../setup';
 
 jest.mock('@/db/database', () => ({
@@ -484,6 +485,60 @@ describe('addPastWork', () => {
       { id: caneId, name: 'Dichro cane' },
       { id: pointsId, name: 'Points' },
     ]);
+  });
+
+  // Otherwise prep added from New prep would have no cost, and neither would the pieces using it.
+  it("lists new prep saved with a whole supply at that supply's cost", async () => {
+    const tubeId = await addSupply({ name: 'Clear tube', costCents: 1500 });
+
+    const pointsId = await addPastWork({
+      piece: {
+        name: 'Points',
+        category: 'prep',
+        templateId: null,
+        sizeAmount: 8,
+        sizeUnit: 'points',
+      },
+      startedAt,
+      endedAt,
+      photoFileName: null,
+      finish: { notes: 'For pendants', lost: false, isTemplate: true },
+      prepUses: [],
+      supplyUses: [{ supplyId: tubeId, share: { share_numerator: 1, share_denominator: 1 } }],
+    });
+
+    expect(await getAvailablePrep(null)).toMatchObject([{ id: pointsId, cost_cents: 1500 }]);
+  });
+
+  // Otherwise two prep could each count the same tube's whole cost.
+  it('rejects new prep with a supply another prep already took whole, and saves none of it', async () => {
+    const tubeId = await addSupply({ name: 'Clear tube', costCents: 1500 });
+    const wholeTube = [{ supplyId: tubeId, share: { share_numerator: 1, share_denominator: 1 } }];
+    const newPrep = (name: string, times: { startedAt: string; endedAt: string }) => ({
+      ...times,
+      piece: {
+        name,
+        category: 'prep' as const,
+        templateId: null,
+        sizeAmount: null,
+        sizeUnit: null,
+      },
+      photoFileName: null,
+      finish: { notes: 'For pendants', lost: false, isTemplate: false },
+      prepUses: [],
+      supplyUses: wholeTube,
+    });
+    const firstId = await addPastWork(newPrep('Dichro cane', { startedAt, endedAt }));
+
+    await expect(
+      addPastWork(
+        newPrep('Second cane', {
+          startedAt: '2026-10-30T20:00:00.000Z',
+          endedAt: '2026-10-30T21:00:00.000Z',
+        }),
+      ),
+    ).rejects.toThrow("Only a supply that isn't all used can be added.");
+    expect((await getAvailablePrep(null)).map(({ id }) => id)).toEqual([firstId]);
   });
 
   // Otherwise a photo added for a new piece that isn't finished yet would be thrown away.

@@ -5,6 +5,7 @@ import { Image, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 're
 import { Card } from '@/components/Card';
 import { Chevron } from '@/components/Chevron';
 import { EntryTimesPanel } from '@/components/EntryTimesPanel';
+import { NewPrepPanel } from '@/components/NewPrepPanel';
 import { PieceEditForm } from '@/components/PieceEditForm';
 import { AssignedBar } from '@/components/AssignedBar';
 import { Tag } from '@/components/Tag';
@@ -285,6 +286,7 @@ function UsesSection({ kind, usedBy, lines, uses, onChange }: UsesSectionProps) 
           onCancel={() => setItemList(null)}
           onSave={({ item, share }) => save(uses.add(item.id, share))}
           onRepriced={reload}
+          renderNewPrep={(handlers) => <NewPrepPanel {...handlers} />}
         />
       )}
       {changingLine && (

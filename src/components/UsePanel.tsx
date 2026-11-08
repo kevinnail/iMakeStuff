@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import {
   KeyboardAvoidingView,
   Modal,
@@ -12,7 +12,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Dropdown } from '@/components/Dropdown';
 import { FieldError, useMissingFields } from '@/components/FieldError';
-import { NewPrepPanel } from '@/components/NewPrepPanel';
 import { SupplyPanel } from '@/components/SupplyPanel';
 import type { PieceCategory } from '@/db/queries/pieceQueries';
 import { getAvailablePrep, getPrepPrice, type PartPrice } from '@/db/queries/prepQueries';
@@ -99,6 +98,12 @@ function getPriceText(
   return `${values.join(' and ')}${cost_estimated ? ', estimated' : ''}`;
 }
 
+// What the New prep panel is given to close itself and hand back the prep it saved.
+export interface NewPrepHandlers {
+  onCancel: () => void;
+  onSaved: (prep: AvailableItem) => void;
+}
+
 export interface UseChoice {
   // otherUsesShare: every other piece's share of it added together, 1 being all of it.
   item: { id: number; name: string; otherUsesShare: number } & BatchSize;
@@ -141,8 +146,9 @@ interface UsePanelProps {
   // they came from offers them as they are now.
   onItemAdded?: (item: AvailableItem) => void;
   onRepriced?: (items: AvailableItem[]) => void;
-  // Where New prep's hour ends: the start of the form's work, when it isn't saved yet.
-  newPrepEndsAt?: number;
+  // A prep list's New prep panel. The screen passes it in rather than this file importing it,
+  // since New prep has a supply list of its own that opens this panel.
+  renderNewPrep?: (handlers: NewPrepHandlers) => ReactNode;
 }
 
 // Slides up from the bottom to add a use of a prep or supply, or change one: which one, and how
@@ -161,7 +167,7 @@ export function UsePanel({
   onRemove,
   onItemAdded,
   onRepriced,
-  newPrepEndsAt,
+  renderNewPrep,
 }: UsePanelProps) {
   const labels = useLabels[kind];
   const [items, setItems] = useState(itemList);
@@ -383,13 +389,9 @@ export function UsePanel({
       {addingItem && kind === 'supply' && (
         <SupplyPanel initial={null} onCancel={() => setAddingItem(false)} onSave={saveNewSupply} />
       )}
-      {addingItem && kind === 'prep' && (
-        <NewPrepPanel
-          endsAt={newPrepEndsAt}
-          onCancel={() => setAddingItem(false)}
-          onSaved={keepNewItem}
-        />
-      )}
+      {addingItem &&
+        kind === 'prep' &&
+        renderNewPrep?.({ onCancel: () => setAddingItem(false), onSaved: keepNewItem })}
       {repricing && (
         <SupplyPanel
           initial={repricing}
