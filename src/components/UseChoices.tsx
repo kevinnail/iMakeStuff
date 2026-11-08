@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { Chevron } from '@/components/Chevron';
@@ -6,6 +6,7 @@ import {
   UsePanel,
   useLabels,
   type AvailableItem,
+  type NewPrepHandlers,
   type UseChoice,
   type UseKind,
 } from '@/components/UsePanel';
@@ -35,9 +36,8 @@ interface UseChoicesProps {
   // A prep or supply saved from the empty list. New prep is saved with its own work time, which
   // the form's times may now overlap.
   onItemAdded?: () => void;
-  // The start of the form's work while it isn't saved, where New prep's hour ends, since the
-  // overlap check can't see it yet.
-  newPrepEndsAt?: number;
+  // A prep list's New prep panel, passed on to the use panel.
+  renderNewPrep?: (handlers: NewPrepHandlers) => ReactNode;
   // Sets the card's color where it sits on a panel the color of the page's cards.
   style?: StyleProp<ViewStyle>;
 }
@@ -87,7 +87,7 @@ export function UseChoices({
   missing,
   onChange,
   onItemAdded,
-  newPrepEndsAt,
+  renderNewPrep,
   style,
 }: UseChoicesProps) {
   const labels = useLabels[kind];
@@ -182,7 +182,7 @@ export function UseChoices({
           onSave={add}
           onItemAdded={keepAdded}
           onRepriced={setRepricedItems}
-          newPrepEndsAt={newPrepEndsAt}
+          renderNewPrep={renderNewPrep}
         />
       )}
       {changing && (
