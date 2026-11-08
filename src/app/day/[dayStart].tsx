@@ -10,6 +10,7 @@ import {
   getDayEntries,
   updateEntryTimes,
   type DayEntry,
+  type TimelineEntry,
 } from '@/db/queries/entryQueries';
 import { colors } from '@/theme';
 import { getDayTicks } from '@/utils/dayTicks';
@@ -20,6 +21,7 @@ interface PanelSettings {
   title: string;
   startedAt: number;
   endedAt: number | null;
+  overlapAllowed: (entry: TimelineEntry) => boolean;
   save: (startedAt: number, endedAt: number | null) => Promise<void>;
 }
 
@@ -125,6 +127,7 @@ export default function DayScreen() {
       title: entry.piece_name ?? 'Break',
       startedAt: Date.parse(entry.started_at),
       endedAt: entry.ended_at ? Date.parse(entry.ended_at) : null,
+      overlapAllowed: (other) => other.kind === entry.kind && other.id === entry.id,
       save: (startedAt, endedAt) =>
         saveAndReload(
           updateEntryTimes(
@@ -143,6 +146,8 @@ export default function DayScreen() {
       title: 'Add break',
       startedAt: noon,
       endedAt: noon + 30 * 60 * 1000,
+      // A break falls inside the work it interrupts, and splits it.
+      overlapAllowed: (other) => other.kind === 'segment',
       // A new break always starts with an end, and the panel never removes one.
       save: (startedAt, endedAt) => saveAndReload(addBreak(toIso(startedAt), toIso(endedAt!))),
     });
@@ -228,6 +233,7 @@ export default function DayScreen() {
           title={panel.title}
           initialStartedAt={panel.startedAt}
           initialEndedAt={panel.endedAt}
+          overlapAllowed={panel.overlapAllowed}
           onCancel={() => setPanel(null)}
           onSave={panel.save}
         />
