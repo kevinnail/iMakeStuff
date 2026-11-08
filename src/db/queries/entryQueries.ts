@@ -27,10 +27,12 @@ export interface RunningEntry {
   confirmed_at: string | null;
 }
 
-interface TimelineEntry {
+export interface TimelineEntry {
   kind: EntryKind;
   id: number;
   piece_id: number | null;
+  // null for a break.
+  piece_name: string | null;
   started_at: string;
   ended_at: string | null;
 }
@@ -48,8 +50,8 @@ export interface PastWork {
 
 const tableByKind = { segment: 'work_segments', break: 'breaks' } as const;
 
-// Entries that overlap startedAt to endedAt. A running entry runs until now, and entries
-// that only touch at an end don't overlap.
+// Entries that overlap startedAt to endedAt, in time order. A running entry runs until now, and
+// entries that only touch at an end don't overlap.
 function getOverlappingEntries(
   database: SQLiteDatabase,
   startedAt: string,
@@ -58,15 +60,26 @@ function getOverlappingEntries(
 ) {
   return database.getAllAsync<TimelineEntry>(
     `SELECT * FROM (
-       SELECT 'segment' AS kind, id, piece_id, started_at, ended_at FROM work_segments
+       SELECT 'segment' AS kind, work_segments.id, piece_id, pieces.name AS piece_name,
+         work_segments.started_at, work_segments.ended_at
+       FROM work_segments
+       JOIN pieces ON pieces.id = work_segments.piece_id
        UNION ALL
-       SELECT 'break' AS kind, id, NULL AS piece_id, started_at, ended_at FROM breaks
+       SELECT 'break' AS kind, id, NULL AS piece_id, NULL AS piece_name, started_at, ended_at
+       FROM breaks
      )
-     WHERE started_at < ? AND coalesce(ended_at, ?) > ?`,
+     WHERE started_at < ? AND coalesce(ended_at, ?) > ?
+     ORDER BY started_at`,
     endedAt,
     now,
     startedAt,
   );
+}
+
+// What a time being picked overlaps, so a form can name what's in the way before Save.
+export async function getOverlaps(startedAt: string, endedAt: string): Promise<TimelineEntry[]> {
+  const database = await getDb();
+  return getOverlappingEntries(database, startedAt, endedAt, new Date().toISOString());
 }
 
 // Every segment and break that touches the day, in time order.
@@ -150,7 +163,7 @@ export async function addBreak(startedAt: string, endedAt: string): Promise<void
 }
 
 // A finished piece is finished at the work's end in the same insert, so the database's photo
-// or description rule applies to it.
+// or description rule applies to it. Returns the new piece's id.
 export async function addPastWork({
   piece,
   startedAt,
@@ -159,13 +172,15 @@ export async function addPastWork({
   finish,
   prepUses,
   supplyUses,
-}: PastWork): Promise<void> {
+}: PastWork): Promise<number> {
   const database = await getDb();
   const now = new Date().toISOString();
+  // Set inside the transaction, which returns nothing itself.
+  let pieceId = 0;
   await database.withTransactionAsync(async () => {
     const overlapping = await getOverlappingEntries(database, startedAt, endedAt, now);
     if (overlapping.length > 0) throw new Error('That overlaps another entry.');
-    const { lastInsertRowId: pieceId } = await database.runAsync(
+    ({ lastInsertRowId: pieceId } = await database.runAsync(
       `INSERT INTO pieces (name, category, template_id, kind_id, photo_file_name, created_at,
          finished_at, notes, lost, is_template, size_amount, size_unit)
        VALUES (?, ?, ?, (SELECT coalesce(kind_id, id) FROM pieces WHERE id = ?), ?, ?, ?, ?, ?, ?,
@@ -182,7 +197,7 @@ export async function addPastWork({
       finish?.isTemplate ? 1 : 0,
       piece.sizeAmount,
       piece.sizeUnit,
-    );
+    ));
     await database.runAsync(
       'INSERT INTO work_segments (piece_id, started_at, ended_at) VALUES (?, ?, ?)',
       pieceId,
@@ -192,6 +207,7 @@ export async function addPastWork({
     for (const use of prepUses) await insertPrepUse(database, pieceId, use);
     for (const use of supplyUses) await insertSupplyUse(database, pieceId, use);
   });
+  return pieceId;
 }
 
 export async function addPieceTime(
