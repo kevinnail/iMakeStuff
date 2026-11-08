@@ -141,6 +141,8 @@ interface UsePanelProps {
   // they came from offers them as they are now.
   onItemAdded?: (item: AvailableItem) => void;
   onRepriced?: (items: AvailableItem[]) => void;
+  // Where New prep's hour ends: the start of the form's work, when it isn't saved yet.
+  newPrepEndsAt?: number;
 }
 
 // Slides up from the bottom to add a use of a prep or supply, or change one: which one, and how
@@ -159,6 +161,7 @@ export function UsePanel({
   onRemove,
   onItemAdded,
   onRepriced,
+  newPrepEndsAt,
 }: UsePanelProps) {
   const labels = useLabels[kind];
   const [items, setItems] = useState(itemList);
@@ -173,6 +176,13 @@ export function UsePanel({
   const [hasSupplies, setHasSupplies] = useState<boolean | null>(null);
   const emptyList = items !== null && items.length === 0;
   const canAddNew = kind === 'supply' || hasSupplies === true;
+  // An empty prep list's help waits for the supplies check, since it depends on it.
+  const emptyHelp =
+    kind === 'supply' || hasSupplies === true
+      ? labels.noneToUseHelp
+      : hasSupplies === false
+        ? noSuppliesHelp
+        : null;
   const sizeAmount = chosenItem?.size_amount ?? null;
   const sizeUnit = chosenItem?.size_unit ?? null;
   const takesWhole = usedBy === 'prep';
@@ -276,9 +286,7 @@ export function UsePanel({
           {emptyList && (
             <>
               <Text style={styles.label}>{labels.noneToUse}</Text>
-              <Text style={styles.secondaryText}>
-                {hasSupplies === false ? noSuppliesHelp : labels.noneToUseHelp}
-              </Text>
+              {emptyHelp && <Text style={styles.secondaryText}>{emptyHelp}</Text>}
               {canAddNew && (
                 <Pressable
                   style={({ pressed }) => [styles.addButton, pressed && styles.buttonPressed]}
@@ -376,7 +384,11 @@ export function UsePanel({
         <SupplyPanel initial={null} onCancel={() => setAddingItem(false)} onSave={saveNewSupply} />
       )}
       {addingItem && kind === 'prep' && (
-        <NewPrepPanel onCancel={() => setAddingItem(false)} onSaved={keepNewItem} />
+        <NewPrepPanel
+          endsAt={newPrepEndsAt}
+          onCancel={() => setAddingItem(false)}
+          onSaved={keepNewItem}
+        />
       )}
       {repricing && (
         <SupplyPanel
