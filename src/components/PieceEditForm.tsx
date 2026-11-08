@@ -17,10 +17,10 @@ import {
   getPrepKind,
   noCount,
   PrepKindField,
-  prepCountError,
   readPrepCount,
   type PrepKind,
 } from '@/components/CountField';
+import { FieldError, useMissingFields } from '@/components/FieldError';
 import { getNotesPlaceholder } from '@/components/FinishPiecePanel';
 import { JoinedButtons } from '@/components/JoinedButtons';
 import {
@@ -31,6 +31,7 @@ import {
 } from '@/db/queries/pieceQueries';
 import { colors } from '@/theme';
 import { formatDuration } from '@/utils/formatTime';
+import { getPieceMissing, missingMessages } from '@/utils/missingFields';
 import { deletePhoto, getPhotoUri, showPhotoChoices, withSavedPhoto } from '@/utils/photoStorage';
 import type { SizeInput } from '@/utils/prepTime';
 import { showError } from '@/utils/showError';
@@ -91,8 +92,15 @@ export function PieceEditForm({
       : photo.kind === 'saved' && piece.photo_file_name
         ? getPhotoUri(piece.photo_file_name)
         : null;
-  const identifiable = !piece.finished_at || shownPhotoUri !== null || trimmedNotes !== '';
-  const canSave = !saving && trimmedName !== '' && identifiable;
+  const missingFields = useMissingFields(
+    getPieceMissing({
+      name,
+      finished: piece.finished_at !== null,
+      hasPhoto: shownPhotoUri !== null,
+      notes,
+      countTexts: category === 'prep' && prepKind === 'counted' ? countTexts : null,
+    }),
+  );
 
   function changePhoto() {
     showPhotoChoices({
@@ -117,11 +125,8 @@ export function PieceEditForm({
   }
 
   function handleSave() {
+    if (!missingFields.check()) return;
     const size = category === 'prep' ? readPrepCount(prepKind, countTexts) : noCount;
-    if (size === null) {
-      Alert.alert(prepCountError);
-      return;
-    }
     setSaving(true);
     save(size)
       .then(onSaved)
@@ -163,9 +168,9 @@ export function PieceEditForm({
           ),
           headerRight: () => (
             <Pressable
-              style={[styles.saveButton, !canSave && styles.buttonDisabled]}
+              style={[styles.saveButton, saving && styles.buttonDisabled]}
               onPress={handleSave}
-              disabled={!canSave}
+              disabled={saving}
             >
               <Text style={styles.saveButtonText}>Save</Text>
             </Pressable>
@@ -180,6 +185,9 @@ export function PieceEditForm({
           placeholder="Name"
           placeholderTextColor={colors.secondaryText}
         />
+        {missingFields.shown.includes('name') && (
+          <FieldError message={missingMessages.name} style={styles.cardError} />
+        )}
         <View style={[styles.cardRow, styles.separator]}>
           <View style={styles.fill}>
             <JoinedButtons
@@ -198,6 +206,7 @@ export function PieceEditForm({
                 onChangeKind={setPrepKind}
                 texts={countTexts}
                 onChangeTexts={setCountTexts}
+                missing={missingFields.shown}
               />
             </View>
           </View>
@@ -227,6 +236,9 @@ export function PieceEditForm({
           placeholderTextColor={colors.secondaryText}
           multiline
         />
+        {missingFields.shown.includes('identity') && (
+          <FieldError message={missingMessages.identity} style={styles.cardError} />
+        )}
       </View>
       <View style={styles.card}>
         <Pressable
@@ -263,6 +275,10 @@ const styles = StyleSheet.create({
   },
   fill: {
     flex: 1,
+  },
+  // Under the last field on a card, clear of the card's edge.
+  cardError: {
+    paddingBottom: 12,
   },
   // The joined buttons' usual track is the card's color, so on a card it takes the page's.
   trackOnCard: {
