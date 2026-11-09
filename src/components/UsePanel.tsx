@@ -36,7 +36,6 @@ import {
   parseAmount,
   type BatchSize,
   type Share,
-  type UseShare,
 } from '@/utils/prepTime';
 
 // What a piece uses a share of: prep, or a supply.
@@ -57,7 +56,7 @@ export const useLabels = {
     heading: 'Supplies used',
     add: 'Add supply',
     noneAdded: 'No supplies added',
-    noneToUse: 'No open supplies to pick from.',
+    noneToUse: 'No supplies to pick from.',
     noneToUseHelp: "Add what you bought, like a tube at $15, and it's picked for you here.",
     newItem: 'Add supply',
     choose: 'Choose a supply',
@@ -68,34 +67,34 @@ export const useLabels = {
 const noSuppliesHelp =
   'Prep costs what its supplies did, so add what you bought first, on the Pieces tab under Supplies. Then add the prep here.';
 
-// A prep or supply that can be picked, with every piece's share of it added together, and its
-// whole cost (null with no supply behind a prep), marked when a counted prep's holds a guess.
+// A prep or supply that can be picked, with its whole cost (null for by eye prep, and with no
+// supply behind a prep).
 export interface AvailableItem extends BatchSize {
   id: number;
   name: string;
-  used_share: number;
   cost_cents: number | null;
-  cost_estimated?: boolean;
+  // Prep only: every piece's share of it added together, 1 being all of it.
+  used_share?: number;
 }
 
-// Beside each batch in the list: how much of a by eye one is assigned, or a counted part's price.
-function getPickerDetail({ used_share, size_amount, cost_cents, cost_estimated }: AvailableItem) {
-  if (size_amount === null) return `${formatPercent(used_share)} assigned`;
+// Beside each one in the list: how much of a by eye prep is assigned, a counted part's price, or
+// a supply's price.
+function getPickerDetail({ used_share, size_amount, cost_cents }: AvailableItem) {
+  if (size_amount === null && used_share !== undefined)
+    return `${formatPercent(used_share)} assigned`;
   if (cost_cents === null) return undefined;
-  const partCost = formatCost(Math.round(cost_cents / size_amount));
-  return cost_estimated ? `${partCost} each, estimated` : `${partCost} each`;
+  return size_amount === null
+    ? formatCost(cost_cents)
+    : `${formatCost(Math.round(cost_cents / size_amount))} each`;
 }
 
 // "$3.76 and 10m": the part of a counted prep's whole cost and time, 1 being all of it.
-function getPriceText(
-  { cost_cents, cost_estimated, worked_milliseconds }: PartPrice,
-  fraction: number,
-) {
+function getPriceText({ cost_cents, worked_milliseconds }: PartPrice, fraction: number) {
   const values = [
     ...(cost_cents === null ? [] : [formatCost(Math.round(cost_cents * fraction))]),
     formatDuration(worked_milliseconds * fraction),
   ];
-  return `${values.join(' and ')}${cost_estimated ? ', estimated' : ''}`;
+  return values.join(' and ');
 }
 
 // What the New prep panel is given to close itself and hand back the prep it saved.
@@ -105,8 +104,7 @@ export interface NewPrepHandlers {
 }
 
 export interface UseChoice {
-  // otherUsesShare: every other piece's share of it added together, 1 being all of it.
-  item: { id: number; name: string; otherUsesShare: number } & BatchSize;
+  item: { id: number; name: string } & BatchSize;
   share: Share;
   note?: string;
   useId?: number;
@@ -114,14 +112,11 @@ export interface UseChoice {
 
 // A use already saved on the piece, as a choice the panel can change or remove.
 export function getSavedChoice(
-  use: UseShare & { id: number },
+  use: Share & { id: number },
   item: { id: number; name: string } & BatchSize,
 ): UseChoice {
   return {
-    item: {
-      ...item,
-      otherUsesShare: use.shares_total - getShareValue(use),
-    },
+    item,
     share: { share_numerator: use.share_numerator, share_denominator: use.share_denominator },
     useId: use.id,
   };
@@ -233,7 +228,6 @@ export function UsePanel({
     const choiceItem = {
       id: item.id,
       name: item.name,
-      otherUsesShare: item.used_share,
       size_amount: item.size_amount,
       size_unit: item.size_unit,
     };
@@ -265,7 +259,6 @@ export function UsePanel({
     keepNewItem({
       id,
       name: details.name,
-      used_share: 0,
       size_amount: null,
       size_unit: null,
       cost_cents: details.costCents,
