@@ -625,6 +625,7 @@ describe('getPieceDetail', () => {
         is_template: 0,
         size_amount: null,
         size_unit: null,
+        template_counted: 0,
         no_cost: 0,
       },
       segments: [
@@ -778,17 +779,20 @@ describe('updatePiece', () => {
     ).rejects.toThrow(/CHECK constraint/);
   });
 
-  // Otherwise prep would end up made from other prep, which nothing in the app can show.
-  it('rejects changing a piece that uses prep to prep', async () => {
-    await expect(
-      updatePiece(2, {
-        name: 'Green bowl',
-        category: 'prep',
-        notes: 'Lime',
-        photoFileName: null,
-        ...noSize,
-      }),
-    ).rejects.toThrow("A piece that uses prep can't become prep.");
+  // Otherwise a cane recorded as a piece by mistake couldn't be fixed once it had the points it was made from.
+  it('changes a piece that uses prep to prep, keeping its prep', async () => {
+    await updatePiece(2, {
+      name: 'Green bowl',
+      category: 'prep',
+      notes: 'Lime',
+      photoFileName: null,
+      ...noSize,
+    });
+
+    expect(await getPieceDetail(2)).toMatchObject({
+      piece: { category: 'prep' },
+      usedPrep: [expect.objectContaining({ piece_id: 2 })],
+    });
   });
 
   // Otherwise pieces would keep shares of a prep that no longer exists as prep.
