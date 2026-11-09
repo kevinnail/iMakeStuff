@@ -19,6 +19,14 @@ export function prepUsedUpSql(prepTable: string) {
     OR ${wholeUseSql('prep_uses', 'prep_id', `${prepTable}.id`)}))`;
 }
 
+// A piece and every prep behind it, through prep made from prep (a cane made from points), as a
+// list for IN. A prep never uses itself or prep made from it, so it ends.
+export function behindSql(pieceIdSql: string) {
+  return `(WITH RECURSIVE behind(id) AS (SELECT ${pieceIdSql}
+      UNION SELECT prep_uses.prep_id FROM prep_uses JOIN behind ON prep_uses.piece_id = behind.id)
+    SELECT id FROM behind)`;
+}
+
 export const SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS pieces (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -82,16 +90,18 @@ export const SCHEMA_SQL = `
   CREATE UNIQUE INDEX IF NOT EXISTS work_segments_one_running
     ON work_segments(ended_at IS NULL) WHERE ended_at IS NULL;
 
-  -- How much of a prep a piece took, as the fraction entered: 1/8, or 25/100 for 25%. A check
-  -- can't look at another table, so the insert itself only matches prep that can be used.
+  -- How much of a prep a piece or another prep took, as the fraction entered: 1/8, or 25/100 for
+  -- 25%. A check can't look at another table, so the insert itself only matches prep that can be
+  -- used.
   CREATE TABLE IF NOT EXISTS prep_uses (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
     piece_id          INTEGER NOT NULL REFERENCES pieces(id),
     prep_id           INTEGER NOT NULL REFERENCES pieces(id),
     share_numerator   INTEGER NOT NULL CHECK (share_numerator > 0),
     share_denominator INTEGER NOT NULL CHECK (share_denominator > 0),
-    -- A counted prep's whole cost when the use was saved, so the piece keeps it when prices
-    -- change. Null on a by eye use, and when no supply was behind the prep. Its time isn't
+    -- A counted prep's whole cost, saved once nothing behind it is a guess, so the piece keeps it
+    -- when prices change. Null on a by eye use, while a by eye prep behind it is open, and when
+    -- no supply was behind the prep. Its time isn't
     -- saved: it only changes when the prep's time is fixed, and a fix reaches every piece. A
     -- counted use can take more parts than the batch made, so the share has no upper limit
     -- here; a by eye amount is read as at most all of it (parseAmount).
@@ -99,13 +109,20 @@ export const SCHEMA_SQL = `
     UNIQUE (piece_id, prep_id)
   );
 
+  -- The unique rule above finds a piece's uses. This finds a prep's: its shares added up, whether
+  -- a use closed it, and what used it.
+  CREATE INDEX IF NOT EXISTS prep_uses_prep_id ON prep_uses(prep_id);
+
   -- Raw material bought at a known cost, like a 5 ft tube at $40. Not a piece: no time, no
-  -- photo, no finish. The cost is what was paid for the whole thing, in cents. It's a price, so
-  -- it never runs out: any number of pieces and prep can use it.
+  -- photo, no finish. The cost is what was paid, in cents, for one or for a case. It's a price,
+  -- so it never runs out: any number of pieces and prep can use it.
   CREATE TABLE IF NOT EXISTS supplies (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     name        TEXT NOT NULL CHECK (trim(name) <> ''),
     cost_cents  INTEGER NOT NULL CHECK (cost_cents >= 0),
+    -- How many came for that cost: 16 in a case of tubes, 1 bought singly. A use is of one, so
+    -- the price of one is cost_cents over this.
+    case_count  INTEGER NOT NULL DEFAULT 1 CHECK (case_count >= 1),
     created_at  TEXT NOT NULL DEFAULT (${SQL_NOW}),
     -- When the cost was entered or last changed.
     priced_at   TEXT NOT NULL DEFAULT (${SQL_NOW}),
@@ -115,15 +132,14 @@ export const SCHEMA_SQL = `
     kind_id     INTEGER
   );
 
-  -- How much of a supply a piece or prep took, as the fraction entered, the same as prep_uses.
-  -- Its cost is the supply's cost times this share.
+  -- How many of a supply a piece or prep took, as entered: 1/4 of a tube, or 3 rods from a case
+  -- (3 over 1), so it can be more than one. Its cost is the price of one times this share.
   CREATE TABLE IF NOT EXISTS supply_uses (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
     piece_id          INTEGER NOT NULL REFERENCES pieces(id),
     supply_id         INTEGER NOT NULL REFERENCES supplies(id),
     share_numerator   INTEGER NOT NULL CHECK (share_numerator > 0),
     share_denominator INTEGER NOT NULL CHECK (share_denominator > 0),
-    CHECK (share_numerator <= share_denominator),
     UNIQUE (piece_id, supply_id)
   );
 
