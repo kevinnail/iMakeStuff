@@ -12,7 +12,7 @@ import {
   type SupplyRecord,
 } from '@/db/queries/supplyQueries';
 import { colors } from '@/theme';
-import { formatCost } from '@/utils/cost';
+import { formatSupplyPrice } from '@/utils/cost';
 import { formatDay } from '@/utils/formatTime';
 import { showError } from '@/utils/showError';
 
@@ -86,7 +86,7 @@ export default function SupplyScreen() {
       <Card>
         <View style={styles.row}>
           <Text style={[styles.text, styles.fill]}>Cost</Text>
-          <Text style={styles.value}>{formatCost(supply.cost_cents)}</Text>
+          <Text style={[styles.value, styles.price]}>{formatSupplyPrice(supply)}</Text>
         </View>
         <View style={styles.row}>
           <Text style={[styles.text, styles.fill]}>Priced</Text>
@@ -130,6 +130,11 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     fontVariant: ['tabular-nums'],
     color: colors.text,
+  },
+  // "$15.00 each, case of 16 for $240.00" wraps beside its label.
+  price: {
+    flexShrink: 1,
+    textAlign: 'right',
   },
   deleteText: {
     fontSize: 18,
