@@ -510,8 +510,8 @@ describe('addPastWork', () => {
     expect(await getAvailablePrep(null)).toMatchObject([{ id: pointsId, cost_cents: 1500 }]);
   });
 
-  // Otherwise two prep could each count the same tube's whole cost.
-  it('rejects new prep with a supply another prep already took whole, and saves none of it', async () => {
+  // Otherwise a supply's price could go on only one prep, and the next prep made from it would be refused.
+  it('saves new prep with a supply another prep already took whole', async () => {
     const tubeId = await addSupply({ name: 'Clear tube', costCents: 1500 });
     const wholeTube = [{ supplyId: tubeId, share: { share_numerator: 1, share_denominator: 1 } }];
     const newPrep = (name: string, times: { startedAt: string; endedAt: string }) => ({
@@ -530,15 +530,14 @@ describe('addPastWork', () => {
     });
     const firstId = await addPastWork(newPrep('Dichro cane', { startedAt, endedAt }));
 
-    await expect(
-      addPastWork(
-        newPrep('Second cane', {
-          startedAt: '2026-10-30T20:00:00.000Z',
-          endedAt: '2026-10-30T21:00:00.000Z',
-        }),
-      ),
-    ).rejects.toThrow("Only a supply that isn't all used can be added.");
-    expect((await getAvailablePrep(null)).map(({ id }) => id)).toEqual([firstId]);
+    const secondId = await addPastWork(
+      newPrep('Second cane', {
+        startedAt: '2026-10-30T20:00:00.000Z',
+        endedAt: '2026-10-30T21:00:00.000Z',
+      }),
+    );
+
+    expect((await getAvailablePrep(null)).map(({ id }) => id)).toEqual([secondId, firstId]);
   });
 
   // Otherwise a photo added for a new piece that isn't finished yet would be thrown away.

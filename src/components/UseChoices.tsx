@@ -55,7 +55,6 @@ export function getTemplateChoices(uses: TemplateUse<AvailableItem>[], saved: Us
               item: {
                 id: replacement.id,
                 name: replacement.name,
-                otherUsesShare: replacement.used_share,
                 size_amount: replacement.size_amount,
                 size_unit: replacement.size_unit,
               },

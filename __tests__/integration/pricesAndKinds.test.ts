@@ -13,7 +13,6 @@ import {
   getAvailableSupplies,
   getSupply,
   getSupplyKinds,
-  setSupplyUsedUp,
   updateSupply,
 } from '@/db/queries/supplyQueries';
 import { parseAmount } from '@/utils/prepTime';
@@ -206,29 +205,8 @@ describe("a template's lines", () => {
     ]);
   });
 
-  // Otherwise a rod that's all used would be swapped for any rod with its name.
-  it('fills a closed by eye supply line in with the open one of its kind, not one only sharing its name', async () => {
-    await setSupplyUsedUp(rodId, true);
-    const sameKindId = await addSupply(rod, rodId);
-    await addSupply(rod);
-
-    const { supplies } = await getLines(pendantId);
-
-    expect(supplies[0].replacement?.id).toBe(sameKindId);
-  });
-
-  // Otherwise a supply line with nothing open of its kind would be added anyway and refused at Save.
-  it('fills nothing in for a supply line with nothing open of its kind', async () => {
-    await setSupplyUsedUp(rodId, true);
-
-    const { supplies } = await getLines(pendantId);
-
-    expect(supplies[0]).toMatchObject({ batch_name: 'Cobalt rod', replacement: null });
-  });
-
   // Otherwise a copy with a rod already saved on it would get a second rod at Done, and pay for both.
   it('leaves out a line of a kind the piece already uses', async () => {
-    await setSupplyUsedUp(rodId, true);
     const savedRodId = await addSupply(rod, rodId);
     await addSupply(rod, rodId);
     await database.execAsync(`

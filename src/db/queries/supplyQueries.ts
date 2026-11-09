@@ -1,8 +1,8 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { getDb } from '@/db/database';
-import { shareSql, SQL_NOW, usedUpSql, wholeUseSql } from '@/db/schema';
-import { type BatchSize, type Share, type UseShare } from '@/utils/prepTime';
+import { SQL_NOW } from '@/db/schema';
+import { type BatchSize, type Share } from '@/utils/prepTime';
 
 export interface SupplyRecord {
   id: number;
@@ -10,11 +10,6 @@ export interface SupplyRecord {
   cost_cents: number;
   created_at: string;
   priced_at: string;
-  used_up_at: string | null;
-  // Every share of it added together, 1 being all of it.
-  used_share: number;
-  // 1 when Used up is on or its shares add up to all of it.
-  used_up: number;
   // The prep that used it, and the pieces deleting it would change: those that used it directly,
   // or used that prep with no cost saved on the use.
   prep_count: number;
@@ -40,7 +35,6 @@ export interface FinishSupplyUse extends NewSupplyUse {
 export interface AvailableSupply extends BatchSize {
   id: number;
   name: string;
-  used_share: number;
   cost_cents: number;
   // The first supply of its kind (Same as), or its own id.
   kind_id: number;
@@ -49,7 +43,7 @@ export interface AvailableSupply extends BatchSize {
 // The newest supply of a kind, offered by Same as.
 export type SupplyKind = Pick<SupplyRecord, 'id' | 'name' | 'cost_cents'>;
 
-export interface UsedSupply extends UseShare, BatchSize {
+export interface UsedSupply extends Share, BatchSize {
   id: number;
   piece_id: number;
   supply_id: number;
@@ -57,21 +51,12 @@ export interface UsedSupply extends UseShare, BatchSize {
   supply_cost_cents: number;
 }
 
-function usedShareSql(supplyTable: string) {
-  return `(SELECT total(${shareSql}) FROM supply_uses WHERE supply_id = ${supplyTable}.id)`;
-}
-
 const noSizeSql = 'NULL AS size_amount, NULL AS size_unit';
-
-const closedByUsesSql = wholeUseSql('supply_uses', 'supply_id', 'supplies.id');
-
-const supplyUsedUpSql = usedUpSql('supplies', 'supply_uses', 'supply_id');
 
 // The pieces and prep that used a supply directly.
 const directUsersSql = 'SELECT piece_id FROM supply_uses WHERE supply_id = supplies.id';
 
-const supplyColumnsSql = `id, name, cost_cents, used_up_at, created_at, priced_at,
-  ${usedShareSql('supplies')} AS used_share, ${supplyUsedUpSql} AS used_up,
+const supplyColumnsSql = `id, name, cost_cents, created_at, priced_at,
   (SELECT count(*) FROM pieces WHERE category = 'prep' AND id IN (${directUsersSql}))
     AS prep_count,
   (SELECT count(*) FROM pieces WHERE category = 'piece' AND (id IN (${directUsersSql})
@@ -79,11 +64,11 @@ const supplyColumnsSql = `id, name, cost_cents, used_up_at, created_at, priced_a
        AND (prep_cost_cents IS NULL OR pieces.is_template = 1))))
     AS piece_count`;
 
-// Supplies that can still be used first, then newest first.
+// Newest first.
 export async function getSupplies(): Promise<SupplyRecord[]> {
   const database = await getDb();
   return database.getAllAsync<SupplyRecord>(
-    `SELECT ${supplyColumnsSql} FROM supplies ORDER BY used_up, created_at DESC, id DESC`,
+    `SELECT ${supplyColumnsSql} FROM supplies ORDER BY created_at DESC, id DESC`,
   );
 }
 
@@ -158,30 +143,6 @@ export async function updateSupply(
   if (result.changes === 0) throw new Error('That supply no longer exists.');
 }
 
-// All used takes the supply out of Add supply and scales its shares to all of it; off puts it
-// back. A supply one use took all of stays all used, so turning it off is refused until that
-// share is lowered.
-export async function setSupplyUsedUp(supplyId: number, usedUp: boolean): Promise<void> {
-  const database = await getDb();
-  const result = await database.runAsync(
-    `UPDATE supplies SET used_up_at = ?
-     WHERE id = ? AND (used_up_at IS NULL) = ? AND (? OR NOT ${closedByUsesSql})`,
-    usedUp ? new Date().toISOString() : null,
-    supplyId,
-    usedUp ? 1 : 0,
-    usedUp ? 1 : 0,
-  );
-  if (result.changes > 0) return;
-  if (usedUp) throw new Error('That supply is already marked all used.');
-  // The failure needs its reason: not all used, or a use that keeps it all used.
-  const supply = await database.getFirstAsync<{ closed: number }>(
-    `SELECT ${closedByUsesSql} AS closed FROM supplies WHERE id = ?`,
-    supplyId,
-  );
-  if (supply?.closed) throw new Error('One use takes all of it. Lower it to turn All used off.');
-  throw new Error("That supply isn't marked all used.");
-}
-
 // Its uses go with it, so its cost comes off what used it. A piece with a prep's cost saved on its
 // use keeps that cost.
 export async function deleteSupply(supplyId: number): Promise<void> {
@@ -193,22 +154,20 @@ export async function deleteSupply(supplyId: number): Promise<void> {
   });
 }
 
-// The insert only matches a supply that isn't used up. The share's range and one use per supply
-// per piece are table rules.
+// The share's range and one use per supply per piece are table rules.
 export async function insertSupplyUse(
   database: SQLiteDatabase,
   pieceId: number,
   { supplyId, share }: NewSupplyUse,
 ) {
-  const result = await database.runAsync(
+  await database.runAsync(
     `INSERT INTO supply_uses (piece_id, supply_id, share_numerator, share_denominator)
-     SELECT ?, id, ?, ? FROM supplies WHERE id = ? AND NOT ${supplyUsedUpSql}`,
+     VALUES (?, ?, ?, ?)`,
     pieceId,
+    supplyId,
     share.share_numerator,
     share.share_denominator,
-    supplyId,
   );
-  if (result.changes === 0) throw new Error("Only a supply that isn't all used can be added.");
 }
 
 // The supplies a piece used and the supplies behind the prep it used, so its cost can be worked
@@ -218,10 +177,7 @@ export function getUsedSupplies(database: SQLiteDatabase, pieceId: number | null
     `SELECT supply_uses.id, supply_uses.piece_id, supply_uses.supply_id,
        supplies.name AS supply_name,
        supplies.cost_cents AS supply_cost_cents, ${noSizeSql},
-       supply_uses.share_numerator, supply_uses.share_denominator,
-       ${supplyUsedUpSql} AS used_up, 0 AS measured,
-       (SELECT total(${shareSql}) FROM supply_uses AS sibling
-        WHERE sibling.supply_id = supply_uses.supply_id) AS shares_total
+       supply_uses.share_numerator, supply_uses.share_denominator
      FROM supply_uses
      JOIN supplies ON supplies.id = supply_uses.supply_id
      WHERE ? IS NULL OR supply_uses.piece_id = ?
@@ -243,11 +199,9 @@ export async function getPieceSupplies(pieceId: number): Promise<UsedSupply[]> {
 export async function getAvailableSupplies(pieceId: number | null): Promise<AvailableSupply[]> {
   const database = await getDb();
   return database.getAllAsync<AvailableSupply>(
-    `SELECT id, name, ${noSizeSql}, cost_cents,
-       ${usedShareSql('supplies')} AS used_share, coalesce(kind_id, id) AS kind_id
+    `SELECT id, name, ${noSizeSql}, cost_cents, coalesce(kind_id, id) AS kind_id
      FROM supplies
-     WHERE NOT ${supplyUsedUpSql}
-       AND id NOT IN (SELECT supply_id FROM supply_uses WHERE piece_id = ?)
+     WHERE id NOT IN (SELECT supply_id FROM supply_uses WHERE piece_id = ?)
      ORDER BY created_at DESC, id DESC`,
     pieceId,
   );

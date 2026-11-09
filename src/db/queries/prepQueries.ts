@@ -28,8 +28,6 @@ export interface AvailablePrep extends BatchSize {
   // A counted prep's whole cost as it is now. Null for by eye prep, which the picker doesn't price,
   // or with no supply behind it.
   cost_cents: number | null;
-  // Counted prep only: true while a by eye supply's guess is in that cost.
-  cost_estimated?: boolean;
   // The first prep of its kind, or its own id.
   kind_id: number;
 }
@@ -63,7 +61,6 @@ export interface AvailableBatches {
 export interface PartPrice {
   // The whole prep's, null with no supply behind it.
   cost_cents: number | null;
-  cost_estimated: boolean;
   worked_milliseconds: number;
   supplies: SupplyRecord[];
 }
@@ -111,11 +108,10 @@ export const noCostSql = `(pieces.finished_at IS NOT NULL
   AND NOT EXISTS (SELECT 1 FROM pieces AS template
     WHERE template.id = pieces.template_id AND template.size_amount IS NOT NULL))`;
 
-// A counted prep's whole cost at today's prices: null with no supply behind it, and estimated
-// while a by eye supply's guess is in it.
+// A counted prep's whole cost at today's prices: null with no supply behind it.
 async function getPrepCost(database: SQLiteDatabase, prepId: number) {
   const cost = getCost(prepId, [], await getUsedSupplies(database, prepId));
-  return { cost_cents: cost.hasSupplies ? cost.cents : null, cost_estimated: cost.estimated };
+  return { cost_cents: cost.hasSupplies ? cost.cents : null };
 }
 
 // The columns getActualShare needs: whether the prep is used up or counted, and every share
@@ -132,10 +128,8 @@ const shareColumnsSql = `
 
 // The insert only matches prep that can be used (availableSql), so a piece, unfinished prep,
 // prep that's gone, or a counted batch that isn't its template can't be. A counted use saves the
-// prep's whole cost as it is now (Decisions: A counted use keeps its cost). A cost
-// with a by eye supply's guess in it isn't saved, so the piece stays estimated and takes the
-// actual cost when that supply closes. The share's range and one use per prep per piece are
-// table rules.
+// prep's whole cost as it is now (Decisions: A counted use keeps its cost). The share's range
+// and one use per prep per piece are table rules.
 export async function insertPrepUse(
   database: SQLiteDatabase,
   pieceId: number,
@@ -153,7 +147,7 @@ export async function insertPrepUse(
     pieceId,
     share.share_numerator,
     share.share_denominator,
-    prepCost && !prepCost.cost_estimated ? prepCost.cost_cents : null,
+    prepCost?.cost_cents ?? null,
     prepId,
   );
   if (result.changes === 0)

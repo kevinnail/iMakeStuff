@@ -4,7 +4,6 @@ import {
   deleteSupply,
   getSupplies,
   getSupply,
-  setSupplyUsedUp,
   updateSupply,
 } from '@/db/queries/supplyQueries';
 import { createTestDb } from '../setup';
@@ -29,11 +28,8 @@ describe('addSupply', () => {
       id: supplyId,
       name: '5 ft tube',
       cost_cents: 4000,
-      used_up_at: null,
       created_at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
       priced_at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
-      used_share: 0,
-      used_up: 0,
       prep_count: 0,
       piece_count: 0,
     });
@@ -52,14 +48,13 @@ describe('addSupply', () => {
 });
 
 describe('getSupplies', () => {
-  // Otherwise a used-up tube would sit above the ones that can still be used.
-  it('lists supplies that can be used first, newest first', async () => {
+  // Otherwise the supply just bought would be buried under older ones.
+  it('lists supplies newest first', async () => {
     const tubeId = await addSupply(tube);
     const bailId = await addSupply(bail);
     const newerTubeId = await addSupply(tube);
-    await setSupplyUsedUp(bailId, true);
 
-    expect((await getSupplies()).map((supply) => supply.id)).toEqual([newerTubeId, tubeId, bailId]);
+    expect((await getSupplies()).map((supply) => supply.id)).toEqual([newerTubeId, bailId, tubeId]);
   });
 });
 
@@ -76,32 +71,6 @@ describe('updateSupply', () => {
   // Otherwise a stale page could report a change to a deleted supply as saved.
   it('fails for a supply that no longer exists', async () => {
     await expect(updateSupply(999, tube)).rejects.toThrow('That supply no longer exists.');
-  });
-});
-
-describe('setSupplyUsedUp', () => {
-  // Otherwise a tube that's gone would stay offered, or a mistaken Used up couldn't be undone.
-  it('marks a supply used up and puts it back in use', async () => {
-    const supplyId = await addSupply(tube);
-
-    await setSupplyUsedUp(supplyId, true);
-    expect((await getSupply(supplyId))?.used_up_at).toEqual(expect.any(String));
-
-    await setSupplyUsedUp(supplyId, false);
-    expect((await getSupply(supplyId))?.used_up_at).toBeNull();
-  });
-
-  // Otherwise a second tap would move the used up date, or a stale switch would look like it worked.
-  it('fails for a supply already in the state asked for', async () => {
-    const supplyId = await addSupply(tube);
-
-    await expect(setSupplyUsedUp(supplyId, false)).rejects.toThrow(
-      "That supply isn't marked all used.",
-    );
-    await setSupplyUsedUp(supplyId, true);
-    await expect(setSupplyUsedUp(supplyId, true)).rejects.toThrow(
-      'That supply is already marked all used.',
-    );
   });
 });
 

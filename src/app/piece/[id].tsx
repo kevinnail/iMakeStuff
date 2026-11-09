@@ -51,7 +51,6 @@ import {
   getShareValue,
   type BatchSize,
   type Share,
-  type UseShare,
 } from '@/utils/prepTime';
 import { getWorkDays, type WorkDay } from '@/utils/workDays';
 import { getPhotoUri } from '@/utils/photoStorage';
@@ -82,8 +81,11 @@ interface TotalsProps {
 }
 
 interface UseLine {
-  use: UseShare & { id: number };
+  use: Share & { id: number };
   item: { id: number; name: string } & BatchSize;
+  // Under the name: Estimated or Actual on a by eye prep, nothing on an exact share.
+  note: string | null;
+  amount: string;
   values: string[];
 }
 
@@ -247,19 +249,11 @@ function UsesSection({ kind, usedBy, lines, uses, onChange }: UsesSectionProps) 
             style={({ pressed }) => [styles.row, pressed && styles.buttonPressed]}
             onPress={() => setChangingLine(line)}
           >
-            {/* A measured batch's share is exact, so it needs no mark. One with no size is a
-                guess until it's all used, then shows what it really took. */}
             <View style={styles.fill}>
               <Text style={styles.text}>{line.item.name}</Text>
-              {!line.use.measured && (
-                <Text style={styles.note}>{line.use.used_up ? 'Actual' : 'Estimated'}</Text>
-              )}
+              {line.note && <Text style={styles.note}>{line.note}</Text>}
             </View>
-            <Text style={styles.value}>
-              {line.use.used_up && !line.use.measured
-                ? formatPercent(getActualShare(line.use))
-                : formatAmount(line.use, line.item)}
-            </Text>
+            <Text style={styles.value}>{line.amount}</Text>
             <View style={styles.valuesColumn}>
               {line.values.map((value) => (
                 <Text key={value} style={[styles.value, styles.numberColumn]}>
@@ -439,32 +433,44 @@ export default function PieceScreen() {
   // Every use carries whether its uses have closed the prep, so the page follows the same rule.
   const usedUp = piece.used_up_at !== null || usedBy.some((use) => use.used_up === 1);
 
+  // A counted prep's share is exact, so it needs no mark. A by eye one is a guess until it's all
+  // used, then shows what it really took.
   const prepLines = prepTime.lines.map((line, index): UseLine => {
     const costLine = cost.prepLines[index];
+    const item = {
+      id: line.prep_id,
+      name: line.prep_name,
+      size_amount: line.size_amount,
+      size_unit: line.size_unit,
+    };
+    const byEye = !line.measured;
     return {
       use: line,
-      item: {
-        id: line.prep_id,
-        name: line.prep_name,
-        size_amount: line.size_amount,
-        size_unit: line.size_unit,
-      },
+      item,
+      note: byEye ? (line.used_up ? 'Actual' : 'Estimated') : null,
+      amount:
+        byEye && line.used_up ? formatPercent(getActualShare(line)) : formatAmount(line, item),
       values: [
         formatDuration(line.milliseconds),
         ...(costLine.hasSupplies ? [formatCost(costLine.cents)] : []),
       ],
     };
   });
-  const supplyLines = cost.supplyLines.map((line): UseLine => ({
-    use: line,
-    item: {
+  const supplyLines = cost.supplyLines.map((line): UseLine => {
+    const item = {
       id: line.supply_id,
       name: line.supply_name,
       size_amount: line.size_amount,
       size_unit: line.size_unit,
-    },
-    values: [formatCost(line.cents)],
-  }));
+    };
+    return {
+      use: line,
+      item,
+      note: null,
+      amount: formatAmount(line, item),
+      values: [formatCost(line.cents)],
+    };
+  });
   const prepQueries: UseQueries = {
     getAvailable: () => getAvailablePrep(piece.id),
     add: (prepId, share) => addPrepUse(piece.id, { prepId, share }),

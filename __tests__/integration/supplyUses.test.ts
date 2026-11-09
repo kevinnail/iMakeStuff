@@ -15,7 +15,6 @@ import {
   getAvailableSupplies,
   getSupply,
   removeSupplyUse,
-  setSupplyUsedUp,
 } from '@/db/queries/supplyQueries';
 import { addPrepUse } from '@/db/queries/prepQueries';
 import { createTestDb } from '../setup';
@@ -96,9 +95,6 @@ describe('finishPiece with supplies', () => {
         size_amount: null,
         size_unit: null,
         ...share(1, 4),
-        used_up: 0,
-        measured: 0,
-        shares_total: 0.25,
       },
     ]);
   });
@@ -108,17 +104,15 @@ describe('finishPiece with supplies', () => {
     await finishCaneFromWholeTube();
 
     expect((await getPieceDetail(caneId))?.usedSupplies).toEqual([
-      expect.objectContaining({ piece_id: caneId, supply_id: tubeId, ...share(1, 1), used_up: 1 }),
+      expect.objectContaining({ piece_id: caneId, supply_id: tubeId, ...share(1, 1) }),
     ]);
   });
 
   // Otherwise a rejected supply would still leave the piece finished without what it used.
   it('leaves the piece unfinished when a supply use is rejected', async () => {
-    await setSupplyUsedUp(tubeId, true);
-
     await expect(
-      finishPiece(vaseId, { ...finish, supplyUses: [supplyUse(tubeId, 1, 4)] }),
-    ).rejects.toThrow("Only a supply that isn't all used can be added.");
+      finishPiece(vaseId, { ...finish, supplyUses: [supplyUse(tubeId, 5, 4)] }),
+    ).rejects.toThrow(/CHECK constraint/);
     expect((await getPieceDetail(vaseId))?.piece.finished_at).toBeNull();
   });
 
@@ -140,17 +134,16 @@ describe('finishPiece with supplies', () => {
 });
 
 describe('addSupplyUse', () => {
-  // Otherwise a tube that's gone could keep collecting shares from new pieces.
-  it('rejects a supply marked all used, or one use took all of', async () => {
-    await setSupplyUsedUp(bailId, true);
+  // Otherwise a supply would drop out of every list once one prep took a whole one, and its price
+  // couldn't go on anything else.
+  it('lists and adds a supply a prep already took whole, at its full price each time', async () => {
+    await finishCaneFromWholeTube();
+
+    expect((await getAvailableSupplies(vaseId)).map(({ id }) => id)).toContain(tubeId);
     await addSupplyUse(vaseId, supplyUse(tubeId, 1, 1));
 
-    for (const supplyId of [bailId, tubeId]) {
-      await expect(addSupplyUse(caneId, supplyUse(supplyId, 1, 8))).rejects.toThrow(
-        "Only a supply that isn't all used can be added.",
-      );
-    }
-    expect(await getAvailableSupplies(caneId)).toEqual([]);
+    expect(await getCostOf(caneId)).toEqual({ cents: 4000, estimated: false });
+    expect(await getCostOf(vaseId)).toEqual({ cents: 4000, estimated: false });
   });
 
   // Otherwise one piece could carry the same supply twice and count its cost twice.
@@ -176,7 +169,7 @@ describe('changeSupplyUse and removeSupplyUse', () => {
     const [use] = (await getPieceDetail(vaseId))?.usedSupplies ?? [];
 
     await changeSupplyUse(use.id, share(1, 2));
-    expect(await getCostOf(vaseId)).toEqual({ cents: 2000, estimated: true });
+    expect(await getCostOf(vaseId)).toEqual({ cents: 2000, estimated: false });
 
     await removeSupplyUse(use.id);
     expect(await getCostOf(vaseId)).toEqual({ cents: null, estimated: false });
@@ -219,18 +212,13 @@ describe('cost', () => {
     expect(await getCostOf(bowlId)).toEqual({ cents: 800, estimated: true });
   });
 
-  // Otherwise the leftover of a used-up tube, waste included, would be paid for by nobody.
-  it('gives two pieces at 1/4 of a $40 supply $10.00 each, then $20.00 once it is used up', async () => {
+  // Otherwise a share of a rod would be marked a guess, or change when another piece uses it.
+  it('gives two pieces at 1/4 of a $40 supply $10.00 each, exact', async () => {
     await addSupplyUse(vaseId, supplyUse(tubeId, 1, 4));
     await addSupplyUse(bowlId, supplyUse(tubeId, 1, 4));
 
-    expect(await getCostOf(vaseId)).toEqual({ cents: 1000, estimated: true });
-    expect(await getCostOf(bowlId)).toEqual({ cents: 1000, estimated: true });
-
-    await setSupplyUsedUp(tubeId, true);
-
-    expect(await getCostOf(vaseId)).toEqual({ cents: 2000, estimated: false });
-    expect(await getCostOf(bowlId)).toEqual({ cents: 2000, estimated: false });
+    expect(await getCostOf(vaseId)).toEqual({ cents: 1000, estimated: false });
+    expect(await getCostOf(bowlId)).toEqual({ cents: 1000, estimated: false });
   });
 
   // Otherwise the glass that went in the garbage with a broken piece would drop off its cost.
@@ -239,7 +227,7 @@ describe('cost', () => {
 
     await setPieceLost(vaseId, true);
 
-    expect(await getCostOf(vaseId)).toEqual({ cents: 1000, estimated: true });
+    expect(await getCostOf(vaseId)).toEqual({ cents: 1000, estimated: false });
   });
 
   // Otherwise a piece caught up on through Add Work would carry no cost.
@@ -262,27 +250,6 @@ describe('cost', () => {
 
     const cup = (await getPieces()).find((piece) => piece.name === 'Red cup');
     expect(cup).toMatchObject({ cost_cents: 300, cost_estimated: false });
-  });
-});
-
-describe('closing a supply', () => {
-  // Otherwise guesses on a rod that runs long would close it at 100% and refuse the next piece.
-  it('leaves a supply open at 100% from several uses, taking another use', async () => {
-    await addSupplyUse(vaseId, supplyUse(tubeId, 1, 2));
-    await addSupplyUse(bowlId, supplyUse(tubeId, 1, 2));
-
-    await addSupplyUse(caneId, supplyUse(tubeId, 1, 4));
-
-    expect(await getSupply(tubeId)).toMatchObject({ used_share: 1.25, used_up: 0 });
-  });
-
-  // Otherwise turning All used off would look like it worked on a tube one prep took all of.
-  it('refuses to turn All used off while one use takes all of it', async () => {
-    await finishCaneFromWholeTube();
-
-    await expect(setSupplyUsedUp(tubeId, false)).rejects.toThrow(
-      'One use takes all of it. Lower it to turn All used off.',
-    );
   });
 });
 
@@ -313,32 +280,13 @@ describe('deleting', () => {
     expect(await getCostOf(vaseId)).toEqual({ cents: 300, estimated: false });
   });
 
-  // Otherwise a deleted piece's shares would keep the supply from being used up properly.
+  // Otherwise Delete supply would warn about a cost coming off a piece that's already gone.
   it('removes a deleted piece from the supplies it used', async () => {
     await addSupplyUse(vaseId, supplyUse(tubeId, 1, 2));
     await addSupplyUse(bowlId, supplyUse(tubeId, 1, 2));
 
     await deletePiece(vaseId);
 
-    expect(await getAvailableSupplies(caneId)).toEqual([
-      {
-        id: bailId,
-        name: 'Silver bail',
-        size_amount: null,
-        size_unit: null,
-        used_share: 0,
-        cost_cents: 300,
-        kind_id: bailId,
-      },
-      {
-        id: tubeId,
-        name: '5 ft tube',
-        size_amount: null,
-        size_unit: null,
-        used_share: 0.5,
-        cost_cents: 4000,
-        kind_id: tubeId,
-      },
-    ]);
+    expect(await getSupply(tubeId)).toMatchObject({ piece_count: 1 });
   });
 });
