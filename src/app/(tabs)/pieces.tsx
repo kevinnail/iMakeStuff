@@ -7,13 +7,17 @@ import { JoinedButtons } from '@/components/JoinedButtons';
 import { AssignedBar } from '@/components/AssignedBar';
 import { Tag } from '@/components/Tag';
 import { getPieces, type PieceListItem } from '@/db/queries/pieceQueries';
-import { useGuideTarget } from '@/store/guideStore';
+import { useGuideStore, useGuideTarget, type GuideTarget } from '@/store/guideStore';
 import { formatCost } from '@/utils/cost';
 import { formatDay, formatDuration } from '@/utils/formatTime';
 import { colors } from '@/theme';
 import { getPhotoUri } from '@/utils/photoStorage';
 
 type Section = 'work' | 'prep';
+
+// The guide's two steps on the Add Work button show it under the section each is about: blue for
+// pieces, green for prep.
+const guideSections: Partial<Record<GuideTarget, Section>> = { addWork: 'work', addPrep: 'prep' };
 
 type PieceFilter = 'all' | 'unfinished' | 'finished' | 'lost';
 
@@ -40,9 +44,15 @@ function PrepLeft({ prep }: { prep: PieceListItem }) {
 
 export default function PiecesScreen() {
   const { ref: suppliesRef, measure: measureSupplies } = useGuideTarget('supplies');
+  const { ref: addWorkRef, measure: measureAddWork } = useGuideTarget('addWork', 'addPrep');
+  const guideSection = useGuideStore((state) =>
+    state.target ? guideSections[state.target] : undefined,
+  );
   const [pieces, setPieces] = useState<PieceListItem[]>([]);
-  const [section, setSection] = useState<Section>('work');
+  const [chosenSection, setSection] = useState<Section>('work');
   const [filter, setFilter] = useState<PieceFilter>('all');
+  // The guide's section while it points at the Add Work button, then back to the one chosen.
+  const section = guideSection ?? chosenSection;
   // Prep shows only under Prep; Work lists pieces by its filter. Finished means finished good.
   const shownPieces = pieces.filter((piece) => {
     if (section === 'prep') return piece.category === 'prep';
@@ -61,6 +71,12 @@ export default function PiecesScreen() {
       ? 'No prep yet.'
       : pieceFilters.find(({ value }) => value === filter)?.emptyText;
 
+  // Both guide outlines move with the list.
+  function measureTargets() {
+    measureSupplies();
+    measureAddWork();
+  }
+
   // Reloads every time the tab is shown, so a piece finished on Work appears here.
   useFocusEffect(
     useCallback(() => {
@@ -75,7 +91,7 @@ export default function PiecesScreen() {
       data={listedPieces}
       keyExtractor={(piece) => String(piece.id)}
       contentInsetAdjustmentBehavior="automatic"
-      onScroll={measureSupplies}
+      onScroll={measureTargets}
       contentContainerStyle={styles.list}
       ItemSeparatorComponent={() => <View style={styles.separator} />}
       ListHeaderComponent={
@@ -111,6 +127,23 @@ export default function PiecesScreen() {
               <Chevron />
             </Pressable>
           </View>
+          <Pressable
+            ref={addWorkRef}
+            onLayout={measureAddWork}
+            style={({ pressed }) => [
+              styles.addButton,
+              section === 'prep' && styles.prepSelected,
+              pressed && styles.rowPressed,
+            ]}
+            onPress={() =>
+              router.push({
+                pathname: '/add-work',
+                params: { category: section === 'prep' ? 'prep' : 'piece' },
+              })
+            }
+          >
+            <Text style={styles.addButtonText}>Add Work</Text>
+          </Pressable>
           {section === 'work' && (
             <JoinedButtons options={pieceFilters} selected={filter} onSelect={setFilter} />
           )}
@@ -204,6 +237,19 @@ const styles = StyleSheet.create({
   },
   header: {
     gap: 12,
+  },
+  // The width of the list, blue under Work and green under Prep, like the selected button below.
+  addButton: {
+    alignItems: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: colors.primary,
+  },
+  addButtonText: {
+    fontSize: 16,
+    lineHeight: 18,
+    color: colors.textOnFill,
   },
   sectionRow: {
     flexDirection: 'row',
