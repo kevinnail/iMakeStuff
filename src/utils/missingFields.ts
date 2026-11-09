@@ -1,8 +1,16 @@
-import { parseCost } from '@/utils/cost';
+import { parseCaseCount, parseCost } from '@/utils/cost';
 import { parseAmount, parseSize } from '@/utils/prepTime';
 
 export type MissingField =
-  'name' | 'identity' | 'countNumber' | 'countUnit' | 'overlap' | 'cost' | 'item' | 'amount';
+  | 'name'
+  | 'identity'
+  | 'countNumber'
+  | 'countUnit'
+  | 'overlap'
+  | 'cost'
+  | 'caseCount'
+  | 'item'
+  | 'amount';
 
 // The count's two boxes share countNumber's message.
 export const missingMessages: Record<
@@ -13,6 +21,7 @@ export const missingMessages: Record<
   identity: 'Needs a photo or notes, so you can tell later which one it was.',
   countNumber: "Enter how many it made, like 8 points, or tap I didn't count it.",
   cost: 'Enter a cost, like 40 or 12.50.',
+  caseCount: 'Enter how many came in it, like 16.',
   item: 'Choose one first.',
 };
 
@@ -44,8 +53,13 @@ export function getOverlapMissing(overlapping: boolean) {
   return listMissing({ overlap: overlapping });
 }
 
-export function getSupplyMissing(name: string, costText: string) {
-  return listMissing({ name: name.trim() === '', cost: parseCost(costText) === null });
+// countText: how many came in a case, or null when it was bought singly.
+export function getSupplyMissing(name: string, costText: string, countText: string | null) {
+  return listMissing({
+    name: name.trim() === '',
+    cost: parseCost(costText) === null,
+    caseCount: countText !== null && parseCaseCount(countText) === null,
+  });
 }
 
 // The use panel: a prep or supply picked, and how much of it the piece took.
