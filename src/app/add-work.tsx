@@ -80,6 +80,8 @@ export default function AddWorkScreen() {
   // null until the switch is tapped.
   const [templateChoice, setTemplateChoice] = useState<boolean | null>(null);
   const [photoUri, setPhotoUri] = useState<string | null>(null);
+  // The photo's own shape once it loads, so it shows whole, the way the piece's page shows it.
+  const [photoAspectRatio, setPhotoAspectRatio] = useState(3 / 4);
   // From the camera or library opening until its photo is ready, which can run on after the
   // library closes while an iCloud photo downloads.
   const [gettingPhoto, setGettingPhoto] = useState(false);
@@ -203,7 +205,11 @@ export default function AddWorkScreen() {
   }
 
   return (
-    <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={styles.page}>
+    <ScrollView
+      contentInsetAdjustmentBehavior="automatic"
+      automaticallyAdjustKeyboardInsets
+      contentContainerStyle={styles.page}
+    >
       <JoinedButtons options={sourceOptions} selected={source} onSelect={chooseSource} />
       {source === 'existing' &&
         (templates.length === 0 ? (
@@ -321,7 +327,15 @@ export default function AddWorkScreen() {
               </Text>
               <Chevron />
             </Pressable>
-            {photoUri && <Image source={{ uri: photoUri }} style={styles.photo} />}
+            {photoUri && (
+              <Image
+                source={{ uri: photoUri }}
+                style={[styles.photo, { aspectRatio: photoAspectRatio }]}
+                onLoad={({ nativeEvent }) =>
+                  setPhotoAspectRatio(nativeEvent.source.width / nativeEvent.source.height)
+                }
+              />
+            )}
           </View>
           <View style={styles.card}>
             <View style={styles.cardRow}>
@@ -345,7 +359,7 @@ export default function AddWorkScreen() {
                   </View>
                 </View>
                 <TextInput
-                  style={[styles.notesInput, styles.separator]}
+                  style={styles.notesInput}
                   value={notes}
                   onChangeText={setNotes}
                   placeholder={getNotesPlaceholder(outcome === 'lost', photoUri !== null)}
@@ -424,21 +438,32 @@ const styles = StyleSheet.create({
   cardError: {
     paddingBottom: 12,
   },
+  // A box in the page's color on the card, bordered like the Work tab's name box.
   nameInput: {
+    marginVertical: 12,
+    padding: 12,
     fontSize: 18,
-    paddingVertical: 12,
     color: colors.text,
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    borderColor: colors.separator,
+    borderRadius: 8,
   },
+  // Boxed like the name, under the outcome buttons' row.
   notesInput: {
-    fontSize: 18,
-    paddingVertical: 12,
+    marginBottom: 12,
+    padding: 12,
     height: 100,
+    fontSize: 18,
     textAlignVertical: 'top',
     color: colors.text,
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    borderColor: colors.separator,
+    borderRadius: 8,
   },
   photo: {
     width: '100%',
-    aspectRatio: 4 / 3,
     marginBottom: 16,
     borderRadius: 8,
   },
