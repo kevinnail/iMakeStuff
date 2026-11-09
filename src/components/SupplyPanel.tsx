@@ -20,7 +20,7 @@ import {
   type SupplyRecord,
 } from '@/db/queries/supplyQueries';
 import { colors } from '@/theme';
-import { formatCost, parseCost } from '@/utils/cost';
+import { formatEachCost, formatSupplyPrice, parseCaseCount, parseCost } from '@/utils/cost';
 import { getSupplyMissing, missingMessages } from '@/utils/missingFields';
 import { showError } from '@/utils/showError';
 
@@ -37,21 +37,32 @@ function getCostText(costCents: number) {
   return (costCents / 100).toFixed(2);
 }
 
-// A supply is what was bought and what it cost, like a tube at $15. Adding one offers Same as: an
-// earlier supply of each kind, which fills the form in.
+// A supply bought singly has no case count to show.
+function getCountText(caseCount: number) {
+  return caseCount === 1 ? null : String(caseCount);
+}
+
+// A supply is what was bought and what it cost, like a tube at $15, or a case of 16 tubes at $240,
+// which the app divides into the price of one. Adding one offers Same as: an earlier supply of
+// each kind, which fills the form in.
 export function SupplyPanel({ initial, onCancel, onSave }: SupplyPanelProps) {
   const [name, setName] = useState(initial?.name ?? '');
   const [costText, setCostText] = useState(initial ? getCostText(initial.cost_cents) : '');
+  // How many came in the case, or null while it's entered as bought singly.
+  const [countText, setCountText] = useState(initial ? getCountText(initial.case_count) : null);
   const [kinds, setKinds] = useState<SupplyKind[]>([]);
   const [sameAsId, setSameAsId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const trimmedName = name.trim();
-  const missingFields = useMissingFields(getSupplyMissing(name, costText));
+  const costCents = parseCost(costText);
+  const caseCount = countText === null ? 1 : parseCaseCount(countText);
+  const missingFields = useMissingFields(getSupplyMissing(name, costText, countText));
+  const caseCountMissing = missingFields.shown.includes('caseCount');
   const kindOptions = [
     ...kinds.map((kind) => ({
       key: kind.id,
       label: kind.name,
-      detail: formatCost(kind.cost_cents),
+      detail: formatSupplyPrice(kind),
       kind,
     })),
     { key: newSupplyKey, label: 'New supply', kind: null },
@@ -69,12 +80,13 @@ export function SupplyPanel({ initial, onCancel, onSave }: SupplyPanelProps) {
     setSameAsId(kind?.id ?? null);
     setName(kind?.name ?? '');
     setCostText(kind ? getCostText(kind.cost_cents) : '');
+    setCountText(kind ? getCountText(kind.case_count) : null);
   }
 
   function handleSave() {
     if (!missingFields.check()) return;
     setSaving(true);
-    onSave({ name: trimmedName, costCents: parseCost(costText)! }, sameAsId).catch(
+    onSave({ name: trimmedName, costCents: costCents!, caseCount: caseCount! }, sameAsId).catch(
       (error: Error) => {
         setSaving(false);
         Alert.alert('Could not save', error.message);
@@ -111,7 +123,9 @@ export function SupplyPanel({ initial, onCancel, onSave }: SupplyPanelProps) {
           />
           {missingFields.shown.includes('name') && <FieldError message={missingMessages.name} />}
           <View style={styles.fieldRow}>
-            <Text style={[styles.label, styles.fill]}>Cost</Text>
+            <Text style={[styles.label, styles.fill]}>
+              {countText === null ? 'Cost' : 'Case cost'}
+            </Text>
             <Text style={styles.label}>$</Text>
             <TextInput
               style={[
@@ -125,6 +139,35 @@ export function SupplyPanel({ initial, onCancel, onSave }: SupplyPanelProps) {
             />
           </View>
           {missingFields.shown.includes('cost') && <FieldError message={missingMessages.cost} />}
+          {countText !== null && (
+            <>
+              <View style={styles.fieldRow}>
+                <Text style={[styles.label, styles.fill]}>How many in it</Text>
+                <TextInput
+                  style={[styles.input, styles.costInput, caseCountMissing && styles.missingInput]}
+                  value={countText}
+                  onChangeText={setCountText}
+                  keyboardType="number-pad"
+                />
+              </View>
+              {caseCountMissing ? (
+                <FieldError message={missingMessages.caseCount} />
+              ) : (
+                costCents !== null &&
+                caseCount !== null && (
+                  <Text style={styles.note}>{formatEachCost(costCents, caseCount)}</Text>
+                )
+              )}
+            </>
+          )}
+          <Pressable
+            style={({ pressed }) => [styles.switchButton, pressed && styles.buttonPressed]}
+            onPress={() => setCountText(countText === null ? '' : null)}
+          >
+            <Text style={styles.switchText}>
+              {countText === null ? 'Bought a case?' : 'Bought one'}
+            </Text>
+          </Pressable>
           <View style={styles.buttonRow}>
             <Pressable style={styles.textButton} onPress={onCancel}>
               <Text style={styles.textButtonText}>Cancel</Text>
@@ -187,6 +230,22 @@ const styles = StyleSheet.create({
   },
   missingInput: {
     borderColor: colors.danger,
+  },
+  note: {
+    fontSize: 16,
+    color: colors.secondaryText,
+  },
+  switchButton: {
+    alignSelf: 'flex-start',
+    paddingVertical: 4,
+  },
+  buttonPressed: {
+    opacity: 0.6,
+  },
+  switchText: {
+    fontSize: 18,
+    lineHeight: 20,
+    color: colors.primary,
   },
   buttonRow: {
     flexDirection: 'row',
