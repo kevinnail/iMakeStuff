@@ -6,8 +6,10 @@ import {
   parseSize,
   getActualShare,
   getPrepTime,
+  groupByPiece,
   parseAmount,
   rescaleShare,
+  type PrepTimeShare,
   type UseShare,
 } from '@/utils/prepTime';
 
@@ -53,14 +55,23 @@ function getActualPercents(amounts: string[], usedUp = true) {
   return getShares(amounts, usedUp).map((share) => getActualShare(share) * 100);
 }
 
+// The vase, and the preps behind it.
+const vaseId = 1;
+const caneId = 2;
+const pointsId = 3;
+
+// A use of a prep, by the vase unless another piece or prep is given.
 function timeShare(
   amount: string,
   prepWorkedMilliseconds: number,
   usedUp = false,
   measured = false,
+  { pieceId = vaseId, prepId = caneId } = {},
 ) {
   return {
     ...getShares([amount], usedUp, measured)[0],
+    piece_id: pieceId,
+    prep_id: prepId,
     prep_worked_milliseconds: prepWorkedMilliseconds,
   };
 }
@@ -99,10 +110,17 @@ describe('getActualShare', () => {
   });
 });
 
+// getPrepTime with the uses grouped by piece, the way every caller passes them.
+function prepTimeOf<Use extends PrepTimeShare>(pieceId: number, worked: number, uses: Use[]) {
+  return getPrepTime(pieceId, worked, groupByPiece(uses));
+}
+
 describe('getPrepTime', () => {
   // Otherwise a piece's page would show the wrong share of the time that went into its prep.
   it("gives each prep's worked time times the share, marked estimated", () => {
-    const { lines, estimated } = getPrepTime(hour, [timeShare('25', 4 * hour + 40 * minute)]);
+    const { lines, estimated } = prepTimeOf(vaseId, hour, [
+      timeShare('25', 4 * hour + 40 * minute),
+    ]);
 
     expect(lines).toEqual([
       expect.objectContaining({ share: 0.25, estimated: true, milliseconds: hour + 10 * minute }),
@@ -112,14 +130,14 @@ describe('getPrepTime', () => {
 
   // Otherwise a piece that took 1/8 of a cane would carry a rounded share of its time.
   it('works from the fraction: 1/8 of 8h 40m is 1h 05m', () => {
-    const { lines } = getPrepTime(hour, [timeShare('1/8', 8 * hour + 40 * minute)]);
+    const { lines } = prepTimeOf(vaseId, hour, [timeShare('1/8', 8 * hour + 40 * minute)]);
 
     expect(lines[0].milliseconds).toBe(hour + 5 * minute);
   });
 
   // Otherwise a used-up prep would keep showing the piece's guess instead of its real share.
   it('uses the actual share once the prep is used up', () => {
-    const { lines, estimated } = getPrepTime(hour, [timeShare('25', 4 * hour, true)]);
+    const { lines, estimated } = prepTimeOf(vaseId, hour, [timeShare('25', 4 * hour, true)]);
 
     expect(lines).toEqual([
       expect.objectContaining({ share: 1, estimated: false, milliseconds: 4 * hour }),
@@ -129,7 +147,9 @@ describe('getPrepTime', () => {
 
   // Otherwise a piece made from points would show its prep time as a guess when it's exact.
   it('marks a share of a counted prep as not estimated', () => {
-    const { lines, estimated } = getPrepTime(hour, [timeShare('1/8', 8 * hour, false, true)]);
+    const { lines, estimated } = prepTimeOf(vaseId, hour, [
+      timeShare('1/8', 8 * hour, false, true),
+    ]);
 
     expect(lines).toEqual([
       expect.objectContaining({ share: 0.125, estimated: false, milliseconds: hour }),
@@ -139,7 +159,7 @@ describe('getPrepTime', () => {
 
   // Otherwise a piece that used two preps would show only one in its total.
   it('adds every prep into the prep total and the piece worked time into the total', () => {
-    const { prep, total } = getPrepTime(3 * hour, [
+    const { prep, total } = prepTimeOf(vaseId, 3 * hour, [
       timeShare('25', 4 * hour),
       timeShare('1/2', 2 * hour),
     ]);
@@ -150,7 +170,7 @@ describe('getPrepTime', () => {
 
   // Otherwise lines of 3m and 1m would show a prep total of 5m, and the total wouldn't add up.
   it('rounds every part down to whole minutes before adding', () => {
-    const { lines, prep, total } = getPrepTime(3 * minute + 40 * second, [
+    const { lines, prep, total } = prepTimeOf(vaseId, 3 * minute + 40 * second, [
       timeShare('50', 7 * minute + 20 * second),
       timeShare('50', 3 * minute + 40 * second),
     ]);
@@ -160,9 +180,37 @@ describe('getPrepTime', () => {
     expect(total).toBe(7 * minute);
   });
 
+  // Otherwise a piece using a cane made from points would leave out the time pulling the points.
+  it('carries the prep behind a prep: a quarter of a 30m cane made from 2 of 8 points pulled in 40m', () => {
+    const { lines, estimated } = prepTimeOf(vaseId, hour, [
+      timeShare('25', 30 * minute),
+      timeShare('2/8', 40 * minute, false, true, { pieceId: caneId, prepId: pointsId }),
+    ]);
+
+    expect(lines).toEqual([
+      expect.objectContaining({ prep_id: caneId, estimated: true, milliseconds: 10 * minute }),
+    ]);
+    expect(estimated).toBe(true);
+  });
+
+  // Otherwise a piece made from counted beads would show exact time while the frit in them is a guess.
+  it('is estimated while a by eye prep behind a counted one is open', () => {
+    const { lines } = prepTimeOf(vaseId, hour, [
+      timeShare('1/20', 20 * minute, false, true),
+      timeShare('50', 40 * minute, false, false, { pieceId: caneId, prepId: pointsId }),
+    ]);
+
+    expect(lines[0]).toMatchObject({ estimated: true, milliseconds: 2 * minute });
+  });
+
   // Otherwise a piece with no prep would show NaN in place of its worked time.
   it('gives no prep time for a piece with no prep', () => {
-    expect(getPrepTime(hour, [])).toEqual({ lines: [], prep: 0, total: hour, estimated: false });
+    expect(prepTimeOf(vaseId, hour, [])).toEqual({
+      lines: [],
+      prep: 0,
+      total: hour,
+      estimated: false,
+    });
   });
 });
 
