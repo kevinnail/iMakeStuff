@@ -58,9 +58,16 @@ describe('getOverlapMissing', () => {
 describe('getSupplyMissing', () => {
   // Otherwise a supply with a cost the app can't read would save, or a valid one would be refused.
   it('needs a name and a readable cost', () => {
-    expect(getSupplyMissing('Tube', '12.50')).toEqual([]);
-    expect(getSupplyMissing('Tube', 'twelve')).toEqual(['cost']);
-    expect(getSupplyMissing('', '')).toEqual(['name', 'cost']);
+    expect(getSupplyMissing('Tube', '12.50', null)).toEqual([]);
+    expect(getSupplyMissing('Tube', 'twelve', null)).toEqual(['cost']);
+    expect(getSupplyMissing('', '', null)).toEqual(['name', 'cost']);
+  });
+
+  // Otherwise a case with no count would save as a case of one, priced at the whole case.
+  it('needs a count of 1 or more for a case', () => {
+    expect(getSupplyMissing('Tube', '240', '16')).toEqual([]);
+    expect(getSupplyMissing('Tube', '240', '')).toEqual(['caseCount']);
+    expect(getSupplyMissing('Tube', '240', '0')).toEqual(['caseCount']);
   });
 });
 
