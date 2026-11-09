@@ -10,13 +10,7 @@ import {
   updatePiece,
 } from '@/db/queries/pieceQueries';
 import { addPrepUse, getAvailablePrep } from '@/db/queries/prepQueries';
-import {
-  addSupply,
-  addSupplyUse,
-  getSupply,
-  setSupplyUsedUp,
-  updateSupply,
-} from '@/db/queries/supplyQueries';
+import { addSupply, addSupplyUse, getSupply, updateSupply } from '@/db/queries/supplyQueries';
 import { parseAmount } from '@/utils/prepTime';
 import { createTestDb } from '../setup';
 
@@ -237,12 +231,12 @@ describe('counted prep in Add prep', () => {
   });
 });
 
-describe('counted prep made with a by eye supply', () => {
+describe('counted prep made with part of a supply', () => {
   const rod = { name: 'Rod', costCents: 4000 };
   const cutId = 5;
   let rodId: number;
 
-  // Cut pieces, counted, made with half a by eye rod.
+  // Cut pieces, counted, made with half a rod.
   beforeEach(async () => {
     const database = await getDb();
     await database.execAsync(`
@@ -261,35 +255,23 @@ describe('counted prep made with a by eye supply', () => {
     await addPrepUse(pendantId, { prepId: cutId, share: parseAmount('1', 4)! });
   });
 
-  // Otherwise a guess at the rod's share would be shown as an exact cost.
-  it('marks the piece estimated', async () => {
-    expect(await getListed(pendantId)).toMatchObject({ cost_cents: 500, cost_estimated: true });
+  // Otherwise a part's cost would carry the whole rod, or be marked a guess.
+  it("gives a part a quarter of half the rod's cost, exact", async () => {
+    expect(await getListed(pendantId)).toMatchObject({ cost_cents: 500, cost_estimated: false });
   });
 
-  // Otherwise the piece would stay at the guess after the rod closes and the real cost is known.
-  it('takes the actual cost when the supply closes', async () => {
-    await setSupplyUsedUp(rodId, true);
+  // Otherwise a later price for the rod would change what the pendant cost.
+  it('saves the cost on the use, so a new rod price leaves the piece alone', async () => {
+    await updateSupply(rodId, { ...rod, costCents: 8000 });
 
-    expect(await getListed(pendantId)).toMatchObject({ cost_cents: 1000, cost_estimated: false });
+    expect(await getListed(pendantId)).toMatchObject({ cost_cents: 500 });
   });
 
-  // Otherwise the picker would show a part's price as exact while it holds a guess.
-  it('marks its price in Add prep estimated', async () => {
+  // Otherwise the picker would show the cut pieces with no price, or the rod's whole cost.
+  it('prices it in Add prep from its share of the rod', async () => {
     const available = await getAvailablePrep(bubblerId);
 
-    expect(available.find((prep) => prep.id === cutId)).toMatchObject({
-      cost_cents: 2000,
-      cost_estimated: true,
-    });
-  });
-});
-
-describe('a counted use with an exact cost', () => {
-  // Otherwise the picker would mark every counted part's price as a guess.
-  it('leaves its price in Add prep unmarked', async () => {
-    const [template] = await getAvailablePrep(pendantId);
-
-    expect(template).toMatchObject({ id: pointsId, cost_estimated: false });
+    expect(available.find((prep) => prep.id === cutId)).toMatchObject({ cost_cents: 2000 });
   });
 });
 
