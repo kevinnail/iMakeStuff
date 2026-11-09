@@ -9,14 +9,14 @@ import {
 } from '@/db/queries/pieceQueries';
 import {
   addSupply,
-  addSupplyUse,
   changeSupplyUse,
   deleteSupply,
   getAvailableSupplies,
   getSupply,
   removeSupplyUse,
 } from '@/db/queries/supplyQueries';
-import { addPrepUse } from '@/db/queries/prepQueries';
+import { addPrepUse, addSupplyUse } from '@/db/queries/prepQueries';
+import { formatAmount, parseAmount } from '@/utils/prepTime';
 import { createTestDb } from '../setup';
 
 jest.mock('@/db/database', () => ({
@@ -76,8 +76,8 @@ beforeEach(async () => {
   database = createTestDb();
   (getDb as jest.Mock).mockResolvedValue(database);
   await database.execAsync(fixturesSql);
-  tubeId = await addSupply({ name: '5 ft tube', costCents: 4000 });
-  bailId = await addSupply({ name: 'Silver bail', costCents: 300 });
+  tubeId = await addSupply({ name: '5 ft tube', costCents: 4000, caseCount: 1 });
+  bailId = await addSupply({ name: 'Silver bail', costCents: 300, caseCount: 1 });
 });
 
 describe('finishPiece with supplies', () => {
@@ -111,7 +111,7 @@ describe('finishPiece with supplies', () => {
   // Otherwise a rejected supply would still leave the piece finished without what it used.
   it('leaves the piece unfinished when a supply use is rejected', async () => {
     await expect(
-      finishPiece(vaseId, { ...finish, supplyUses: [supplyUse(tubeId, 5, 4)] }),
+      finishPiece(vaseId, { ...finish, supplyUses: [supplyUse(tubeId, 0, 4)] }),
     ).rejects.toThrow(/CHECK constraint/);
     expect((await getPieceDetail(vaseId))?.piece.finished_at).toBeNull();
   });
@@ -155,10 +155,9 @@ describe('addSupplyUse', () => {
     );
   });
 
-  // Otherwise a mistyped amount would put no share, or more than the whole supply, on a piece.
-  it('rejects a share of 0 or over 1', async () => {
+  // Otherwise a mistyped amount would put a supply on a piece at no cost.
+  it('rejects a share of 0', async () => {
     await expect(addSupplyUse(vaseId, supplyUse(tubeId, 0, 4))).rejects.toThrow(/CHECK constraint/);
-    await expect(addSupplyUse(vaseId, supplyUse(tubeId, 5, 4))).rejects.toThrow(/CHECK constraint/);
   });
 });
 
@@ -250,6 +249,82 @@ describe('cost', () => {
 
     const cup = (await getPieces()).find((piece) => piece.name === 'Red cup');
     expect(cup).toMatchObject({ cost_cents: 300, cost_estimated: false });
+  });
+});
+
+describe('bought by the case', () => {
+  // Otherwise a piece using one tube from a case would carry the whole case.
+  it('gives a whole tube from a $240 case of 16 $15.00', async () => {
+    const caseId = await addSupply({ name: 'Clear tube', costCents: 24000, caseCount: 16 });
+
+    await addSupplyUse(vaseId, supplyUse(caseId, 1, 1));
+
+    expect(await getCostOf(vaseId)).toEqual({ cents: 1500, estimated: false });
+  });
+
+  // Otherwise a share of a rod from a case would be a share of the whole case.
+  it('gives a piece at 1/4 of a rod from a $100 case of 10 $2.50', async () => {
+    const caseId = await addSupply({ name: 'Cobalt rod', costCents: 10000, caseCount: 10 });
+
+    await addSupplyUse(vaseId, supplyUse(caseId, 1, 4));
+
+    expect(await getCostOf(vaseId)).toEqual({ cents: 250, estimated: false });
+  });
+
+  // Otherwise a case that doesn't divide evenly would lose or add a fraction of a cent per line.
+  it('prices a tube from $250 for 16 at $15.63, in the picker and on the piece', async () => {
+    const caseId = await addSupply({ name: 'Clear tube', costCents: 25000, caseCount: 16 });
+
+    await addSupplyUse(vaseId, supplyUse(caseId, 1, 1));
+
+    expect(await getCostOf(vaseId)).toEqual({ cents: 1563, estimated: false });
+    expect(
+      (await getAvailableSupplies(bowlId)).find((supply) => supply.id === caseId),
+    ).toMatchObject({ cost_cents: 1563 });
+  });
+
+  // Otherwise "3" rods from a case would be read as 3% of one rod.
+  it('lists a case to be entered as a count, and a supply bought singly as a share', async () => {
+    const caseId = await addSupply({ name: 'Cobalt rod', costCents: 24000, caseCount: 400 });
+
+    const available = await getAvailableSupplies(vaseId);
+
+    expect(available.find((supply) => supply.id === caseId)).toMatchObject({
+      size_amount: 1,
+      size_unit: null,
+      cost_cents: 60,
+    });
+    expect(available.find((supply) => supply.id === bailId)).toMatchObject({
+      size_amount: null,
+      size_unit: null,
+    });
+  });
+
+  // Otherwise a piece using 3 rods from a case could only take part of one.
+  it('gives a piece 3 rods from a $240 case of 400 $1.80, shown as 3', async () => {
+    const caseId = await addSupply({ name: 'Cobalt rod', costCents: 24000, caseCount: 400 });
+    const [rod] = (await getAvailableSupplies(vaseId)).filter((supply) => supply.id === caseId);
+
+    await addSupplyUse(vaseId, { supplyId: caseId, share: parseAmount('3', rod.size_amount)! });
+
+    const [use] = (await getPieceDetail(vaseId))?.usedSupplies ?? [];
+    expect(await getCostOf(vaseId)).toEqual({ cents: 180, estimated: false });
+    expect(formatAmount(use, use)).toBe('3');
+  });
+
+  // Otherwise a supply bought singly would be divided by a count nobody entered.
+  it('prices a supply bought singly at what was typed', async () => {
+    await addSupplyUse(vaseId, supplyUse(bailId, 1, 1));
+
+    expect(await getCostOf(vaseId)).toEqual({ cents: 300, estimated: false });
+    expect(await getSupply(bailId)).toMatchObject({ cost_cents: 300, case_count: 1 });
+  });
+
+  // Otherwise a case of 0 would divide by zero and give every piece using it no real cost.
+  it('rejects a case count of 0', async () => {
+    await expect(addSupply({ name: 'Clear tube', costCents: 24000, caseCount: 0 })).rejects.toThrow(
+      /CHECK constraint/,
+    );
   });
 });
 
