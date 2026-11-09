@@ -11,16 +11,12 @@ export function wholeUseSql(useTable: string, batchColumn: string, batchIdSql: s
     WHERE ${batchColumn} = ${batchIdSql} AND share_numerator = share_denominator)`;
 }
 
-// A supply closes by its All used switch or one use of all of it. Uses that add up to 100% are
-// guesses, so they leave it open until the switch closes it.
-export function usedUpSql(batchTable: string, useTable: string, batchColumn: string) {
-  return `(${batchTable}.used_up_at IS NOT NULL
-    OR ${wholeUseSql(useTable, batchColumn, `${batchTable}.id`)})`;
-}
-
-// By eye prep closes the same way. Counted prep never closes.
+// By eye prep closes by its All used switch or one use of all of it. Uses that add up to 100%
+// are guesses, so they leave it open until the switch closes it. Counted prep and supplies never
+// close.
 export function prepUsedUpSql(prepTable: string) {
-  return `(${prepTable}.size_amount IS NULL AND ${usedUpSql(prepTable, 'prep_uses', 'prep_id')})`;
+  return `(${prepTable}.size_amount IS NULL AND (${prepTable}.used_up_at IS NOT NULL
+    OR ${wholeUseSql('prep_uses', 'prep_id', `${prepTable}.id`)}))`;
 }
 
 export const SCHEMA_SQL = `
@@ -104,12 +100,12 @@ export const SCHEMA_SQL = `
   );
 
   -- Raw material bought at a known cost, like a 5 ft tube at $40. Not a piece: no time, no
-  -- photo, no finish. The cost is what was paid for the whole thing, in cents.
+  -- photo, no finish. The cost is what was paid for the whole thing, in cents. It's a price, so
+  -- it never runs out: any number of pieces and prep can use it.
   CREATE TABLE IF NOT EXISTS supplies (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     name        TEXT NOT NULL CHECK (trim(name) <> ''),
     cost_cents  INTEGER NOT NULL CHECK (cost_cents >= 0),
-    used_up_at  TEXT,
     created_at  TEXT NOT NULL DEFAULT (${SQL_NOW}),
     -- When the cost was entered or last changed.
     priced_at   TEXT NOT NULL DEFAULT (${SQL_NOW}),
@@ -120,7 +116,7 @@ export const SCHEMA_SQL = `
   );
 
   -- How much of a supply a piece or prep took, as the fraction entered, the same as prep_uses.
-  -- The insert itself only matches a supply that isn't used up.
+  -- Its cost is the supply's cost times this share.
   CREATE TABLE IF NOT EXISTS supply_uses (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
     piece_id          INTEGER NOT NULL REFERENCES pieces(id),
