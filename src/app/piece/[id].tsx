@@ -26,6 +26,7 @@ import {
 } from '@/db/queries/pieceQueries';
 import {
   addPrepUse,
+  addSupplyUse,
   changePrepUse,
   getAvailablePrep,
   removePrepUse,
@@ -34,7 +35,6 @@ import {
   type UsedPrep,
 } from '@/db/queries/prepQueries';
 import {
-  addSupplyUse,
   changeSupplyUse,
   getAvailableSupplies,
   removeSupplyUse,
@@ -49,6 +49,7 @@ import {
   getActualShare,
   getPrepTime,
   getShareValue,
+  groupByPiece,
   type BatchSize,
   type Share,
 } from '@/utils/prepTime';
@@ -423,8 +424,9 @@ export default function PieceScreen() {
   if (page === null) return <Text style={styles.text}>No piece with this id.</Text>;
 
   const { piece, days, runningSince, usedPrep, usedBy, usedSupplies } = page;
-  const prepTime = getPrepTime(sumDays(days, 'worked'), usedPrep);
-  const cost = getCost(piece.id, usedPrep, usedSupplies);
+  const prepByPiece = groupByPiece(usedPrep);
+  const prepTime = getPrepTime(piece.id, sumDays(days, 'worked'), prepByPiece);
+  const cost = getCost(piece.id, prepByPiece, groupByPiece(usedSupplies));
   const finishedPrep = piece.category === 'prep' && piece.finished_at !== null;
   // Only prep has a count.
   const partCount = piece.size_amount;
@@ -625,24 +627,35 @@ export default function PieceScreen() {
           <Chevron />
         </Pressable>
       </Card>
-      {piece.category === 'piece' ? (
-        <UsesSection
-          kind="prep"
-          usedBy="piece"
-          lines={prepLines}
-          uses={prepQueries}
-          onChange={load}
-        />
+      {/* What went into it, then on a prep, what it went into. A batch of a counted template
+          takes none: pieces use the template, which has them. */}
+      {piece.template_counted ? (
+        <Card>
+          <View style={styles.row}>
+            <Text style={styles.secondaryText}>
+              Its template has its prep and supplies, and pieces use the template.
+            </Text>
+          </View>
+        </Card>
       ) : (
-        <UsedBy usedBy={usedBy} usedUp={usedUp} size={piece} />
+        <>
+          <UsesSection
+            kind="prep"
+            usedBy={piece.category}
+            lines={prepLines}
+            uses={prepQueries}
+            onChange={load}
+          />
+          <UsesSection
+            kind="supply"
+            usedBy={piece.category}
+            lines={supplyLines}
+            uses={supplyQueries}
+            onChange={load}
+          />
+        </>
       )}
-      <UsesSection
-        kind="supply"
-        usedBy={piece.category}
-        lines={supplyLines}
-        uses={supplyQueries}
-        onChange={load}
-      />
+      {piece.category === 'prep' && <UsedBy usedBy={usedBy} usedUp={usedUp} size={piece} />}
       {days.length > 1 && <DayTable days={days} />}
       {piece.notes && (
         <Card>
