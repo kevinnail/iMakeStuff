@@ -7,6 +7,7 @@ import {
   getUsedPrep,
   insertPrepUse,
   noCostSql,
+  saveCountedCosts,
   type FinishPrepUse,
   type PieceUsingPrep,
   type UsedPrep,
@@ -21,6 +22,7 @@ import { prepUsedUpSql, shareSql } from '@/db/schema';
 import { getCost } from '@/utils/cost';
 import {
   getPrepTime,
+  groupByPiece,
   rescaleShare,
   type BatchSize,
   type Share,
@@ -76,6 +78,8 @@ export interface PieceRecord extends BatchSize {
   used_up_at: string | null;
   lost: number;
   is_template: number;
+  // 1 for a batch of a counted prep's template, which knows its prep and supplies.
+  template_counted: number;
   no_cost: number;
 }
 
@@ -91,7 +95,8 @@ export interface PieceDetail {
   segments: TimeRange[];
   otherSegments: TimeRange[];
   breaks: TimeRange[];
-  // For a piece, the prep it used. For prep, the pieces that used it.
+  // The prep it used and the prep behind that, all the way down, and the pieces and prep that
+  // used it.
   usedPrep: UsedPrep[];
   usedBy: PieceUsingPrep[];
   // Its own supplies and the supplies behind its prep, for its cost.
@@ -261,6 +266,7 @@ export async function finishPiece(
     await saveUses(database, pieceId, 'supply_uses', supplyUses, (use) =>
       insertSupplyUse(database, pieceId, use),
     );
+    await saveCountedCosts(database);
   });
 }
 
@@ -288,26 +294,22 @@ async function rescaleUses(
 }
 
 // Counted or By eye can't change once a piece has used the prep, since its uses were saved as one
-// or the other. A corrected count keeps each use's parts (rescaleUses).
+// or the other. A corrected count keeps each use's parts (rescaleUses). A piece that uses prep can
+// become prep, since prep can be made from prep.
 export async function updatePiece(pieceId: number, changes: PieceChanges): Promise<void> {
   const database = await getDb();
   await database.withTransactionAsync(async () => {
     const current = await database.getFirstAsync<{
       used_up_at: string | null;
       size_amount: number | null;
-      uses_prep: number;
       used_by_pieces: number;
     }>(
       `SELECT used_up_at, size_amount,
-         EXISTS (SELECT 1 FROM prep_uses WHERE piece_id = pieces.id) AS uses_prep,
          EXISTS (SELECT 1 FROM prep_uses WHERE prep_id = pieces.id) AS used_by_pieces
        FROM pieces WHERE id = ?`,
       pieceId,
     );
     if (!current) throw new Error('That piece no longer exists.');
-    if (changes.category === 'prep' && current.uses_prep) {
-      throw new Error("A piece that uses prep can't become prep.");
-    }
     if (changes.category === 'piece' && (current.used_by_pieces || current.used_up_at)) {
       throw new Error("Prep that pieces used, or that's all used, can't become a piece.");
     }
@@ -356,6 +358,7 @@ export async function deletePiece(pieceId: number): Promise<string | null> {
     );
     if (!deleted) throw new Error('That piece no longer exists.');
     photoFileName = deleted.photo_file_name;
+    await saveCountedCosts(database);
   });
   return photoFileName;
 }
@@ -393,6 +396,11 @@ export async function setPieceTemplate(pieceId: number, isTemplate: boolean): Pr
   if (result.changes === 0) throw new Error('Only a finished piece can be a template.');
 }
 
+// 1 for a batch of a counted prep that's still a template.
+const templateCountedSql = `coalesce((SELECT template.is_template = 1
+    AND template.size_amount IS NOT NULL
+  FROM pieces AS template WHERE template.id = pieces.template_id), 0)`;
+
 export async function getTemplates(): Promise<Template[]> {
   const database = await getDb();
   return database.getAllAsync<Template>(
@@ -406,9 +414,7 @@ export async function getUnfinishedPieces(): Promise<UnfinishedPiece[]> {
   const database = await getDb();
   return database.getAllAsync<UnfinishedPiece>(
     `SELECT pieces.id, pieces.name, pieces.category, pieces.photo_file_name, pieces.template_id,
-       pieces.size_amount, pieces.size_unit,
-       coalesce((SELECT template.is_template = 1 AND template.size_amount IS NOT NULL
-         FROM pieces AS template WHERE template.id = pieces.template_id), 0) AS template_counted,
+       pieces.size_amount, pieces.size_unit, ${templateCountedSql} AS template_counted,
        round(total(julianday(work_segments.ended_at) - julianday(work_segments.started_at))
          * 86400000) AS worked_milliseconds,
        max(CASE WHEN work_segments.ended_at IS NULL THEN work_segments.started_at END)
@@ -424,6 +430,7 @@ export async function getUnfinishedPieces(): Promise<UnfinishedPiece[]> {
 // Unfinished pieces first, then finished ones newest first. Prep time and cost are worked out
 // the same way as on the piece's page, so the list and the page always match. Each prep's
 // shares are added up once, in one pass over prep_uses, and a piece that isn't prep has none.
+// Every use is loaded, so each piece's prep carries the prep behind it.
 export async function getPieces(): Promise<PieceListItem[]> {
   const database = await getDb();
   const usedShareSql = 'coalesce(prep_totals.used_share, 0)';
@@ -450,13 +457,14 @@ export async function getPieces(): Promise<PieceListItem[]> {
     getUsedPrep(database, null),
     getUsedSupplies(database, null),
   ]);
+  const prepByPiece = groupByPiece(usedPrep);
+  const supplyByPiece = groupByPiece(usedSupplies);
   return pieces.map((piece) => {
-    const uses = usedPrep.filter((use) => use.piece_id === piece.id);
-    const prepTime = getPrepTime(piece.worked_milliseconds, uses);
-    const cost = getCost(piece.id, uses, usedSupplies);
+    const prepTime = getPrepTime(piece.id, piece.worked_milliseconds, prepByPiece);
+    const cost = getCost(piece.id, prepByPiece, supplyByPiece);
     return {
       ...piece,
-      prep_milliseconds: uses.length > 0 ? prepTime.prep : null,
+      prep_milliseconds: prepTime.lines.length > 0 ? prepTime.prep : null,
       prep_estimated: prepTime.estimated,
       cost_cents: cost.hasSupplies ? cost.cents : null,
       cost_estimated: cost.estimated,
@@ -468,7 +476,8 @@ export async function getPieceDetail(pieceId: number): Promise<PieceDetail | nul
   const database = await getDb();
   const piece = await database.getFirstAsync<PieceRecord>(
     `SELECT id, name, category, notes, photo_file_name, finished_at, used_up_at, lost,
-       is_template, size_amount, size_unit, ${noCostSql} AS no_cost
+       is_template, size_amount, size_unit, ${templateCountedSql} AS template_counted,
+       ${noCostSql} AS no_cost
      FROM pieces WHERE id = ?`,
     pieceId,
   );
