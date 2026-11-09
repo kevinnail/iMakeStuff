@@ -116,6 +116,16 @@ const guideSteps: GuideStep[] = [
     panelAt: 'middle',
   },
   {
+    tabIndex: 1,
+    target: 'addPrep',
+    title: 'Then add your prep',
+    body: [
+      'Have prep already made? Add it on the Pieces tab: tap Prep, then the green Add Work button, with the supplies it used and the times you made it.',
+      'No prep on hand? Skip ahead to timing your work.',
+    ],
+    panelAt: 'middle',
+  },
+  {
     tabIndex: 0,
     target: 'start',
     title: 'Then time your work',
@@ -128,13 +138,13 @@ const guideSteps: GuideStep[] = [
     panelAt: 'middle',
   },
   {
-    tabIndex: 2,
+    tabIndex: 1,
     target: 'addWork',
     title: 'Manual Work Entry',
     body: [
-      'If you forget to use the app to track your time, you can use the Add Work feature to catch up afterward here on the Days tab, with the date & times it really took.',
+      'If you forget to use the app to track your time, you can use the Add Work feature to catch up afterward on the Pieces tab or the Days tab, with the date & times it really took.',
     ],
-    panelAt: 'top',
+    panelAt: 'middle',
   },
   {
     tabIndex: 0,
