@@ -489,7 +489,7 @@ describe('addPastWork', () => {
 
   // Otherwise prep added from New prep would have no cost, and neither would the pieces using it.
   it("lists new prep saved with a whole supply at that supply's cost", async () => {
-    const tubeId = await addSupply({ name: 'Clear tube', costCents: 1500 });
+    const tubeId = await addSupply({ name: 'Clear tube', costCents: 1500, caseCount: 1 });
 
     const pointsId = await addPastWork({
       piece: {
@@ -512,7 +512,7 @@ describe('addPastWork', () => {
 
   // Otherwise a supply's price could go on only one prep, and the next prep made from it would be refused.
   it('saves new prep with a supply another prep already took whole', async () => {
-    const tubeId = await addSupply({ name: 'Clear tube', costCents: 1500 });
+    const tubeId = await addSupply({ name: 'Clear tube', costCents: 1500, caseCount: 1 });
     const wholeTube = [{ supplyId: tubeId, share: { share_numerator: 1, share_denominator: 1 } }];
     const newPrep = (name: string, times: { startedAt: string; endedAt: string }) => ({
       ...times,

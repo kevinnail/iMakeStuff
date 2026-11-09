@@ -12,8 +12,8 @@ jest.mock('@/db/database', () => ({
   getDb: jest.fn(),
 }));
 
-const tube = { name: '5 ft tube', costCents: 4000 };
-const bail = { name: 'Silver bail', costCents: 300 };
+const tube = { name: '5 ft tube', costCents: 4000, caseCount: 1 };
+const bail = { name: 'Silver bail', costCents: 300, caseCount: 1 };
 
 beforeEach(() => {
   (getDb as jest.Mock).mockResolvedValue(createTestDb());
@@ -28,6 +28,7 @@ describe('addSupply', () => {
       id: supplyId,
       name: '5 ft tube',
       cost_cents: 4000,
+      case_count: 1,
       created_at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
       priced_at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
       prep_count: 0,
@@ -63,7 +64,7 @@ describe('updateSupply', () => {
   it('changes its name and cost', async () => {
     const supplyId = await addSupply(tube);
 
-    await updateSupply(supplyId, { name: '4 ft tube', costCents: 3550 });
+    await updateSupply(supplyId, { name: '4 ft tube', costCents: 3550, caseCount: 1 });
 
     expect(await getSupply(supplyId)).toMatchObject({ name: '4 ft tube', cost_cents: 3550 });
   });

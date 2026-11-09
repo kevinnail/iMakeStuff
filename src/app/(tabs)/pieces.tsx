@@ -7,10 +7,10 @@ import { JoinedButtons } from '@/components/JoinedButtons';
 import { AssignedBar } from '@/components/AssignedBar';
 import { Tag } from '@/components/Tag';
 import { getPieces, type PieceListItem } from '@/db/queries/pieceQueries';
-import { useGuideStore } from '@/store/guideStore';
+import { useGuideTarget } from '@/store/guideStore';
 import { formatCost } from '@/utils/cost';
 import { formatDay, formatDuration } from '@/utils/formatTime';
-import { colors, guideOutline } from '@/theme';
+import { colors } from '@/theme';
 import { getPhotoUri } from '@/utils/photoStorage';
 
 type Section = 'work' | 'prep';
@@ -39,7 +39,7 @@ function PrepLeft({ prep }: { prep: PieceListItem }) {
 }
 
 export default function PiecesScreen() {
-  const guideTarget = useGuideStore((state) => state.target);
+  const { ref: suppliesRef, measure: measureSupplies } = useGuideTarget('supplies');
   const [pieces, setPieces] = useState<PieceListItem[]>([]);
   const [section, setSection] = useState<Section>('work');
   const [filter, setFilter] = useState<PieceFilter>('all');
@@ -75,6 +75,7 @@ export default function PiecesScreen() {
       data={listedPieces}
       keyExtractor={(piece) => String(piece.id)}
       contentInsetAdjustmentBehavior="automatic"
+      onScroll={measureSupplies}
       contentContainerStyle={styles.list}
       ItemSeparatorComponent={() => <View style={styles.separator} />}
       ListHeaderComponent={
@@ -97,10 +98,11 @@ export default function PiecesScreen() {
               </Text>
             </Pressable>
             <Pressable
+              ref={suppliesRef}
+              onLayout={measureSupplies}
               style={({ pressed }) => [
                 styles.sectionButton,
                 styles.suppliesButton,
-                guideTarget === 'supplies' && guideOutline,
                 pressed && styles.rowPressed,
               ]}
               onPress={() => router.push('/supplies')}

@@ -23,7 +23,7 @@ import {
   type SupplyRecord,
 } from '@/db/queries/supplyQueries';
 import { colors } from '@/theme';
-import { formatCost } from '@/utils/cost';
+import { formatCost, formatSupplyPrice } from '@/utils/cost';
 import { formatDay, formatDuration } from '@/utils/formatTime';
 import { getUseMissing, missingMessages } from '@/utils/missingFields';
 import { showError } from '@/utils/showError';
@@ -75,26 +75,33 @@ export interface AvailableItem extends BatchSize {
   cost_cents: number | null;
   // Prep only: every piece's share of it added together, 1 being all of it.
   used_share?: number;
+  // Prep only: true while a by eye prep behind a counted prep is open.
+  cost_estimated?: boolean;
 }
 
 // Beside each one in the list: how much of a by eye prep is assigned, a counted part's price, or
 // a supply's price.
-function getPickerDetail({ used_share, size_amount, cost_cents }: AvailableItem) {
+function getPickerDetail({ used_share, size_amount, cost_cents, cost_estimated }: AvailableItem) {
   if (size_amount === null && used_share !== undefined)
     return `${formatPercent(used_share)} assigned`;
   if (cost_cents === null) return undefined;
-  return size_amount === null
-    ? formatCost(cost_cents)
-    : `${formatCost(Math.round(cost_cents / size_amount))} each`;
+  if (size_amount === null) return formatCost(cost_cents);
+  const each = `${formatCost(Math.round(cost_cents / size_amount))} each`;
+  return cost_estimated ? `${each}, estimated` : each;
 }
 
 // "$3.76 and 10m": the part of a counted prep's whole cost and time, 1 being all of it.
-function getPriceText({ cost_cents, worked_milliseconds }: PartPrice, fraction: number) {
+function getPriceText({ cost_cents, total_milliseconds }: PartPrice, fraction: number) {
   const values = [
     ...(cost_cents === null ? [] : [formatCost(Math.round(cost_cents * fraction))]),
-    formatDuration(worked_milliseconds * fraction),
+    formatDuration(total_milliseconds * fraction),
   ];
   return values.join(' and ');
+}
+
+// After a price whose time, or cost, a by eye prep behind it is still guessing at.
+function getEstimatedText({ estimated }: PartPrice) {
+  return estimated ? ', estimated' : '';
 }
 
 // What the New prep panel is given to close itself and hand back the prep it saved.
@@ -128,7 +135,8 @@ function getAmountText(share: Share, sizeAmount: number | null) {
 
 interface UsePanelProps {
   kind: UseKind;
-  // What's using it: a piece takes part of a batch, and a prep takes a whole supply.
+  // What's using it: a piece takes part of a batch, and a prep takes part of a prep and a whole
+  // supply.
   usedBy: PieceCategory;
   // Adding a use: the prep or supplies to choose from. Changing one: null.
   itemList: AvailableItem[] | null;
@@ -147,7 +155,8 @@ interface UsePanelProps {
 }
 
 // Slides up from the bottom to add a use of a prep or supply, or change one: which one, and how
-// much of it the piece took. A prep takes the whole supply it picks, so picking adds it. With
+// much of it the piece took: a share, or a count from a case of supplies. A prep takes the whole
+// of a supply bought singly, so picking one adds it. With
 // nothing to pick, it says why and how to fix it, and a prep or supply can be added right here,
 // on its own panel over this one, without leaving the form underneath. A counted
 // prep not saved on the piece yet shows what the amount typed costs, its price per part, and the
@@ -186,17 +195,16 @@ export function UsePanel({
         : null;
   const sizeAmount = chosenItem?.size_amount ?? null;
   const sizeUnit = chosenItem?.size_unit ?? null;
-  const takesWhole = usedBy === 'prep';
-  // A saved use keeps the price it was saved with, so only a new one shows today's.
+  // A saved use keeps the price it was saved with, so only a new counted prep shows today's.
   const pricedId =
-    chosenItem !== null && sizeAmount !== null && initial?.useId === undefined
+    kind === 'prep' && chosenItem !== null && sizeAmount !== null && initial?.useId === undefined
       ? chosenItem.id
       : null;
   const typedPercent = amountText.includes('%');
   const typedShare = parseAmount(amountText, sizeAmount);
   const typedPrice =
     chosenItem !== null && price !== null && typedShare !== null
-      ? `${formatAmount(typedShare, chosenItem)}: ${getPriceText(price, getShareValue(typedShare))}`
+      ? `${formatAmount(typedShare, chosenItem)}: ${getPriceText(price, getShareValue(typedShare))}${getEstimatedText(price)}`
       : null;
 
   useEffect(() => {
@@ -211,18 +219,34 @@ export function UsePanel({
     getPrepPrice(pricedId).then(setPrice).catch(showError('Could not load the price'));
   }, [pricedId]);
 
-  // After the box: a counted batch's unit, or % for a bare number on a by eye batch.
+  // After the box: a counted batch's unit, or % for a bare number on a by eye batch. A count from
+  // a case of supplies has no unit.
   const unitText =
-    sizeUnit !== null && !typedPercent
-      ? sizeUnit
+    sizeAmount !== null
+      ? typedPercent
+        ? ''
+        : (sizeUnit ?? '')
       : amountText !== '' && !/[/%]/.test(amountText)
         ? '%'
         : '';
-  const unitHelp = `In ${sizeUnit}, like 1, 1/3, or 1 1/2.`;
+  const amountLabel =
+    sizeAmount === null
+      ? `How much this ${usedBy} took`
+      : sizeUnit === null
+        ? `How many this ${usedBy} used`
+        : `How many ${sizeUnit} this ${usedBy} used`;
+  const unitHelp =
+    sizeUnit === null ? 'Like 3, 1/2, or 1 1/2.' : `In ${sizeUnit}, like 1, 1/3, or 1 1/2.`;
   const missingFields = useMissingFields(
     getUseMissing(chosenItem !== null, amountText, sizeAmount),
   );
   const amountMissing = missingFields.shown.includes('amount');
+
+  // A prep takes the whole of a supply bought singly, so picking one adds it. It takes a count
+  // from a case, like 3 rods, and part of a prep, like 2 of 8 points.
+  function takesWhole(item: BatchSize) {
+    return usedBy === 'prep' && kind === 'supply' && item.size_amount === null;
+  }
 
   function choose(item: AvailableItem) {
     const choiceItem = {
@@ -231,7 +255,7 @@ export function UsePanel({
       size_amount: item.size_amount,
       size_unit: item.size_unit,
     };
-    if (takesWhole) {
+    if (takesWhole(item)) {
       onSave({ item: choiceItem, share: { share_numerator: 1, share_denominator: 1 } });
       return;
     }
@@ -259,9 +283,9 @@ export function UsePanel({
     keepNewItem({
       id,
       name: details.name,
-      size_amount: null,
+      size_amount: details.caseCount > 1 ? 1 : null,
       size_unit: null,
-      cost_cents: details.costCents,
+      cost_cents: Math.round(details.costCents / details.caseCount),
     });
   }
 
@@ -310,14 +334,10 @@ export function UsePanel({
             />
           )}
           {missingFields.shown.includes('item') && <FieldError message={missingMessages.item} />}
-          {chosenItem && !takesWhole && (
+          {chosenItem && !takesWhole(chosenItem) && (
             <>
               <View style={styles.fieldRow}>
-                <Text style={[styles.label, styles.amountLabel]}>
-                  {sizeUnit !== null
-                    ? `How many ${sizeUnit} this piece used`
-                    : 'How much this piece took'}
-                </Text>
+                <Text style={[styles.label, styles.amountLabel]}>{amountLabel}</Text>
                 <TextInput
                   style={[styles.amountInput, amountMissing && styles.missingInput]}
                   value={amountText}
@@ -344,11 +364,13 @@ export function UsePanel({
           )}
           {pricedId !== null && price && (
             <View style={styles.priceBox}>
-              <Text style={styles.label}>{getPriceText(price, 1 / sizeAmount!)} each</Text>
+              <Text style={styles.label}>
+                {getPriceText(price, 1 / sizeAmount!)} each{getEstimatedText(price)}
+              </Text>
               {price.supplies.map((supply) => (
                 <View key={supply.id} style={styles.fieldRow}>
                   <Text style={[styles.secondaryText, styles.amountLabel]}>
-                    {supply.name}: {formatCost(supply.cost_cents)}, priced{' '}
+                    {supply.name}: {formatSupplyPrice(supply)}, priced{' '}
                     {formatDay(Date.parse(supply.priced_at))}
                   </Text>
                   <Pressable
@@ -370,8 +392,9 @@ export function UsePanel({
             <Pressable style={styles.textButton} onPress={onCancel}>
               <Text style={styles.textButtonText}>Cancel</Text>
             </Pressable>
-            {/* Picking adds a whole supply to a prep, and an empty list has nothing to add. */}
-            {!takesWhole && items?.length !== 0 && (
+            {/* A prep's whole supply, once saved, can only be removed, and an empty list has
+                nothing to add. */}
+            {!(chosenItem && takesWhole(chosenItem)) && items?.length !== 0 && (
               <Pressable style={styles.saveButton} onPress={handleSave}>
                 <Text style={styles.saveButtonText}>{initial ? 'Save' : 'Add'}</Text>
               </Pressable>

@@ -38,19 +38,19 @@ import {
   getPieceSupplies,
   type AvailableSupply,
 } from '@/db/queries/supplyQueries';
-import { useGuideStore } from '@/store/guideStore';
+import { useGuideStore, useGuideTarget } from '@/store/guideStore';
 import { useWorkStore } from '@/store/workStore';
 import { formatClockTime, formatDuration } from '@/utils/formatTime';
 import { getPhotoUri, takePhoto } from '@/utils/photoStorage';
 import { getLastTouch, isQuestionDue } from '@/utils/stillWorking';
-import { colors, guideOutline } from '@/theme';
+import { colors } from '@/theme';
 import { getWholeDays, startOfDay } from '@/utils/workDays';
 import { showError } from '@/utils/showError';
 
 interface Finishing {
   piece: UnfinishedPiece;
   cameraPhotoUri: string | null;
-  availablePrep: AvailablePrep[] | null;
+  availablePrep: AvailablePrep[];
   initialPrep: UseChoice[];
   missingPrep: MissingUse[];
   availableSupplies: AvailableSupply[];
@@ -100,15 +100,13 @@ function confirmDelete(piece: UnfinishedPiece, remove: (pieceId: number) => Prom
   );
 }
 
-// What the panel after Done starts with: the prep (for a piece) and the supplies already on it,
-// then its template's (Decisions: Record once, then just make), and what can be added. Prep
-// takes no prep, and a batch of a counted template takes no supplies from it, since the template
-// knows them.
+// What the panel after Done starts with: the prep and supplies already on it, then its
+// template's (Decisions: Record once, then just make), and what can be added. A batch of a counted
+// template takes no prep or supplies from it, since the template knows them.
 async function loadFinishUses(piece: UnfinishedPiece) {
-  const usesPrep = piece.category === 'piece';
   const [availablePrep, usedPrep, availableSupplies, usedSupplies] = await Promise.all([
-    usesPrep ? getAvailablePrep(piece.id) : null,
-    usesPrep ? getPiecePrep(piece.id) : [],
+    getAvailablePrep(piece.id),
+    getPiecePrep(piece.id),
     getAvailableSupplies(piece.id),
     getPieceSupplies(piece.id),
   ]);
@@ -116,11 +114,11 @@ async function loadFinishUses(piece: UnfinishedPiece) {
     piece.template_id === null
       ? null
       : await getTemplateUses(piece.template_id, piece.id, {
-          prep: availablePrep ?? [],
+          prep: availablePrep,
           supplies: availableSupplies,
         });
   const prep = getTemplateChoices(
-    usesPrep ? (template?.prep ?? []) : [],
+    piece.template_counted ? [] : (template?.prep ?? []),
     usedPrep.map((use) =>
       getSavedChoice(use, {
         id: use.prep_id,
@@ -271,7 +269,7 @@ export default function WorkScreen() {
     endDay,
     stopRunning,
   } = useWorkStore();
-  const guideTarget = useGuideStore((state) => state.target);
+  const { ref: startRef, measure: measureStart } = useGuideTarget('start');
   const setTabBarHeight = useGuideStore((state) => state.setTabBarHeight);
   const { bottom: bottomInset } = useSafeAreaInsets();
   const [name, setName] = useState('');
@@ -336,6 +334,7 @@ export default function WorkScreen() {
   const finishPanel = finishing && (
     <FinishPiecePanel
       pieceName={finishing.piece.name}
+      category={finishing.piece.category}
       photoUri={
         finishing.cameraPhotoUri ??
         (finishing.piece.photo_file_name ? getPhotoUri(finishing.piece.photo_file_name) : null)
@@ -382,7 +381,7 @@ export default function WorkScreen() {
           <Text style={styles.helpButtonText}>?</Text>
         </Pressable>
       </View>
-      <View style={[styles.startRow, guideTarget === 'start' && guideOutline]}>
+      <View ref={startRef} onLayout={measureStart} style={styles.startRow}>
         <TextInput
           style={styles.nameInput}
           value={name}

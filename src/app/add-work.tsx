@@ -87,8 +87,7 @@ export default function AddWorkScreen() {
   // Existing shows the rest of the form once a template is picked.
   const showForm = source !== 'existing' || template !== null;
 
-  const usesPrep = category === 'piece';
-  // A batch of a counted prep's template: the template knows its count and supplies.
+  // A batch of a counted prep's template: the template knows its count, prep, and supplies.
   const laterBatch = category === 'prep' && template !== null && template.size_amount !== null;
   const saveAsTemplate =
     templateChoice ??
@@ -148,12 +147,13 @@ export default function AddWorkScreen() {
   }
 
   // Fills in the new piece from the template. Nothing on the template changes. A batch of a
-  // counted prep saves no supplies, so it takes none.
+  // counted prep saves no prep or supplies, so it takes none.
   function chooseTemplate(chosen: Template) {
     getTemplateUses(chosen.id, null, { prep: availablePrep, supplies: availableSupplies })
       .then((uses) => {
-        const prep = getTemplateChoices(uses.prep);
-        const supplies = getTemplateChoices(chosen.size_amount === null ? uses.supplies : []);
+        const counted = chosen.size_amount !== null;
+        const prep = getTemplateChoices(counted ? [] : uses.prep);
+        const supplies = getTemplateChoices(counted ? [] : uses.supplies);
         setTemplate(chosen);
         setName(chosen.name);
         setCategory(chosen.category);
@@ -184,7 +184,9 @@ export default function AddWorkScreen() {
               isTemplate: template === null && saveAsTemplate,
             }
           : null,
-        prepUses: usesPrep ? chosenPrep.map(({ item, share }) => ({ prepId: item.id, share })) : [],
+        prepUses: laterBatch
+          ? []
+          : chosenPrep.map(({ item, share }) => ({ prepId: item.id, share })),
         supplyUses: laterBatch
           ? []
           : chosenSupplies.map(({ item, share }) => ({ supplyId: item.id, share })),
@@ -281,7 +283,7 @@ export default function AddWorkScreen() {
               <FieldError message={getOverlapMessage(overlap)} style={styles.cardError} />
             )}
           </View>
-          {usesPrep && (
+          {!laterBatch && (
             <UseChoices
               kind="prep"
               usedBy={category}

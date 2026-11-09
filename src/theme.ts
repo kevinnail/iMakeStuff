@@ -1,5 +1,3 @@
-import type { ViewStyle } from 'react-native';
-
 // The app's colors: dark blues with a bright sky blue for action.
 export const colors = {
   background: '#1A2233',
@@ -20,14 +18,4 @@ export const colors = {
   danger: '#F06A6A',
   // Text on a primary or accent fill.
   textOnFill: '#1A2233',
-};
-
-// The first-run guide's ring around the button it's pointing at, on whichever tab that is. An
-// outline takes no room, so nothing moves when it shows.
-export const guideOutline: ViewStyle = {
-  outlineWidth: 3,
-  outlineOffset: 4,
-  outlineColor: colors.warning,
-  borderRadius: 8,
-  boxShadow: `0px 0px 50px ${colors.warning}`,
 };

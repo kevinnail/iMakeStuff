@@ -27,6 +27,7 @@ import { JoinedButtons } from '@/components/JoinedButtons';
 import { NewPrepPanel } from '@/components/NewPrepPanel';
 import { UseChoices, type MissingUse } from '@/components/UseChoices';
 import type { AvailableItem, UseChoice } from '@/components/UsePanel';
+import type { PieceCategory } from '@/db/queries/pieceQueries';
 import type { FinishPrepUse } from '@/db/queries/prepQueries';
 import type { FinishSupplyUse } from '@/db/queries/supplyQueries';
 import { colors } from '@/theme';
@@ -35,9 +36,9 @@ import { defaultsToTemplate, type BatchSize, type SizeInput } from '@/utils/prep
 
 interface FinishPiecePanelProps {
   pieceName: string;
+  category: PieceCategory;
   photoUri: string | null;
-  // null when finishing prep, which doesn't use other prep.
-  availablePrep: AvailableItem[] | null;
+  availablePrep: AvailableItem[];
 
   initialPrep: UseChoice[];
   missingPrep: MissingUse[];
@@ -46,8 +47,8 @@ interface FinishPiecePanelProps {
   missingSupplies: MissingUse[];
   // Prep's count so far, from its template if it has one.
   initialSize: BatchSize;
-  // A batch of a counted prep's template: the template knows its count and supplies, so Done
-  // asks only for a photo or notes.
+  // A batch of a counted prep's template: the template knows its count, prep, and supplies, so
+  // Done asks only for a photo or notes.
   laterBatch: boolean;
   // Started from a template, so Save as template isn't offered.
   fromTemplate: boolean;
@@ -78,6 +79,7 @@ export function getNotesPlaceholder(lost: boolean, hasPhoto: boolean) {
 // piece can always be identified later.
 export function FinishPiecePanel({
   pieceName,
+  category,
   photoUri,
   availablePrep,
   initialPrep,
@@ -103,7 +105,7 @@ export function FinishPiecePanel({
   // null until the switch is tapped.
   const [templateChoice, setTemplateChoice] = useState<boolean | null>(null);
   const [showingPhoto, setShowingPhoto] = useState(false);
-  const finishingPrep = availablePrep === null;
+  const finishingPrep = category === 'prep';
   const saveAsTemplate =
     templateChoice ??
     defaultsToTemplate(finishingPrep && prepKind === 'counted', outcome === 'lost');
@@ -200,10 +202,10 @@ export function FinishPiecePanel({
             {missingFields.shown.includes('identity') && (
               <FieldError message={missingMessages.identity} />
             )}
-            {availablePrep && (
+            {!laterBatch && (
               <UseChoices
                 kind="prep"
-                usedBy="piece"
+                usedBy={category}
                 availableItems={availablePrep}
                 chosen={chosenPrep}
                 missing={missingPrep}
@@ -215,7 +217,7 @@ export function FinishPiecePanel({
             {!laterBatch && (
               <UseChoices
                 kind="supply"
-                usedBy={availablePrep ? 'piece' : 'prep'}
+                usedBy={category}
                 availableItems={availableSupplies}
                 chosen={chosenSupplies}
                 missing={missingSupplies}

@@ -11,7 +11,7 @@ import {
   type SupplyRecord,
 } from '@/db/queries/supplyQueries';
 import { colors } from '@/theme';
-import { formatCost } from '@/utils/cost';
+import { formatSupplyPrice } from '@/utils/cost';
 import { formatDay } from '@/utils/formatTime';
 import { showError } from '@/utils/showError';
 
@@ -68,7 +68,7 @@ export default function SuppliesScreen() {
                 <Text style={[styles.detailText, styles.fill]}>
                   Priced {formatDay(Date.parse(supply.priced_at))}
                 </Text>
-                <Text style={styles.cost}>{formatCost(supply.cost_cents)}</Text>
+                <Text style={styles.cost}>{formatSupplyPrice(supply)}</Text>
               </View>
             </View>
             <Chevron />
@@ -116,7 +116,9 @@ const styles = StyleSheet.create({
     color: colors.secondaryText,
   },
   cost: {
+    flexShrink: 1,
     fontSize: 18,
+    textAlign: 'right',
     fontVariant: ['tabular-nums'],
     color: colors.text,
   },

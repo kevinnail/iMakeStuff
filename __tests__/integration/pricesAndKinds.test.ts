@@ -1,6 +1,7 @@
 import { getDb } from '@/db/database';
 import { deletePiece, finishPiece, getPieces } from '@/db/queries/pieceQueries';
 import {
+  addSupplyUse,
   getAvailablePrep,
   getPrepPrice,
   getTemplateUses,
@@ -8,7 +9,6 @@ import {
 } from '@/db/queries/prepQueries';
 import {
   addSupply,
-  addSupplyUse,
   deleteSupply,
   getAvailableSupplies,
   getSupply,
@@ -58,8 +58,8 @@ const finish = {
   supplyUses: [],
 };
 
-const tube = { name: '32.7 × 4 tube', costCents: 1500 };
-const rod = { name: 'Cobalt rod', costCents: 1200 };
+const tube = { name: '32.7 × 4 tube', costCents: 1500, caseCount: 1 };
+const rod = { name: 'Cobalt rod', costCents: 1200, caseCount: 1 };
 
 let database: ReturnType<typeof createTestDb>;
 let tubeId: number;
@@ -121,8 +121,23 @@ describe('Update price', () => {
 
     expect((await getSupply(tubeId))?.priced_at).not.toBe(oldPrice);
     expect(await getPrepPrice(pointsId)).toEqual(
-      expect.objectContaining({ cost_cents: 2000, worked_milliseconds: 40 * minute }),
+      expect.objectContaining({ cost_cents: 2000, total_milliseconds: 40 * minute }),
     );
+    expect((await getPieces()).find((piece) => piece.id === bowlId)?.cost_cents).toBe(188);
+  });
+
+  // Otherwise a corrected case count would change the price of one without saying when, or rewrite pieces already made.
+  it('moves priced_at on a new case count and leaves pieces already saved alone', async () => {
+    await finishPiece(bowlId, {
+      ...finish,
+      prepUses: [{ prepId: pointsId, share: parseAmount('1', 8)! }],
+    });
+    await database.runAsync('UPDATE supplies SET priced_at = ?', oldPrice);
+
+    await updateSupply(tubeId, { ...tube, caseCount: 2 });
+
+    expect((await getSupply(tubeId))?.priced_at).not.toBe(oldPrice);
+    expect((await getPrepPrice(pointsId)).cost_cents).toBe(750);
     expect((await getPieces()).find((piece) => piece.id === bowlId)?.cost_cents).toBe(188);
   });
 
@@ -224,9 +239,21 @@ describe('Same as', () => {
     const newerRodId = await addSupply({ ...rod, costCents: 1400 }, rodId);
 
     expect(await getSupplyKinds()).toEqual([
-      { id: newerRodId, name: 'Cobalt rod', cost_cents: 1400 },
-      { id: tubeId, name: tube.name, cost_cents: 1500 },
+      { id: newerRodId, name: 'Cobalt rod', cost_cents: 1400, case_count: 1 },
+      { id: tubeId, name: tube.name, cost_cents: 1500, case_count: 1 },
     ]);
+  });
+
+  // Otherwise Same as on a supply bought by the case would fill in the case's cost as the price of one.
+  it("offers a case's cost and count", async () => {
+    const caseId = await addSupply({ ...rod, costCents: 10000, caseCount: 10 }, rodId);
+
+    expect((await getSupplyKinds())[0]).toEqual({
+      id: caseId,
+      name: 'Cobalt rod',
+      cost_cents: 10000,
+      case_count: 10,
+    });
   });
 
   // Otherwise a rod added as the same as the last one would start a kind of its own.

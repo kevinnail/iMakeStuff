@@ -1,6 +1,8 @@
 import { router, type Href } from 'expo-router';
 import { Fragment, useEffect, useState } from 'react';
 import {
+  Animated,
+  Easing,
   Modal,
   Pressable,
   ScrollView,
@@ -9,10 +11,10 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { getGuideSeen, markGuideSeen } from '@/db/queries/settingsQueries';
-import { useGuideStore, type GuideTarget } from '@/store/guideStore';
+import { useGuideStore, type GuideTarget, type TargetFrame } from '@/store/guideStore';
 import { colors } from '@/theme';
 import { showError } from '@/utils/showError';
 
@@ -24,6 +26,11 @@ const tabs: { name: string; route: Href }[] = [
 ];
 
 const arrowWidth = 150;
+const arrowLabelPadding = 20;
+const arrowLabelLineHeight = 20;
+const arrowPointHeight = 34;
+// A labeled arrow's height, kept clear under the panel when every tab has an arrow.
+const labeledArrowHeight = arrowLabelPadding * 2 + arrowLabelLineHeight + arrowPointHeight;
 // How far apart the tab bar's buttons are, as a share of the screen width. iOS draws the tab bar
 // as a pill in the middle, narrower than the screen, and React Native can't measure it, so this is
 // measured off the phone (2026-11-07).
@@ -76,6 +83,8 @@ interface GuideStep {
   body: (string | Definition)[];
   // Shown under the paragraphs: the Quick Start map, or how a cost adds up.
   extra?: 'map' | 'diagram';
+  // An arrow at every tab, for the step that names them.
+  pointsAtTabs?: true;
   // The panel sits away from the outlined button, and never at the bottom, where it would cover
   // the tab bar.
   panelAt: 'top' | 'middle';
@@ -89,10 +98,12 @@ const guideSteps: GuideStep[] = [
     target: null,
     title: 'Quick Start',
     body: [
+      'Navigation: the Work tab, Pieces tab, and Days tab.',
       'Keeping track of your cost per piece depends on you doing these three things, in this order:',
     ],
     extra: 'map',
-    panelAt: 'middle',
+    pointsAtTabs: true,
+    panelAt: 'top',
   },
   {
     tabIndex: 1,
@@ -137,7 +148,7 @@ const guideSteps: GuideStep[] = [
 
 const quickStartMap = [
   { action: 'Add your supplies', where: 'On the Pieces tab. Once, and when you buy more.' },
-  { action: 'Tap Start!', where: 'On the Work tab. Every time you work.' },
+  { action: 'Tap Start', where: 'On the Work tab. Every time you work.' },
   { action: "Tap Done when it's made", where: 'And add the prep and supplies it used.' },
 ];
 
@@ -252,20 +263,111 @@ function CostDiagram() {
   );
 }
 
-// Points down at the tab the step is on, just above the tab bar. The tabs are centered on the
-// screen, tabSpacing apart.
-function TabArrow({ tabIndex }: { tabIndex: number }) {
+// Points down at a tab, just above the tab bar, with a label over the point when it has one. The
+// tabs are centered on the screen, tabSpacing apart.
+function TabArrow({ tabIndex, label }: { tabIndex: number; label?: string }) {
   const tabBarHeight = useGuideStore((state) => state.tabBarHeight);
   const { width } = useWindowDimensions();
   const tabMiddle = width / 2 + (tabIndex - (tabs.length - 1) / 2) * tabSpacing * width;
 
   return (
     <View style={[styles.tabArrow, { bottom: tabBarHeight, left: tabMiddle - arrowWidth / 2 }]}>
-      <View style={styles.tabArrowLabelBox}>
-        <Text style={styles.tabArrowLabel}>{tabs[tabIndex].name} tab</Text>
-      </View>
+      {label && (
+        <View style={styles.tabArrowLabelBox}>
+          <Text style={styles.tabArrowLabel}>{label}</Text>
+        </View>
+      )}
       <Text style={styles.tabArrowPoint}>↓</Text>
     </View>
+  );
+}
+
+// How far the Main tabs box reaches past the outer two arrows on each side.
+const mainTabsBoxOverhang = 40;
+
+// An arrow at every tab under one box spanning all of them, so it reads as naming the three
+// together rather than as the one-tab box on the steps after it. The middle tab is the screen's
+// middle.
+function MainTabsArrows() {
+  const tabBarHeight = useGuideStore((state) => state.tabBarHeight);
+  const { width } = useWindowDimensions();
+  const boxWidth = (tabs.length - 1) * tabSpacing * width + mainTabsBoxOverhang * 2;
+
+  return (
+    <>
+      <View
+        style={[
+          styles.tabArrowLabelBox,
+          styles.mainTabsBox,
+          {
+            bottom: tabBarHeight + arrowPointHeight,
+            left: (width - boxWidth) / 2,
+            width: boxWidth,
+          },
+        ]}
+      >
+        <Text style={styles.tabArrowLabel}>Tabs</Text>
+      </View>
+      {tabs.map((tab, index) => (
+        <TabArrow key={tab.name} tabIndex={index} />
+      ))}
+    </>
+  );
+}
+
+// The ring around the step's button: its gap from the button, its thickness, and how long one
+// pulse takes.
+const highlightGap = 4;
+const highlightWidth = 3;
+const pulseDuration = 4000;
+
+// The two pulses to try: the ring fading out and back, or swelling a little and back. pulse runs
+// from 0 to 1 and back once per pulseDuration.
+const pulseStyles = {
+  fade: (pulse: Animated.Value) => ({
+    opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 0.2] }),
+  }),
+  swell: (pulse: Animated.Value) => ({
+    transform: [{ scale: pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.05] }) }],
+  }),
+};
+const pulseKind: keyof typeof pulseStyles = 'fade';
+
+// Outlines the step's button where its screen measured it. Drawn here, above the dark layer, so
+// the ring stays bright while the button under it stays dark.
+function GuideHighlight({ frame }: { frame: TargetFrame }) {
+  const [pulse] = useState(() => new Animated.Value(0));
+  const outset = highlightGap + highlightWidth;
+
+  useEffect(() => {
+    const halfPulse = {
+      duration: pulseDuration / 2,
+      easing: Easing.inOut(Easing.ease),
+      useNativeDriver: true,
+    };
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, ...halfPulse }),
+        Animated.timing(pulse, { toValue: 0, ...halfPulse }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [pulse]);
+
+  return (
+    <Animated.View
+      style={[
+        styles.highlight,
+        {
+          left: frame.x - outset,
+          top: frame.y - outset,
+          width: frame.width + outset * 2,
+          height: frame.height + outset * 2,
+        },
+        pulseStyles[pulseKind](pulse),
+      ]}
+    />
   );
 }
 
@@ -287,6 +389,10 @@ export function FirstRunGuide() {
   const stepIndex = useGuideStore((state) => state.stepIndex);
   const setStep = useGuideStore((state) => state.setStep);
   const tabBarHeight = useGuideStore((state) => state.tabBarHeight);
+  const targetFrame = useGuideStore((state) => state.targetFrame);
+  // From the app's safe area, which is known at launch, unlike a safe area view inside the guide's
+  // window, which starts at zero there.
+  const { top: topInset } = useSafeAreaInsets();
   // Whether it's saved as seen: Skip the first time, since that's for good, and Close once the ?
   // button can bring it back.
   const [seen, setSeen] = useState(false);
@@ -314,12 +420,19 @@ export function FirstRunGuide() {
   return (
     <Modal visible transparent animationType="fade" onRequestClose={close}>
       <View style={styles.overlay}>
-        {/* Kept above the tab bar, whose height includes the bottom of the screen. */}
-        <SafeAreaView
-          edges={['top']}
+        {/* On the step that points at the tabs, it stops at the tab bar, so the tabs are the one
+            bright thing on the screen. */}
+        <View style={[styles.dim, step.pointsAtTabs && { bottom: tabBarHeight }]} />
+        {targetFrame && <GuideHighlight frame={targetFrame} />}
+        {/* Kept below the status bar and above the tab bar, whose height includes the bottom of
+            the screen. */}
+        <View
           style={[
             styles.panelArea,
-            { paddingBottom: tabBarHeight + 16 },
+            {
+              paddingTop: topInset + 16,
+              paddingBottom: tabBarHeight + 16 + (step.pointsAtTabs ? labeledArrowHeight : 0),
+            },
             step.panelAt === 'top' ? styles.atTop : styles.atMiddle,
           ]}
         >
@@ -362,19 +475,33 @@ export function FirstRunGuide() {
               </Pressable>
             </View>
           </View>
-        </SafeAreaView>
+        </View>
         {/* Only where there's a button to find on that tab. */}
-        {step.target && <TabArrow tabIndex={step.tabIndex} />}
+        {step.target && (
+          <TabArrow tabIndex={step.tabIndex} label={`${tabs[step.tabIndex].name} tab`} />
+        )}
+        {step.pointsAtTabs && <MainTabsArrows />}
       </View>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  // Light enough that the outlined button underneath still stands out.
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+  },
+  // Dark enough that the app's buttons underneath read as shown, not tappable, leaving the
+  // panel's own buttons as the ones to tap.
+  dim: {
+    ...StyleSheet.absoluteFill,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+  },
+  // The yellow of the tab arrows, rounded a little past the button's own corners.
+  highlight: {
+    position: 'absolute',
+    borderWidth: highlightWidth,
+    borderRadius: 12,
+    borderColor: colors.warning,
   },
   panelArea: {
     flex: 1,
@@ -539,23 +666,26 @@ const styles = StyleSheet.create({
   // On the page's color, so it reads over whatever is on the screen under it, with the same
   // yellow glow as the outline on the step's button.
   tabArrowLabelBox: {
-    paddingVertical: 20,
+    paddingVertical: arrowLabelPadding,
     paddingHorizontal: 14,
     borderRadius: 8,
     backgroundColor: colors.background,
     boxShadow: `0px 0px 16px ${colors.warning}`,
     width: arrowWidth,
   },
+  mainTabsBox: {
+    position: 'absolute',
+  },
   tabArrowLabel: {
     fontSize: 18,
-    lineHeight: 20,
+    lineHeight: arrowLabelLineHeight,
     fontWeight: '600',
     color: colors.warning,
     textAlign: 'center',
   },
   tabArrowPoint: {
     fontSize: 32,
-    lineHeight: 34,
+    lineHeight: arrowPointHeight,
     color: colors.warning,
     textShadowColor: colors.warning,
     textShadowRadius: 12,
