@@ -3,21 +3,13 @@ import { formatCost, getCost, parseCost } from '@/utils/cost';
 const vaseId = 1;
 const caneId = 2;
 
-// A use of a supply as the database returns it. sharesTotal is every share of that supply.
-function supplyUse(
-  pieceId: number,
-  costCents: number,
-  [numerator, denominator]: [number, number],
-  { usedUp = false, sharesTotal = numerator / denominator } = {},
-) {
+// A use of a supply as the database returns it.
+function supplyUse(pieceId: number, costCents: number, [numerator, denominator]: [number, number]) {
   return {
     piece_id: pieceId,
     supply_cost_cents: costCents,
     share_numerator: numerator,
     share_denominator: denominator,
-    used_up: usedUp ? 1 : 0,
-    measured: 0,
-    shares_total: sharesTotal,
   };
 }
 
@@ -41,7 +33,7 @@ function caneUse(
 }
 
 // The cane pulled from a whole $40 tube.
-const wholeTube = supplyUse(caneId, 4000, [1, 1], { usedUp: true });
+const wholeTube = supplyUse(caneId, 4000, [1, 1]);
 
 describe('getCost', () => {
   // Otherwise a piece made with an eighth of a cane wouldn't carry its share of the tube.
@@ -55,7 +47,7 @@ describe('getCost', () => {
 
   // Otherwise a pendant made from a rod with a bail would carry only one of the two.
   it('adds a supply used directly to the share of a prep', () => {
-    const bail = supplyUse(vaseId, 300, [1, 1], { usedUp: true });
+    const bail = supplyUse(vaseId, 300, [1, 1]);
 
     const cost = getCost(vaseId, [caneUse([1, 8])], [wholeTube, bail]);
 
@@ -76,27 +68,21 @@ describe('getCost', () => {
     expect(cost.cents).toBe(667);
   });
 
-  // Otherwise the leftover of a used-up supply, waste included, would be paid for by nobody.
-  it('scales the shares of a used-up supply to the whole cost', () => {
-    const quarter = supplyUse(vaseId, 4000, [1, 4], { usedUp: true, sharesTotal: 0.5 });
+  // Otherwise a rod's price would be marked a guess, or spread, instead of paid by its share.
+  it('prices a supply used directly at its share of the cost, never estimated', () => {
+    const quarter = supplyUse(vaseId, 4000, [1, 4]);
 
-    expect(getCost(vaseId, [], [quarter])).toMatchObject({ cents: 2000, estimated: false });
+    expect(getCost(vaseId, [], [quarter])).toMatchObject({ cents: 1000, estimated: false });
   });
 
   // Otherwise the cost would read final while the cane behind it could still be cut.
-  it('is estimated until the prep and every supply behind it are used up', () => {
+  it('is estimated until the by eye prep behind it is used up', () => {
+    expect(getCost(vaseId, [caneUse([1, 8])], [wholeTube]).estimated).toBe(true);
     expect(getCost(vaseId, [caneUse([1, 8], true)], [wholeTube]).estimated).toBe(false);
-    expect(
-      getCost(
-        vaseId,
-        [caneUse([1, 8], true)],
-        [supplyUse(caneId, 4000, [1, 2], { sharesTotal: 0.5 })],
-      ).estimated,
-    ).toBe(true);
   });
 
   // Otherwise a piece made from points would show its cost as a guess while the points are open.
-  it('is not estimated from an open counted prep made from a closed supply', () => {
+  it('is not estimated from an open counted prep', () => {
     expect(getCost(vaseId, [caneUse([1, 8], false, true)], [wholeTube])).toMatchObject({
       cents: 500,
       estimated: false,
