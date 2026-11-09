@@ -1,5 +1,5 @@
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
   Alert,
@@ -55,12 +55,15 @@ const categoryOptions: { value: PieceCategory; label: string; color?: string }[]
 ];
 
 export default function AddWorkScreen() {
+  // Pieces opens it on New prep while its Prep list shows. Anything else starts on New piece.
+  const { category: openedFor } = useLocalSearchParams<{ category?: PieceCategory }>();
+  const startingCategory: PieceCategory = openedFor === 'prep' ? 'prep' : 'piece';
   const [templates, setTemplates] = useState<Template[]>([]);
   const [availablePrep, setAvailablePrep] = useState<AvailablePrep[]>([]);
   const [availableSupplies, setAvailableSupplies] = useState<AvailableSupply[]>([]);
-  const [source, setSource] = useState<Source>('piece');
+  const [source, setSource] = useState<Source>(startingCategory);
   const [template, setTemplate] = useState<Template | null>(null);
-  const [category, setCategory] = useState<PieceCategory>('piece');
+  const [category, setCategory] = useState<PieceCategory>(startingCategory);
   const [name, setName] = useState('');
   const [chosenPrep, setChosenPrep] = useState<UseChoice[]>([]);
   const [missingPrep, setMissingPrep] = useState<MissingUse[]>([]);
