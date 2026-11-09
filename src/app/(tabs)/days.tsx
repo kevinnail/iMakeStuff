@@ -14,10 +14,10 @@ import {
 import { Chevron } from '@/components/Chevron';
 import { Tag } from '@/components/Tag';
 import { getWorkRecords, type FinishedPiece } from '@/db/queries/dayQueries';
-import { useGuideStore } from '@/store/guideStore';
+import { useGuideTarget } from '@/store/guideStore';
 import { formatDay, formatDuration } from '@/utils/formatTime';
 import { getMonthWeeks } from '@/utils/monthGrid';
-import { colors, guideOutline } from '@/theme';
+import { colors } from '@/theme';
 import { getPhotoUri } from '@/utils/photoStorage';
 import { getWholeDays, startOfDay, type WorkDay } from '@/utils/workDays';
 
@@ -113,7 +113,7 @@ function MonthCalendar({ monthStart, today, workedDayStarts, onChangeMonth }: Mo
 }
 
 export default function DaysScreen() {
-  const guideTarget = useGuideStore((state) => state.target);
+  const { ref: addWorkRef, measure: measureAddWork } = useGuideTarget('addWork');
   const [days, setDays] = useState<DaySummary[]>([]);
   // Set when the tab loads, so the calendar marks the right day after midnight.
   const [today, setToday] = useState(() => startOfDay(Date.now()));
@@ -153,6 +153,7 @@ export default function DaysScreen() {
       data={monthDays}
       keyExtractor={({ day }) => String(day.dayStart)}
       contentInsetAdjustmentBehavior="automatic"
+      onScroll={measureAddWork}
       contentContainerStyle={styles.list}
       ItemSeparatorComponent={() => <View style={styles.separator} />}
       ListHeaderComponent={
@@ -167,11 +168,9 @@ export default function DaysScreen() {
           <View style={styles.sectionRow}>
             <Text style={styles.listTitle}>Days worked</Text>
             <Pressable
-              style={({ pressed }) => [
-                styles.addButton,
-                guideTarget === 'addWork' && guideOutline,
-                pressed && styles.buttonPressed,
-              ]}
+              ref={addWorkRef}
+              onLayout={measureAddWork}
+              style={({ pressed }) => [styles.addButton, pressed && styles.buttonPressed]}
               onPress={() => router.push('/add-work')}
             >
               <Text style={styles.addButtonText}>Add Work</Text>
