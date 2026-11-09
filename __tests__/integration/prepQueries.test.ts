@@ -234,6 +234,7 @@ describe('lost prep and lost pieces', () => {
         size_unit: null,
         used_share: 0,
         cost_cents: null,
+        cost_estimated: false,
       },
     ]);
   });
@@ -302,6 +303,7 @@ describe('setPrepUsedUp', () => {
         size_unit: null,
         used_share: 0,
         cost_cents: null,
+        cost_estimated: false,
       },
       {
         id: caneId,
@@ -311,6 +313,7 @@ describe('setPrepUsedUp', () => {
         size_unit: null,
         used_share: 0.25,
         cost_cents: null,
+        cost_estimated: false,
       },
     ]);
   });
@@ -344,6 +347,7 @@ describe('getAvailablePrep', () => {
         size_unit: null,
         used_share: 0.3,
         cost_cents: null,
+        cost_estimated: false,
       },
     ]);
     expect(await getAvailablePrep(bowlId)).toEqual([
@@ -355,6 +359,7 @@ describe('getAvailablePrep', () => {
         size_unit: null,
         used_share: 0.1,
         cost_cents: null,
+        cost_estimated: false,
       },
     ]);
   });
@@ -446,6 +451,7 @@ describe('closing a batch', () => {
         size_unit: null,
         used_share: 0,
         cost_cents: null,
+        cost_estimated: false,
       },
       {
         id: caneId,
@@ -455,6 +461,7 @@ describe('closing a batch', () => {
         size_unit: null,
         used_share: 0,
         cost_cents: null,
+        cost_estimated: false,
       },
     ]);
   });
@@ -606,6 +613,7 @@ describe('getTemplateUses for prep', () => {
           kind_id: caneId,
           used_share: 0,
           cost_cents: null,
+          cost_estimated: false,
         },
       },
       {
@@ -623,6 +631,7 @@ describe('getTemplateUses for prep', () => {
           kind_id: fritId,
           used_share: 0.2,
           cost_cents: null,
+          cost_estimated: false,
         },
       },
     ]);
