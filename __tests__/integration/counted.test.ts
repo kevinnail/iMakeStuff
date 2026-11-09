@@ -2,6 +2,7 @@ import { getDb } from '@/db/database';
 import { addPastWork, addPieceTime } from '@/db/queries/entryQueries';
 import {
   finishPiece,
+  getPieceDetail,
   getPieces,
   getTemplates,
   getUnfinishedPieces,
@@ -9,8 +10,8 @@ import {
   startFromTemplate,
   updatePiece,
 } from '@/db/queries/pieceQueries';
-import { addPrepUse, getAvailablePrep } from '@/db/queries/prepQueries';
-import { addSupply, addSupplyUse, getSupply, updateSupply } from '@/db/queries/supplyQueries';
+import { addPrepUse, addSupplyUse, getAvailablePrep } from '@/db/queries/prepQueries';
+import { addSupply, getSupply, updateSupply } from '@/db/queries/supplyQueries';
 import { parseAmount } from '@/utils/prepTime';
 import { createTestDb } from '../setup';
 
@@ -56,7 +57,7 @@ const finish = {
   supplyUses: [],
 };
 
-const tube = { name: '32.7 × 4 tube', costCents: 1500 };
+const tube = { name: '32.7 × 4 tube', costCents: 1500, caseCount: 1 };
 
 let tubeId: number;
 
@@ -232,7 +233,7 @@ describe('counted prep in Add prep', () => {
 });
 
 describe('counted prep made with part of a supply', () => {
-  const rod = { name: 'Rod', costCents: 4000 };
+  const rod = { name: 'Rod', costCents: 4000, caseCount: 1 };
   const cutId = 5;
   let rodId: number;
 
@@ -292,7 +293,7 @@ describe('Delete supply counts', () => {
 
   // Otherwise the confirmation would leave out a piece that used a supply directly.
   it('counts a piece using the supply directly', async () => {
-    const bailId = await addSupply({ name: 'Silver bail', costCents: 300 });
+    const bailId = await addSupply({ name: 'Silver bail', costCents: 300, caseCount: 1 });
     await addSupplyUse(pendantId, { supplyId: bailId, share: parseAmount('100')! });
 
     expect(await getSupply(bailId)).toMatchObject({ prep_count: 0, piece_count: 1 });
@@ -327,6 +328,19 @@ describe('Save as template on Add Work', () => {
     await addPastWork({ ...pastPrep, finish: { notes: 'Clear', lost: false, isTemplate: false } });
 
     expect((await getTemplates()).map((template) => template.name)).not.toContain('Old points');
+  });
+});
+
+describe('a later batch on its page', () => {
+  // Otherwise its page would offer Add prep and Add supply, whose cost no piece would ever carry.
+  it('is marked as a batch of its counted template, and stops being one with the template', async () => {
+    const batchId = await startFromTemplate(pointsId);
+
+    expect((await getPieceDetail(batchId))?.piece.template_counted).toBe(1);
+
+    await setPieceTemplate(pointsId, false);
+
+    expect((await getPieceDetail(batchId))?.piece.template_counted).toBe(0);
   });
 });
 
