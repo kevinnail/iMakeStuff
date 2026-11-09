@@ -15,12 +15,29 @@ export interface UseShare extends Share {
   shares_total: number;
 }
 
+// A use of a prep by a piece or another prep.
 export interface PrepTimeShare extends UseShare {
-  // The prep's whole worked time: as saved with a counted use, otherwise as it is now.
+  piece_id: number;
+  prep_id: number;
+  // The prep's own worked time as it is now, without the prep behind it.
   prep_worked_milliseconds: number;
 }
 
 const minute = 60 * 1000;
+
+// Uses grouped by the piece or prep that made them, so each level of prep behind a piece finds its
+// own uses in one lookup rather than a pass over every use.
+export type UsesByPiece<Use> = ReadonlyMap<number, Use[]>;
+
+export function groupByPiece<Use extends { piece_id: number }>(uses: Use[]): UsesByPiece<Use> {
+  const groups = new Map<number, Use[]>();
+  for (const use of uses) {
+    const group = groups.get(use.piece_id);
+    if (group) group.push(use);
+    else groups.set(use.piece_id, [use]);
+  }
+  return groups;
+}
 
 export interface BatchSize {
   size_amount: number | null;
@@ -129,11 +146,12 @@ export function rescaleShare(share: Share, oldCount: number, newCount: number): 
   return { share_numerator: scaled.numerator, share_denominator: scaled.denominator };
 }
 
-// A use as it's shown: in the batch's unit when it's counted ("1/3 point"), otherwise as entered.
+// A use as it's shown: in the batch's unit when it's counted ("1/3 point"), a count from a case of
+// supplies ("3"), otherwise as entered.
 export function formatAmount(share: Share, { size_amount, size_unit }: BatchSize) {
-  return size_amount === null
-    ? formatShare(share)
-    : `${formatUnitAmount(share, size_amount)} ${size_unit}`;
+  if (size_amount === null) return formatShare(share);
+  const amount = formatUnitAmount(share, size_amount);
+  return size_unit === null ? amount : `${amount} ${size_unit}`;
 }
 
 export function getShareValue(share: Share) {
@@ -175,14 +193,46 @@ export function getActualShare(share: UseShare) {
   return share.used_up && !share.measured ? estimate / share.shares_total : estimate;
 }
 
-export function getPrepTime<Use extends PrepTimeShare>(worked: number, uses: Use[]) {
-  const lines = uses.map((use) => {
+interface TimeTotal {
+  milliseconds: number;
+  estimated: boolean;
+}
+
+// A piece's or prep's worked time plus its share of each prep it used, all the way down (a cane
+// carries the points it was made from), not rounded. Estimated while any share behind it is a
+// guess. uses has to hold the uses of every prep behind it.
+export function getTotalTime(
+  pieceId: number,
+  worked: number,
+  uses: UsesByPiece<PrepTimeShare>,
+): TimeTotal {
+  return (uses.get(pieceId) ?? []).reduce<TimeTotal>(
+    (total, use) => {
+      const prep = getTotalTime(use.prep_id, use.prep_worked_milliseconds, uses);
+      return {
+        milliseconds: total.milliseconds + prep.milliseconds * getActualShare(use),
+        estimated: total.estimated || isEstimated(use) || prep.estimated,
+      };
+    },
+    { milliseconds: worked, estimated: false },
+  );
+}
+
+// A piece's prep lines and totals. uses can hold other pieces' uses: the piece's own are its
+// lines, and the rest are the prep behind them.
+export function getPrepTime<Use extends PrepTimeShare>(
+  pieceId: number,
+  worked: number,
+  uses: UsesByPiece<Use>,
+) {
+  const lines = (uses.get(pieceId) ?? []).map((use) => {
     const share = getActualShare(use);
+    const prep = getTotalTime(use.prep_id, use.prep_worked_milliseconds, uses);
     return {
       ...use,
       share,
-      estimated: isEstimated(use),
-      milliseconds: wholeMinutes(use.prep_worked_milliseconds * share),
+      estimated: isEstimated(use) || prep.estimated,
+      milliseconds: wholeMinutes(prep.milliseconds * share),
     };
   });
   const prep = lines.reduce((total, line) => total + line.milliseconds, 0);
