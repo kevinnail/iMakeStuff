@@ -1,14 +1,12 @@
 import { router, Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Card } from '@/components/Card';
-import { AssignedBar } from '@/components/AssignedBar';
 import { SupplyPanel } from '@/components/SupplyPanel';
 import {
   deleteSupply,
   getSupply,
-  setSupplyUsedUp,
   updateSupply,
   type SupplyDetails,
   type SupplyRecord,
@@ -18,8 +16,7 @@ import { formatCost } from '@/utils/cost';
 import { formatDay } from '@/utils/formatTime';
 import { showError } from '@/utils/showError';
 
-// A supply's cost, what a counted one holds, and the day it was added, Edit to change them, All
-// used with how much of a by eye one's cost is assigned, and Delete supply.
+// A supply's cost and the day it was priced, Edit to change them, and Delete supply.
 export default function SupplyScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const supplyId = Number(id);
@@ -38,7 +35,6 @@ export default function SupplyScreen() {
   if (supply === undefined) return null;
   if (supply === null) return <Text style={styles.text}>No supply with this id.</Text>;
 
-  const usedUp = supply.used_up === 1;
   // "1 prep and 9 pieces": the prep that used it and every piece whose cost it's in, including
   // pieces that used that prep.
   const costParts = [
@@ -56,10 +52,6 @@ export default function SupplyScreen() {
     await updateSupply(supplyId, details);
     setEditing(false);
     await load();
-  }
-
-  function setUsedUp(value: boolean) {
-    setSupplyUsedUp(supplyId, value).then(load).catch(showError('Could not save the supply'));
   }
 
   function confirmDelete(name: string, message: string) {
@@ -102,24 +94,6 @@ export default function SupplyScreen() {
         </View>
       </Card>
       <Card>
-        <View style={styles.row}>
-          <View style={styles.fill}>
-            <Text style={styles.text}>All used</Text>
-            <Text style={styles.note}>Its full cost goes to what used it.</Text>
-          </View>
-          <Switch value={usedUp} onValueChange={setUsedUp} trackColor={{ true: colors.primary }} />
-        </View>
-        <View style={styles.row}>
-          <View style={styles.fill}>
-            <AssignedBar
-              usedShare={supply.used_share}
-              usedUp={usedUp}
-              costCents={supply.cost_cents}
-            />
-          </View>
-        </View>
-      </Card>
-      <Card>
         <Pressable
           style={({ pressed }) => [styles.row, pressed && styles.buttonPressed]}
           onPress={() => confirmDelete(supply.name, deleteMessage)}
@@ -156,10 +130,6 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     fontVariant: ['tabular-nums'],
     color: colors.text,
-  },
-  note: {
-    fontSize: 16,
-    color: colors.secondaryText,
   },
   deleteText: {
     fontSize: 18,
