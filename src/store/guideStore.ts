@@ -4,7 +4,7 @@ import type { HostInstance } from 'react-native';
 import { create } from 'zustand';
 
 // A button the first-run guide points at. Its screen reports where it is, and the guide outlines it.
-export type GuideTarget = 'supplies' | 'start' | 'addWork';
+export type GuideTarget = 'supplies' | 'start' | 'addWork' | 'addPrep';
 
 // Where the target is on screen.
 export interface TargetFrame {
@@ -42,13 +42,16 @@ export const useGuideStore = create<GuideState>((set) => ({
   setTabBarHeight: (tabBarHeight) => set({ tabBarHeight }),
 }));
 
-// The ref and measure for a button the guide can point at. While it's the target, it reports where
-// it is on screen when its tab shows, and again whenever its screen calls measure: when the button
-// lays out, and when a list it's in moves. A tab opened for the first time lays out before iOS
-// moves its list below the status bar, so the list's move is the measure that lands.
-export function useGuideTarget(target: GuideTarget) {
+// The ref and measure for a button the guide can point at, under one target per step that points
+// at it. While it's the target, it reports where it is on screen when its tab shows, and again
+// whenever its screen calls measure: when the button lays out, and when a list it's in moves. A
+// tab opened for the first time lays out before iOS moves its list below the status bar, so the
+// list's move is the measure that lands.
+export function useGuideTarget(...targets: GuideTarget[]) {
   const ref = useRef<HostInstance>(null);
-  const isTarget = useGuideStore((state) => state.target === target);
+  const isTarget = useGuideStore(
+    (state) => state.target !== null && targets.includes(state.target),
+  );
   const setTargetFrame = useGuideStore((state) => state.setTargetFrame);
 
   const measure = useCallback(() => {
