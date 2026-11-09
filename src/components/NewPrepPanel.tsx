@@ -39,15 +39,18 @@ interface NewPrepPanelProps {
 
 // Slides up over Add prep to record prep made earlier, the way Add supply does for a supply, so
 // a form in progress isn't left. It's Add Work's New prep, saved finished since it's being used,
-// with the supplies it was made from, which give it its cost. Pieces pick counted prep through
-// its template, so counted prep is saved as one.
+// with the prep and supplies it was made from, which give it its cost. Its own prep list has New
+// prep too, ending where this one starts. Pieces pick counted prep through its template, so
+// counted prep is saved as one.
 export function NewPrepPanel({ endsAt = yesterdayAt(10), onCancel, onSaved }: NewPrepPanelProps) {
   const [name, setName] = useState('');
   const [prepKind, setPrepKind] = useState<PrepKind>('counted');
   const [countTexts, setCountTexts] = useState({ amountText: '', unitText: '' });
+  const [availablePrep, setAvailablePrep] = useState<AvailablePrep[]>([]);
+  const [chosenPrep, setChosenPrep] = useState<UseChoice[]>([]);
   const [availableSupplies, setAvailableSupplies] = useState<AvailableSupply[]>([]);
   const [chosenSupplies, setChosenSupplies] = useState<UseChoice[]>([]);
-  const { startedAt, endedAt, overlaps, changeStart, setEndedAt } = useEntryTimes(
+  const { startedAt, endedAt, overlaps, changeStart, setEndedAt, reloadOverlaps } = useEntryTimes(
     endsAt - 60 * 60 * 1000,
     endsAt,
   );
@@ -71,9 +74,12 @@ export function NewPrepPanel({ endsAt = yesterdayAt(10), onCancel, onSaved }: Ne
   const busy = saving || gettingPhoto;
 
   useEffect(() => {
-    getAvailableSupplies(null)
-      .then(setAvailableSupplies)
-      .catch(showError('Could not load your supplies'));
+    Promise.all([getAvailablePrep(null), getAvailableSupplies(null)])
+      .then(([prep, supplies]) => {
+        setAvailablePrep(prep);
+        setAvailableSupplies(supplies);
+      })
+      .catch(showError('Could not load your prep and supplies'));
   }, []);
 
   function changePhoto() {
@@ -100,7 +106,7 @@ export function NewPrepPanel({ endsAt = yesterdayAt(10), onCancel, onSaved }: Ne
         endedAt: new Date(endedAt).toISOString(),
         photoFileName,
         finish: { notes: notes.trim() || null, lost: false, isTemplate: prepKind === 'counted' },
-        prepUses: [],
+        prepUses: chosenPrep.map(({ item, share }) => ({ prepId: item.id, share })),
         supplyUses: chosenSupplies.map(({ item, share }) => ({ supplyId: item.id, share })),
       }),
     )
@@ -165,6 +171,18 @@ export function NewPrepPanel({ endsAt = yesterdayAt(10), onCancel, onSaved }: Ne
               />
             </View>
             {overlap && <FieldError message={getOverlapMessage(overlap)} />}
+            <UseChoices
+              kind="prep"
+              usedBy="prep"
+              availableItems={availablePrep}
+              chosen={chosenPrep}
+              missing={[]}
+              onChange={setChosenPrep}
+              onItemAdded={reloadOverlaps}
+              // Ends where this prep starts, which isn't saved yet for its check to see.
+              renderNewPrep={(handlers) => <NewPrepPanel endsAt={startedAt} {...handlers} />}
+              style={styles.useCard}
+            />
             <UseChoices
               kind="supply"
               usedBy="prep"
