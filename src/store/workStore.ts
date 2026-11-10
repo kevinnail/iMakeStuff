@@ -11,6 +11,8 @@ import {
   confirmRunningEntry,
   getRunningEntry,
   stopRunningEntry,
+  updateEntryTimes,
+  type EntryKind,
   type RunningEntry,
 } from '@/db/queries/entryQueries';
 import {
@@ -67,6 +69,13 @@ interface WorkState {
   endDay: () => Promise<void>;
   confirmRunning: (entry: RunningEntry) => Promise<void>;
   stopRunning: (entry: RunningEntry, endedAt: string | null) => Promise<void>;
+  // From a day's page or a piece's Edit, so a change to what's running reaches the Lock Screen.
+  changeTimes: (
+    kind: EntryKind,
+    id: number,
+    startedAt: string,
+    endedAt: string | null,
+  ) => Promise<void>;
 }
 
 async function readWork() {
@@ -171,6 +180,10 @@ export const useWorkStore = create<WorkState>()((set) => ({
   },
   stopRunning: async (entry, endedAt) => {
     await stopRunningEntry(entry.kind, entry.id, endedAt);
+    await showWork(set);
+  },
+  changeTimes: async (kind, id, startedAt, endedAt) => {
+    await updateEntryTimes(kind, id, startedAt, endedAt);
     await showWork(set);
   },
 }));
