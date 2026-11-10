@@ -20,6 +20,7 @@ import {
   readPrepCount,
   type PrepKind,
 } from '@/components/CountField';
+import { EntryTimesPanel } from '@/components/EntryTimesPanel';
 import { FieldError, useMissingFields } from '@/components/FieldError';
 import { getNotesPlaceholder } from '@/components/FinishPiecePanel';
 import { JoinedButtons } from '@/components/JoinedButtons';
@@ -28,9 +29,11 @@ import {
   updatePiece,
   type PieceCategory,
   type PieceRecord,
+  type PieceSegment,
 } from '@/db/queries/pieceQueries';
+import { useWorkStore } from '@/store/workStore';
 import { colors } from '@/theme';
-import { formatDuration } from '@/utils/formatTime';
+import { formatDuration, formatTimeRange } from '@/utils/formatTime';
 import { getPieceMissing, missingMessages } from '@/utils/missingFields';
 import { deletePhoto, getPhotoUri, showPhotoChoices, withSavedPhoto } from '@/utils/photoStorage';
 import type { SizeInput } from '@/utils/prepTime';
@@ -41,9 +44,14 @@ type PhotoChoice = { kind: 'saved' } | { kind: 'new'; uri: string } | { kind: 'n
 
 interface PieceEditFormProps {
   piece: PieceRecord;
+  segments: PieceSegment[];
+  // A running segment counts up to when the piece loaded.
+  loadedAt: number;
   worked: number;
   // For prep, how many pieces used it, for the delete confirmation.
   usedByCount: number;
+  // Reloads the piece after a segment's times are saved.
+  onTimesChanged: () => Promise<void>;
   onCancel: () => void;
   onSaved: () => void;
   onDeleted: () => void;
@@ -62,12 +70,15 @@ export function getDeleteMessage(worked: number, usedByCount: number) {
 }
 
 // The piece's page as a form, the way iOS Contacts edits a contact: Cancel and Save in the
-// header, then cards like Add Work's: the name with Piece or Prep, the photo, the notes, and
-// Delete piece at the bottom.
+// header, then cards like Add Work's: the name with Piece or Prep, the photo, the notes, the
+// times it was worked, and Delete piece at the bottom.
 export function PieceEditForm({
   piece,
+  segments,
+  loadedAt,
   worked,
   usedByCount,
+  onTimesChanged,
   onCancel,
   onSaved,
   onDeleted,
@@ -84,6 +95,8 @@ export function PieceEditForm({
   );
   const [countTexts, setCountTexts] = useState(() => getCountTexts(piece));
   const [saving, setSaving] = useState(false);
+  const [editingSegment, setEditingSegment] = useState<PieceSegment | null>(null);
+  const { changeTimes } = useWorkStore();
   const trimmedName = name.trim();
   const trimmedNotes = notes.trim();
   const shownPhotoUri =
@@ -134,6 +147,19 @@ export function PieceEditForm({
         setSaving(false);
         Alert.alert('Could not save', error.message);
       });
+  }
+
+  // Saved right away, the same as on the Days timeline, so the form's Cancel doesn't undo it.
+  // The reload has its own error, so a failed reload doesn't read as a failed save.
+  async function saveTimes(segmentId: number, startedAt: number, endedAt: number | null) {
+    await changeTimes(
+      'segment',
+      segmentId,
+      new Date(startedAt).toISOString(),
+      endedAt === null ? null : new Date(endedAt).toISOString(),
+    );
+    setEditingSegment(null);
+    onTimesChanged().catch(showError('Could not load the piece'));
   }
 
   function confirmDelete() {
@@ -240,6 +266,32 @@ export function PieceEditForm({
           <FieldError message={missingMessages.identity} style={styles.cardError} />
         )}
       </View>
+      <View style={styles.section}>
+        <Text style={styles.heading}>Time</Text>
+        <View style={styles.card}>
+          {segments.map((segment, index) => {
+            const start = Date.parse(segment.started_at);
+            const end = segment.ended_at === null ? null : Date.parse(segment.ended_at);
+            return (
+              <Pressable
+                key={segment.id}
+                style={({ pressed }) => [
+                  styles.cardRow,
+                  index > 0 && styles.separator,
+                  pressed && styles.buttonPressed,
+                ]}
+                onPress={() => setEditingSegment(segment)}
+              >
+                <Text style={[styles.text, styles.fill]}>{formatTimeRange(start, end)}</Text>
+                <Text style={styles.secondaryText}>
+                  {formatDuration((end ?? loadedAt) - start)}
+                </Text>
+                <Chevron />
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
       <View style={styles.card}>
         <Pressable
           style={({ pressed }) => [styles.cardRow, pressed && styles.buttonPressed]}
@@ -248,6 +300,18 @@ export function PieceEditForm({
           <Text style={styles.deleteButtonText}>Delete piece</Text>
         </Pressable>
       </View>
+      {editingSegment && (
+        <EntryTimesPanel
+          title={piece.name}
+          initialStartedAt={Date.parse(editingSegment.started_at)}
+          initialEndedAt={
+            editingSegment.ended_at === null ? null : Date.parse(editingSegment.ended_at)
+          }
+          overlapAllowed={(other) => other.kind === 'segment' && other.id === editingSegment.id}
+          onCancel={() => setEditingSegment(null)}
+          onSave={(startedAt, endedAt) => saveTimes(editingSegment.id, startedAt, endedAt)}
+        />
+      )}
     </ScrollView>
   );
 }
@@ -284,10 +348,23 @@ const styles = StyleSheet.create({
   trackOnCard: {
     backgroundColor: colors.background,
   },
+  // A heading over its card, the same as the piece page's Prep and Supplies.
+  section: {
+    gap: 8,
+  },
+  heading: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: colors.text,
+  },
   text: {
     fontSize: 18,
     lineHeight: 20,
     color: colors.text,
+  },
+  secondaryText: {
+    fontSize: 16,
+    color: colors.secondaryText,
   },
   photo: {
     width: '100%',
