@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-iMakeStuff (working name) is an iOS app for a self-employed maker that builds a record of every piece made: what it is, when it was made, how long it actually took, and a photo. Its purpose is accountability: showing worked time against time that wasn't work, so "that piece took a day" can't hide four hours of breaks. The number that matters is output per day against hours worked per day.
+EvenCraft (formerly the working name iMakeStuff) is an iOS app for a self-employed maker that builds a record of every piece made: what it is, when it was made, how long it actually took, and a photo. Its purpose is accountability: showing worked time against time that wasn't work, so "that piece took a day" can't hide four hours of breaks. The number that matters is output per day against hours worked per day.
 
 ## Status
 
@@ -18,7 +18,7 @@ The stack is modeled on Kevin's Crop Planner app (`../Crop Planner/Crop Planner 
 
 Kevin develops on Windows with no Mac or Xcode. Every iOS build goes through EAS cloud (`eas build --profile development --platform ios`). Never tell him to run `expo run:ios`.
 
-The dev build installs as a separate app through a `.dev` bundle id, set in `app.config.js` when `APP_VARIANT=development`, so it never touches the App Store build's data. Same setup as Crop Planner.
+The dev build installs as a separate app through a `.dev` bundle id (`com.kevinnail.evencraft.dev`), set in `app.config.js` when `APP_VARIANT=development`, so it never touches the App Store build's data. Same setup as Crop Planner.
 
 ## Installing packages
 

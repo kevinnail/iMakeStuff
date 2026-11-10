@@ -8,7 +8,7 @@ module.exports = ({ config }) => {
 
   return {
     ...config,
-    name: 'iMakeStuff (Dev)',
+    name: 'EvenCraft (Dev)',
     ios: {
       ...config.ios,
       bundleIdentifier: `${config.ios.bundleIdentifier}.dev`,

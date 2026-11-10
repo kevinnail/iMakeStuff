@@ -1,4 +1,4 @@
-# iMakeStuff
+# EvenCraft
 
 An iPhone app that records every piece made: what it is, when, how long it actually took, and a photo. See `docs/plans/pending/initial-build.md`.
 
@@ -8,7 +8,7 @@ Needs Node 24 (Expo SDK 58 supports 22.13+, 24.3+, or 26+; CI uses 24). Switchin
 
 ```bash
 npm install
-npm start          # Metro for the dev build; open the "iMakeStuff (Dev)" app on the phone
+npm start          # Metro for the dev build; open the "EvenCraft (Dev)" app on the phone
 npm test           # Jest
 npm run test:watch # Jest, stays running and reruns on save
 npm run lint
