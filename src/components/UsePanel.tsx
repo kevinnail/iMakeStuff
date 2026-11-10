@@ -135,8 +135,7 @@ function getAmountText(share: Share, sizeAmount: number | null) {
 
 interface UsePanelProps {
   kind: UseKind;
-  // What's using it: a piece takes part of a batch, and a prep takes part of a prep and a whole
-  // supply.
+  // What's using it, a piece or a prep, named in the amount box's label.
   usedBy: PieceCategory;
   // Adding a use: the prep or supplies to choose from. Changing one: null.
   itemList: AvailableItem[] | null;
@@ -155,10 +154,9 @@ interface UsePanelProps {
 }
 
 // Slides up from the bottom to add a use of a prep or supply, or change one: which one, and how
-// much of it the piece took: a share, or a count from a case of supplies. A prep takes the whole
-// of a supply bought singly, so picking one adds it. With
-// nothing to pick, it says why and how to fix it, and a prep or supply can be added right here,
-// on its own panel over this one, without leaving the form underneath. A counted
+// much of it the piece or prep took: a share, or a count from a case of supplies. With nothing to
+// pick, it says why and how to fix it, and a prep or supply can be added right here, on its own
+// panel over this one, without leaving the form underneath. A counted
 // prep not saved on the piece yet shows what the amount typed costs, its price per part, and the
 // supplies that price comes from, each with Update price.
 export function UsePanel({
@@ -242,12 +240,6 @@ export function UsePanel({
   );
   const amountMissing = missingFields.shown.includes('amount');
 
-  // A prep takes the whole of a supply bought singly, so picking one adds it. It takes a count
-  // from a case, like 3 rods, and part of a prep, like 2 of 8 points.
-  function takesWhole(item: BatchSize) {
-    return usedBy === 'prep' && kind === 'supply' && item.size_amount === null;
-  }
-
   function choose(item: AvailableItem) {
     const choiceItem = {
       id: item.id,
@@ -255,10 +247,6 @@ export function UsePanel({
       size_amount: item.size_amount,
       size_unit: item.size_unit,
     };
-    if (takesWhole(item)) {
-      onSave({ item: choiceItem, share: { share_numerator: 1, share_denominator: 1 } });
-      return;
-    }
     // Picking the same batch again keeps its price, since it isn't loaded again.
     if (item.id !== chosenItem?.id) setPrice(null);
     setChosenItem(choiceItem);
@@ -334,7 +322,7 @@ export function UsePanel({
             />
           )}
           {missingFields.shown.includes('item') && <FieldError message={missingMessages.item} />}
-          {chosenItem && !takesWhole(chosenItem) && (
+          {chosenItem && (
             <>
               <View style={styles.fieldRow}>
                 <Text style={[styles.label, styles.amountLabel]}>{amountLabel}</Text>
@@ -392,9 +380,8 @@ export function UsePanel({
             <Pressable style={styles.textButton} onPress={onCancel}>
               <Text style={styles.textButtonText}>Cancel</Text>
             </Pressable>
-            {/* A prep's whole supply, once saved, can only be removed, and an empty list has
-                nothing to add. */}
-            {!(chosenItem && takesWhole(chosenItem)) && items?.length !== 0 && (
+            {/* An empty list has nothing to add. */}
+            {items?.length !== 0 && (
               <Pressable style={styles.saveButton} onPress={handleSave}>
                 <Text style={styles.saveButtonText}>{initial ? 'Save' : 'Add'}</Text>
               </Pressable>
