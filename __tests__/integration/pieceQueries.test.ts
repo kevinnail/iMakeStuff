@@ -598,8 +598,8 @@ describe('getPieces', () => {
 });
 
 describe('getPieceDetail', () => {
-  // Otherwise the piece page would be missing the other pieces and breaks its day lines are split from.
-  it('returns the piece, its segments, and other segments and breaks since its first start', async () => {
+  // Otherwise the piece page would be missing the other pieces and breaks its day lines are split from, or Edit couldn't tell which segment's times to change.
+  it('returns the piece, its segments with their ids, and other segments and breaks since its first start', async () => {
     await database.execAsync(`
       INSERT INTO pieces (id, name, category) VALUES (1, 'Blue vase', 'piece'), (2, 'Green bowl', 'piece');
       INSERT INTO work_segments (piece_id, started_at, ended_at) VALUES
@@ -629,8 +629,8 @@ describe('getPieceDetail', () => {
         no_cost: 0,
       },
       segments: [
-        { started_at: '2026-10-31T09:00:00.000Z', ended_at: '2026-10-31T10:00:00.000Z' },
-        { started_at: '2026-10-31T11:00:00.000Z', ended_at: '2026-10-31T12:00:00.000Z' },
+        { id: 3, started_at: '2026-10-31T09:00:00.000Z', ended_at: '2026-10-31T10:00:00.000Z' },
+        { id: 2, started_at: '2026-10-31T11:00:00.000Z', ended_at: '2026-10-31T12:00:00.000Z' },
       ],
       otherSegments: [
         { started_at: '2026-10-31T10:00:00.000Z', ended_at: '2026-10-31T10:30:00.000Z' },
