@@ -6,7 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { FieldError, useMissingFields } from '@/components/FieldError';
 import { getOverlaps, type TimelineEntry } from '@/db/queries/entryQueries';
 import { colors } from '@/theme';
-import { formatClockTime, formatDay } from '@/utils/formatTime';
+import { formatTimeRange } from '@/utils/formatTime';
 import { getOverlapMissing } from '@/utils/missingFields';
 import { showError } from '@/utils/showError';
 
@@ -70,18 +70,10 @@ export function useEntryTimes<EndedAt extends number | null>(
   return { startedAt, endedAt, overlaps, changeStart, setEndedAt, reloadOverlaps };
 }
 
-// "Overlaps Flower pendant, Nov 6, 9:15 AM to 10:00 AM". The end has its own day when it's on
-// another one, and is "now" while the entry runs.
+// "Overlaps Flower pendant, Nov 6, 9:15 AM to 10:00 AM".
 export function getOverlapMessage({ piece_name, started_at, ended_at }: TimelineEntry) {
-  const start = Date.parse(started_at);
   const end = ended_at === null ? null : Date.parse(ended_at);
-  const endText =
-    end === null
-      ? 'now'
-      : formatDay(end) === formatDay(start)
-        ? formatClockTime(end)
-        : `${formatDay(end)}, ${formatClockTime(end)}`;
-  return `Overlaps ${piece_name ?? 'a break'}, ${formatDay(start)}, ${formatClockTime(start)} to ${endText}.`;
+  return `Overlaps ${piece_name ?? 'a break'}, ${formatTimeRange(Date.parse(started_at), end)}.`;
 }
 
 // Slides up from the bottom to change an entry's start and end. What they overlap shows under
