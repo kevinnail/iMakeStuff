@@ -15,3 +15,15 @@ export function formatDay(milliseconds: number) {
 export function formatClockTime(milliseconds: number) {
   return new Date(milliseconds).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 }
+
+// "Nov 6, 9:15 AM to 10:00 AM". The end has its own day when it's on another one, and is "now"
+// while the entry runs.
+export function formatTimeRange(start: number, end: number | null) {
+  const endText =
+    end === null
+      ? 'now'
+      : formatDay(end) === formatDay(start)
+        ? formatClockTime(end)
+        : `${formatDay(end)}, ${formatClockTime(end)}`;
+  return `${formatDay(start)}, ${formatClockTime(start)} to ${endText}`;
+}

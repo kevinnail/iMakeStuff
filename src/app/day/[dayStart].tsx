@@ -8,10 +8,10 @@ import { EntryTimesPanel } from '@/components/EntryTimesPanel';
 import {
   addBreak,
   getDayEntries,
-  updateEntryTimes,
   type DayEntry,
   type TimelineEntry,
 } from '@/db/queries/entryQueries';
+import { useWorkStore } from '@/store/workStore';
 import { colors } from '@/theme';
 import { getDayTicks } from '@/utils/dayTicks';
 import { formatClockTime, formatDay, formatDuration } from '@/utils/formatTime';
@@ -104,6 +104,7 @@ export default function DayScreen() {
   // A running entry counts up to when the page loaded.
   const [loadedAt, setLoadedAt] = useState(0);
   const [panel, setPanel] = useState<PanelSettings | null>(null);
+  const { changeTimes } = useWorkStore();
 
   const load = useCallback(() => {
     getDayEntries(toIso(dayStart), toIso(startOfNextDay(dayStart)))
@@ -130,7 +131,7 @@ export default function DayScreen() {
       overlapAllowed: (other) => other.kind === entry.kind && other.id === entry.id,
       save: (startedAt, endedAt) =>
         saveAndReload(
-          updateEntryTimes(
+          changeTimes(
             entry.kind,
             entry.id,
             toIso(startedAt),
@@ -141,11 +142,14 @@ export default function DayScreen() {
   }
 
   function newBreak() {
-    const noon = dayStart + 12 * 60 * 60 * 1000;
+    // Noon to 12:30, or the half hour up to now when that hasn't happened yet today. Set on the
+    // clock, not as hours after midnight, so a daylight saving day still gets 12:30.
+    const endedAt = Math.min(new Date(dayStart).setHours(12, 30), Date.now());
+    const startedAt = Math.max(endedAt - 30 * 60 * 1000, dayStart);
     setPanel({
       title: 'Add break',
-      startedAt: noon,
-      endedAt: noon + 30 * 60 * 1000,
+      startedAt,
+      endedAt,
       // A break falls inside the work it interrupts, and splits it.
       overlapAllowed: (other) => other.kind === 'segment',
       // A new break always starts with an end, and the panel never removes one.

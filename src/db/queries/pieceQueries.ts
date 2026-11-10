@@ -90,9 +90,14 @@ export interface Template extends BatchSize {
   photo_file_name: string | null;
 }
 
+// A stretch of work on the piece, with its id so Edit can change its times.
+export interface PieceSegment extends TimeRange {
+  id: number;
+}
+
 export interface PieceDetail {
   piece: PieceRecord;
-  segments: TimeRange[];
+  segments: PieceSegment[];
   otherSegments: TimeRange[];
   breaks: TimeRange[];
   // The prep it used and the prep behind that, all the way down, and the pieces and prep that
@@ -484,8 +489,8 @@ export async function getPieceDetail(pieceId: number): Promise<PieceDetail | nul
   if (!piece) return null;
   const firstStartSql = '(SELECT min(started_at) FROM work_segments WHERE piece_id = ?)';
   const [segments, otherSegments, breaks, usedPrep, usedBy, usedSupplies] = await Promise.all([
-    database.getAllAsync<TimeRange>(
-      'SELECT started_at, ended_at FROM work_segments WHERE piece_id = ? ORDER BY started_at',
+    database.getAllAsync<PieceSegment>(
+      'SELECT id, started_at, ended_at FROM work_segments WHERE piece_id = ? ORDER BY started_at',
       pieceId,
     ),
     database.getAllAsync<TimeRange>(

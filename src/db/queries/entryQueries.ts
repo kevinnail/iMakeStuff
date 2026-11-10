@@ -50,6 +50,8 @@ export interface PastWork {
 
 const tableByKind = { segment: 'work_segments', break: 'breaks' } as const;
 
+const pastFinishMessage = 'Time on a finished piece has to end by when it was finished.';
+
 // Entries that overlap startedAt to endedAt, in time order. A running entry runs until now, and
 // entries that only touch at an end don't overlap.
 function getOverlappingEntries(
@@ -102,7 +104,7 @@ export async function getDayEntries(dayStart: string, nextDayStart: string): Pro
 }
 
 // An end of null keeps a running entry running. An end before the start is rejected by the
-// database.
+// database, and a finished piece's segment can't end after the piece was finished.
 export async function updateEntryTimes(
   kind: EntryKind,
   id: number,
@@ -116,12 +118,29 @@ export async function updateEntryTimes(
     if (overlapping.some((entry) => entry.kind !== kind || entry.id !== id)) {
       throw new Error('That overlaps another entry.');
     }
-    await database.runAsync(
-      `UPDATE ${tableByKind[kind]} SET started_at = ?, ended_at = ? WHERE id = ?`,
+    if (kind === 'break') {
+      await database.runAsync(
+        'UPDATE breaks SET started_at = ?, ended_at = ? WHERE id = ?',
+        startedAt,
+        endedAt,
+        id,
+      );
+      return;
+    }
+    const updated = await database.runAsync(
+      `UPDATE work_segments SET started_at = ?, ended_at = ?
+       WHERE id = ? AND (SELECT finished_at IS NULL OR finished_at >= ? FROM pieces
+         WHERE pieces.id = work_segments.piece_id)`,
       startedAt,
       endedAt,
       id,
+      endedAt,
     );
+    if (updated.changes > 0) return;
+    // The failure needs its reason: no segment, or time past its piece's finish.
+    const segment = await database.getFirstAsync('SELECT 1 FROM work_segments WHERE id = ?', id);
+    if (!segment) throw new Error('That entry no longer exists.');
+    throw new Error(pastFinishMessage);
   });
 }
 
@@ -233,7 +252,7 @@ export async function addPieceTime(
     // The failure needs its reason: no piece, or time past its finish.
     const piece = await database.getFirstAsync('SELECT 1 FROM pieces WHERE id = ?', pieceId);
     if (!piece) throw new Error('That piece no longer exists.');
-    throw new Error('Time on a finished piece has to end by when it was finished.');
+    throw new Error(pastFinishMessage);
   });
 }
 

@@ -23,6 +23,7 @@ import {
   setPieceTemplate,
   type PieceCategory,
   type PieceRecord,
+  type PieceSegment,
 } from '@/db/queries/pieceQueries';
 import {
   addPrepUse,
@@ -60,6 +61,9 @@ import { showError } from '@/utils/showError';
 
 interface PiecePage {
   piece: PieceRecord;
+  segments: PieceSegment[];
+  // A running segment counts up to when the page loaded.
+  loadedAt: number;
   days: WorkDay[];
   // When the running piece or break started, or null with nothing running.
   runningSince: string | null;
@@ -395,11 +399,14 @@ export default function PieceScreen() {
 
   const load = useCallback(
     () =>
-      getPieceDetail(pieceId).then((detail) =>
+      getPieceDetail(pieceId).then((detail) => {
+        const loadedAt = Date.now();
         setPage(
           detail && {
             piece: detail.piece,
-            days: getWorkDays(detail.segments, detail.otherSegments, detail.breaks, Date.now()),
+            segments: detail.segments,
+            loadedAt,
+            days: getWorkDays(detail.segments, detail.otherSegments, detail.breaks, loadedAt),
             runningSince:
               [...detail.segments, ...detail.otherSegments, ...detail.breaks].find(
                 (entry) => entry.ended_at === null,
@@ -408,8 +415,8 @@ export default function PieceScreen() {
             usedBy: detail.usedBy,
             usedSupplies: detail.usedSupplies,
           },
-        ),
-      ),
+        );
+      }),
     [pieceId],
   );
 
@@ -423,7 +430,7 @@ export default function PieceScreen() {
   if (page === undefined) return null;
   if (page === null) return <Text style={styles.text}>No piece with this id.</Text>;
 
-  const { piece, days, runningSince, usedPrep, usedBy, usedSupplies } = page;
+  const { piece, segments, loadedAt, days, runningSince, usedPrep, usedBy, usedSupplies } = page;
   const prepByPiece = groupByPiece(usedPrep);
   const prepTime = getPrepTime(piece.id, sumDays(days, 'worked'), prepByPiece);
   const cost = getCost(piece.id, prepByPiece, groupByPiece(usedSupplies));
@@ -512,8 +519,11 @@ export default function PieceScreen() {
     return (
       <PieceEditForm
         piece={piece}
+        segments={segments}
+        loadedAt={loadedAt}
         worked={sumDays(days, 'worked')}
         usedByCount={usedBy.length}
+        onTimesChanged={load}
         onCancel={() => setEditing(false)}
         onSaved={() => {
           setEditing(false);
