@@ -1,15 +1,15 @@
 {
   "expo": {
-    "name": "iMakeStuff",
+    "name": "EvenCraft",
     "slug": "imakestuff",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "scheme": "imakestuff",
+    "scheme": "evencraft",
     "userInterfaceStyle": "dark",
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.kevinnail.imakestuff",
+      "bundleIdentifier": "com.kevinnail.evencraft",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
@@ -20,7 +20,7 @@
       [
         "expo-image-picker",
         {
-          "cameraPermission": "Allow iMakeStuff to take a photo of each piece you finish.",
+          "cameraPermission": "Allow EvenCraft to take a photo of each piece you finish.",
           "photosPermission": false,
           "microphonePermission": false
         }
@@ -28,7 +28,7 @@
       [
         "expo-media-library",
         {
-          "savePhotosPermission": "Allow iMakeStuff to save the photos you take to your camera roll.",
+          "savePhotosPermission": "Allow EvenCraft to save the photos you take to your camera roll.",
           "photosPermission": false
         }
       ],

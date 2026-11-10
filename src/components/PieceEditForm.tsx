@@ -298,17 +298,28 @@ const styles = StyleSheet.create({
   buttonPressed: {
     opacity: 0.6,
   },
+  // Boxes in the page's color on the card, the same as Add Work's.
   nameInput: {
+    marginVertical: 12,
+    padding: 12,
     fontSize: 18,
-    paddingVertical: 12,
     color: colors.text,
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    borderColor: colors.separator,
+    borderRadius: 8,
   },
   notesInput: {
-    fontSize: 18,
-    paddingVertical: 12,
+    marginVertical: 12,
+    padding: 12,
     height: 120,
+    fontSize: 18,
     textAlignVertical: 'top',
     color: colors.text,
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    borderColor: colors.separator,
+    borderRadius: 8,
   },
   deleteButtonText: {
     fontSize: 18,

@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>EvenCraft Support</title>
+    <link rel="icon" type="image/png" href="app-icon.png" />
+    <link rel="apple-touch-icon" href="app-icon.png" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="top-bar">
+      <a class="brand" href="support.html"><img src="app-icon.png" alt="" />EvenCraft</a>
+      <a class="top-bar-link" href="#contact">Contact</a>
+    </header>
+
+    <div class="hero">
+      <div>
+        <img class="hero-icon" src="app-icon.png" alt="EvenCraft" />
+        <h1>Every hour, <span class="highlight">accounted for.</span></h1>
+        <p class="hero-text">
+          EvenCraft records every piece you make, how long it actually took, and a photo. Worked
+          time and breaks are tracked apart, so you see your real output per day against the hours
+          you really worked.
+        </p>
+        <ul class="badges">
+          <li>No account</li>
+          <li>Works offline</li>
+          <li>Nothing collected</li>
+        </ul>
+      </div>
+
+      <div class="day-card" aria-hidden="true">
+        <p class="day-card-title">Tuesday</p>
+        <dl class="day-totals">
+          <dt><span class="swatch worked"></span>Worked</dt>
+          <dd>7h 30m</dd>
+          <dt><span class="swatch break"></span>Breaks</dt>
+          <dd>1h 20m</dd>
+          <dt><span class="swatch other"></span>Other shop time</dt>
+          <dd>40m</dd>
+        </dl>
+        <div class="tick-row" id="tick-row"></div>
+        <div class="tick-axis">
+          <span class="axis-start">12am</span>
+          <span style="left: 25%">6am</span>
+          <span style="left: 50%">12pm</span>
+          <span style="left: 75%">6pm</span>
+          <span class="axis-end">12am</span>
+        </div>
+      </div>
+    </div>
+
+    <section>
+      <h2>Common questions</h2>
+
+      <h3>Where is my data stored?</h3>
+      <p class="muted">
+        Only on your iPhone. There is no account and nothing is sent to a server. Deleting the app
+        deletes its data, so keep iCloud Backup turned on if you want it backed up.
+      </p>
+
+      <h3>Does EvenCraft need an internet connection?</h3>
+      <p class="muted">No. Everything works offline.</p>
+
+      <h3>The camera or camera roll isn't working.</h3>
+      <p class="muted">
+        Open Settings &gt; EvenCraft and turn on Camera, and allow adding to Photos if you want
+        copies saved to your camera roll.
+      </p>
+
+      <h3>Is my data private?</h3>
+      <p class="muted">
+        EvenCraft collects nothing. Read the full <a href="privacy.html">privacy policy</a>.
+      </p>
+    </section>
+
+    <section class="contact" id="contact">
+      <h2>Have a question or found a bug?</h2>
+      <p class="muted">
+        Email me. Including your iPhone model and iOS version helps with any problem report.
+      </p>
+      <a class="email-link" href="mailto:kevin-developer@kevinnail.com">Email Support</a>
+    </section>
+
+    <footer>
+      <span>EvenCraft</span>
+      <span>&copy; 2026 Kevin Nail</span>
+    </footer>
+
+    <script>
+      // The example day, in 10 minute ticks from midnight: in the shop 8am to 5:30pm.
+      const dayRuns = [
+        ['none', 48],
+        ['worked', 12],
+        ['break', 2],
+        ['worked', 9],
+        ['other', 2],
+        ['break', 4],
+        ['worked', 15],
+        ['break', 2],
+        ['worked', 9],
+        ['other', 2],
+        ['none', 39],
+      ];
+      const ticksPerHour = 6;
+      const tickRow = document.getElementById('tick-row');
+      let tickIndex = 0;
+      for (const [kind, count] of dayRuns) {
+        for (let step = 0; step < count; step += 1) {
+          const tick = document.createElement('span');
+          tick.className = `tick ${kind}${tickIndex % ticksPerHour === 0 ? ' hour' : ''}`;
+          tickRow.append(tick);
+          tickIndex += 1;
+        }
+      }
+    </script>
+  </body>
+</html>

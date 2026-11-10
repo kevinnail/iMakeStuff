@@ -10,6 +10,16 @@
       "env": {
         "APP_VARIANT": "development"
       }
+    },
+    "production": {
+      "autoIncrement": true
+    }
+  },
+  "submit": {
+    "production": {
+      "ios": {
+        "ascAppId": "6832780033"
+      }
     }
   }
 }
