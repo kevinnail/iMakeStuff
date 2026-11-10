@@ -124,6 +124,36 @@ describe('updateEntryTimes', () => {
     ).toEqual([]);
   });
 
+  // Otherwise a piece finished at noon could gain work after noon, and its day totals would disagree with its time.
+  it('rejects ending a finished piece segment after the piece was finished', async () => {
+    await database.execAsync(
+      `UPDATE pieces SET finished_at = '2026-10-31T12:00:00.000Z', notes = 'Glazed' WHERE id = 1`,
+    );
+
+    await expect(
+      updateEntryTimes('segment', 1, '2026-10-31T09:00:00.000Z', '2026-10-31T12:30:00.000Z'),
+    ).rejects.toThrow('Time on a finished piece has to end by when it was finished.');
+
+    expect((await database.getAllAsync<SegmentRow>(segmentsSql))[0].ended_at).toBe(
+      '2026-10-31T12:00:00.000Z',
+    );
+  });
+
+  // Otherwise a finished piece's time couldn't be trimmed to fix a clock left running.
+  it('changes a finished piece segment that still ends by the finish', async () => {
+    await database.execAsync(
+      `UPDATE pieces SET finished_at = '2026-10-31T12:00:00.000Z', notes = 'Glazed' WHERE id = 1`,
+    );
+
+    await updateEntryTimes('segment', 1, '2026-10-31T09:30:00.000Z', '2026-10-31T12:00:00.000Z');
+
+    expect((await database.getAllAsync<SegmentRow>(segmentsSql))[0]).toEqual({
+      piece_id: 1,
+      started_at: '2026-10-31T09:30:00.000Z',
+      ended_at: '2026-10-31T12:00:00.000Z',
+    });
+  });
+
   // Otherwise moving a running piece's start earlier would stop its clock.
   it('keeps a running entry running when its end stays empty', async () => {
     await updateEntryTimes('segment', 2, '2026-10-31T12:30:00.000Z', null);
