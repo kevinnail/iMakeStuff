@@ -420,6 +420,17 @@ export async function removePrepUse(useId: number): Promise<void> {
   });
 }
 
+// Every unit counted prep has been saved in, for the unit dropdown, so a new count reuses "points"
+// rather than starting "point" beside it.
+export async function getSizeUnits(): Promise<string[]> {
+  const database = await getDb();
+  const rows = await database.getAllAsync<{ size_unit: string }>(
+    `SELECT DISTINCT size_unit FROM pieces WHERE size_unit IS NOT NULL
+     ORDER BY size_unit COLLATE NOCASE`,
+  );
+  return rows.map((row) => row.size_unit);
+}
+
 // All used takes a by eye prep out of Add prep and scales its shares to the whole prep; off puts
 // it back. Prep its uses close stays all used whatever the switch says, so turning it off is
 // refused until a share is lowered.

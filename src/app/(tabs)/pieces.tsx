@@ -184,7 +184,7 @@ export default function PiecesScreen() {
               </>
             ) : (
               <View style={styles.bottomRow}>
-                <View style={[styles.dateText, styles.dateColumn]}>
+                <View style={styles.dateColumn}>
                   {piece.finished_at ? (
                     <>
                       {piece.lost ? (
@@ -329,7 +329,11 @@ const styles = StyleSheet.create({
   dateText: {
     flex: 1,
   },
+  // Takes the spare width but never gives any up, so the time columns give way before the date
+  // wraps.
   dateColumn: {
+    flexGrow: 1,
+    flexShrink: 0,
     alignItems: 'flex-start',
     gap: 2,
   },
@@ -339,6 +343,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   timeColumn: {
+    flexShrink: 1,
     alignItems: 'flex-end',
     gap: 2,
   },
