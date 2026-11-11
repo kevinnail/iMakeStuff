@@ -5,6 +5,7 @@ import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-nati
 import { Chevron } from '@/components/Chevron';
 import { DayTicks } from '@/components/DayTicks';
 import { EntryTimesPanel } from '@/components/EntryTimesPanel';
+import { getDayCost, type DayCost } from '@/db/queries/dayQueries';
 import {
   addBreak,
   getDayEntries,
@@ -13,6 +14,7 @@ import {
 } from '@/db/queries/entryQueries';
 import { useWorkStore } from '@/store/workStore';
 import { colors } from '@/theme';
+import { formatCost } from '@/utils/cost';
 import { getDayTicks } from '@/utils/dayTicks';
 import { formatClockTime, formatDay, formatDuration } from '@/utils/formatTime';
 import { getWholeDays, startOfNextDay, type TimeRange, type WorkDay } from '@/utils/workDays';
@@ -59,9 +61,10 @@ interface DaySummaryProps {
   segments: TimeRange[];
   breaks: TimeRange[];
   now: number;
+  cost: DayCost | null;
 }
 
-function DaySummary({ day, segments, breaks, now }: DaySummaryProps) {
+function DaySummary({ day, segments, breaks, now, cost }: DaySummaryProps) {
   const inShop = day.lastStop - day.firstStart;
   const rows = [
     { label: 'Worked', milliseconds: day.worked, dot: null, color: colors.primary },
@@ -93,6 +96,19 @@ function DaySummary({ day, segments, breaks, now }: DaySummaryProps) {
         </View>
       ))}
       <DayTicks ticks={getDayTicks(day, segments, breaks, now)} />
+      {/* Below a line, since cost goes by the pieces finished, not by the hours above. */}
+      {cost && (
+        <>
+          <View style={styles.summaryDivider} />
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>
+              Cost of {cost.pieceCount} finished {cost.pieceCount === 1 ? 'piece' : 'pieces'}
+              {cost.estimated ? ', est.' : ''}
+            </Text>
+            <Text style={styles.summaryValue}>{formatCost(cost.cents)}</Text>
+          </View>
+        </>
+      )}
     </View>
   );
 }
@@ -101,15 +117,19 @@ export default function DayScreen() {
   const params = useLocalSearchParams<{ dayStart: string }>();
   const dayStart = Number(params.dayStart);
   const [entries, setEntries] = useState<DayEntry[]>([]);
+  const [cost, setCost] = useState<DayCost | null>(null);
   // A running entry counts up to when the page loaded.
   const [loadedAt, setLoadedAt] = useState(0);
   const [panel, setPanel] = useState<PanelSettings | null>(null);
   const { changeTimes } = useWorkStore();
 
   const load = useCallback(() => {
-    getDayEntries(toIso(dayStart), toIso(startOfNextDay(dayStart)))
-      .then((dayEntries) => {
+    const from = toIso(dayStart);
+    const to = toIso(startOfNextDay(dayStart));
+    Promise.all([getDayEntries(from, to), getDayCost(from, to)])
+      .then(([dayEntries, dayCost]) => {
         setEntries(dayEntries);
+        setCost(dayCost);
         setLoadedAt(Date.now());
       })
       .catch((error: Error) => Alert.alert('Could not load the day', error.message));
@@ -170,7 +190,9 @@ export default function DayScreen() {
       contentContainerStyle={styles.page}
       stickyHeaderIndices={[day ? 1 : 0]}
     >
-      {day && <DaySummary day={day} segments={segments} breaks={breaks} now={loadedAt} />}
+      {day && (
+        <DaySummary day={day} segments={segments} breaks={breaks} now={loadedAt} cost={cost} />
+      )}
       <View style={styles.pinnedBar}>
         <View style={styles.titleRow}>
           <Stack.Screen options={{ title: formatDay(dayStart) }} />
@@ -284,6 +306,10 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontVariant: ['tabular-nums'],
     color: colors.text,
+  },
+  summaryDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: colors.separator,
   },
   // The pinned header moves this style onto its own wrapper, so the row's layout sits on the
   // View inside. The background keeps the timeline from showing through as it scrolls under.
