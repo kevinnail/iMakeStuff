@@ -12,7 +12,11 @@
       }
     },
     "production": {
-      "autoIncrement": true
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_BACKEND_TARGET": "railway",
+        "EXPO_PUBLIC_API_BASE_URL_RAILWAY": "https://evencraft-server-production.up.railway.app"
+      }
     }
   },
   "submit": {
