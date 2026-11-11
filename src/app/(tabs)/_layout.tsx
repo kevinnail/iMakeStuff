@@ -20,6 +20,10 @@ export default function TabLayout() {
         <NativeTabs.Trigger.Icon sf="calendar" />
         <NativeTabs.Trigger.Label>Days</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="backup">
+        <NativeTabs.Trigger.Icon sf={{ default: 'icloud', selected: 'icloud.fill' }} />
+        <NativeTabs.Trigger.Label>Backup</NativeTabs.Trigger.Label>
+      </NativeTabs.Trigger>
     </NativeTabs>
   );
 }
