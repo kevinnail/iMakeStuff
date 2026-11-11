@@ -11,6 +11,7 @@ import {
   addPrepUse,
   changePrepUse,
   getAvailablePrep,
+  getSizeUnits,
   getTemplateUses,
   removePrepUse,
   setPrepUsedUp,
@@ -172,6 +173,25 @@ describe('finishPiece with prep', () => {
     const detail = await getPieceDetail(vaseId);
     expect(detail?.piece.finished_at).toBeNull();
     expect(detail?.usedPrep).toEqual([]);
+  });
+});
+
+describe('getSizeUnits', () => {
+  // Otherwise a maker with no counted prep would be offered an empty unit dropdown instead of a box.
+  it('returns no units when all prep is by eye', async () => {
+    expect(await getSizeUnits()).toEqual([]);
+  });
+
+  // Otherwise the dropdown would list "points" once per batch, or in the order the batches were made.
+  it('lists each saved unit once, in alphabetical order', async () => {
+    await database.execAsync(`
+      INSERT INTO pieces (name, category, size_amount, size_unit) VALUES
+        ('Latticino', 'prep', 8, 'points'),
+        ('Murrine', 'prep', 40, 'Chips'),
+        ('Twisty', 'prep', 6, 'points');
+    `);
+
+    expect(await getSizeUnits()).toEqual(['Chips', 'points']);
   });
 });
 
