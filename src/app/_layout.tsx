@@ -32,6 +32,10 @@ export default function RootLayout() {
           options={{ title: 'Supplies', headerBackButtonDisplayMode: 'minimal' }}
         />
         <Stack.Screen name="supply/[id]" options={{ headerBackButtonDisplayMode: 'minimal' }} />
+        <Stack.Screen
+          name="create-account"
+          options={{ title: 'Create Account', headerBackButtonDisplayMode: 'minimal' }}
+        />
       </Stack>
       <FirstRunGuide />
     </ThemeProvider>
