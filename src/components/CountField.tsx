@@ -1,9 +1,13 @@
+import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { Dropdown } from '@/components/Dropdown';
 import { FieldError } from '@/components/FieldError';
+import { getSizeUnits } from '@/db/queries/prepQueries';
 import { colors } from '@/theme';
 import { missingMessages, type MissingField } from '@/utils/missingFields';
 import { parseSize, type BatchSize, type SizeInput } from '@/utils/prepTime';
+import { showError } from '@/utils/showError';
 
 export interface CountTexts {
   amountText: string;
@@ -51,9 +55,16 @@ export function readPrepCount(kind: PrepKind, { amountText, unitText }: CountTex
     : { sizeAmount: parseSize(amountText)!, sizeUnit: unitText.trim() };
 }
 
-// A number and a unit the maker types: what a counted prep made. The app never interprets the
-// unit. The boxes start empty, since an example in them reads as filled in; the example is the
-// note under them, which Save's message replaces when either is missing.
+// A saved unit is never empty, so the empty key can't clash with one.
+const newUnitKey = '';
+
+const unitHelp =
+  'The unit is what you split it into, like points, beads, or cm. Each piece then enters how many it used, and its share of the cost comes from that.';
+
+// A number and a unit: what a counted prep made. The app never interprets the unit. The unit is
+// picked from those saved before, or typed after New unit; with none saved, it's typed. The boxes
+// start empty, since an example in them reads as filled in; the example is the note under them,
+// which Save's message replaces when either is missing. The ? shows what the unit is for.
 export function CountField({
   label,
   note,
@@ -62,28 +73,75 @@ export function CountField({
   missingNumber,
   missingUnit,
 }: CountFieldProps) {
+  // null until loaded.
+  const [savedUnits, setSavedUnits] = useState<string[] | null>(null);
+  const [typingNewUnit, setTypingNewUnit] = useState(false);
+  const [showingHelp, setShowingHelp] = useState(false);
+  const hasSavedUnits = savedUnits !== null && savedUnits.length > 0;
+  const unitOptions = [
+    ...(savedUnits ?? []).map((unit) => ({ key: unit, label: unit })),
+    { key: newUnitKey, label: 'New unit' },
+  ];
+
+  useEffect(() => {
+    getSizeUnits().then(setSavedUnits).catch(showError('Could not load your units'));
+  }, []);
+
+  // New unit empties the unit so it's typed fresh; a saved one fills it in.
+  function chooseUnit(unit: string) {
+    setTypingNewUnit(unit === newUnitKey);
+    onChange({ ...texts, unitText: unit });
+  }
+
   return (
     <View style={styles.field}>
       <View style={styles.row}>
         <Text style={[styles.label, styles.fill]}>{label}</Text>
+        <Pressable
+          style={({ pressed }) => [styles.helpButton, pressed && styles.buttonPressed]}
+          onPress={() => setShowingHelp(!showingHelp)}
+        >
+          <Text style={styles.helpButtonText}>?</Text>
+        </Pressable>
+      </View>
+      <View style={styles.row}>
         <TextInput
           style={[styles.input, styles.amountInput, missingNumber && styles.missingInput]}
           value={texts.amountText}
           onChangeText={(amountText) => onChange({ ...texts, amountText })}
           keyboardType="decimal-pad"
         />
-        <TextInput
-          style={[styles.input, styles.unitInput, missingUnit && styles.missingInput]}
-          value={texts.unitText}
-          onChangeText={(unitText) => onChange({ ...texts, unitText })}
-          autoCapitalize="none"
-        />
+        {hasSavedUnits && (
+          <View style={styles.fill}>
+            <Dropdown
+              options={unitOptions}
+              selectedKey={typingNewUnit ? newUnitKey : texts.unitText || null}
+              placeholder="Unit"
+              onSelect={(option) => chooseUnit(option.key)}
+              floating
+            />
+          </View>
+        )}
+        {savedUnits !== null && (!hasSavedUnits || typingNewUnit) && (
+          <TextInput
+            style={[
+              styles.input,
+              hasSavedUnits ? styles.unitInput : styles.fill,
+              missingUnit && styles.missingInput,
+            ]}
+            value={texts.unitText}
+            onChangeText={(unitText) => onChange({ ...texts, unitText })}
+            autoCapitalize="none"
+            autoFocus={typingNewUnit}
+          />
+        )}
       </View>
       {missingNumber || missingUnit ? (
         <FieldError message={missingMessages.countNumber} />
       ) : (
         <Text style={styles.note}>{note}</Text>
       )}
+      {showingHelp && <Text style={styles.note}>{unitHelp}</Text>}
     </View>
   );
 }
@@ -157,6 +215,18 @@ const styles = StyleSheet.create({
   },
   missingInput: {
     borderColor: colors.danger,
+  },
+  helpButton: {
+    paddingVertical: 2,
+    paddingHorizontal: 9,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    borderRadius: 12,
+  },
+  helpButtonText: {
+    fontSize: 18,
+    lineHeight: 20,
+    color: colors.primary,
   },
   note: {
     fontSize: 16,
