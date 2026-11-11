@@ -32,7 +32,8 @@
           "photosPermission": false
         }
       ],
-      "expo-widgets"
+      "expo-widgets",
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true
@@ -45,7 +46,10 @@
       },
       "eas": {
         "projectId": "dbe1714c-51bb-4393-b9e9-af43018d87ae"
-      }
+      },
+      "backendTarget": "local",
+      "apiBaseUrlLocal": "http://localhost:7890",
+      "apiBaseUrlRailway": "https://evencraft-server-production.up.railway.app"
     },
     "owner": "kevinnail"
   }
