@@ -43,3 +43,5 @@ yarn-error.*
 docs
 # review guides
 .review/
+
+.env*
