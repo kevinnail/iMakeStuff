@@ -24,8 +24,7 @@ export default function CreateAccountScreen() {
     setChecked(true);
     if (Object.keys(errors).length > 0) return;
     setSending(true);
-    const created = await signUp(email, password);
-    setSending(false);
+    const created = await signUp(email, password).finally(() => setSending(false));
     if (created) {
       router.back();
       return;
@@ -52,7 +51,6 @@ export default function CreateAccountScreen() {
           autoComplete="email"
           keyboardType="email-address"
           textContentType="emailAddress"
-          autoFocus
         />
         {shownErrors.email && <FieldError message={shownErrors.email} />}
       </View>
