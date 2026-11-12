@@ -49,3 +49,19 @@ export function getCreateAccountErrors(form: {
 
   return errors;
 }
+
+export type SignInField = 'email' | 'password';
+
+// What's wrong with each field of the sign in form. The password is only checked for being
+// there: its rules belong to creating one, and the server decides whether it's right.
+export function getSignInErrors(form: {
+  email: string;
+  password: string;
+}): Partial<Record<SignInField, string>> {
+  const errors: Partial<Record<SignInField, string>> = {};
+
+  if (!isValidEmail(form.email.trim())) errors.email = 'Enter a valid email address.';
+  if (form.password.length === 0) errors.password = 'Enter your password.';
+
+  return errors;
+}
