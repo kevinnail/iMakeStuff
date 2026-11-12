@@ -1,13 +1,23 @@
 import { router } from 'expo-router';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { useAuthStore } from '@/store/authStore';
 import { colors } from '@/theme';
 
-// The way into backup: create an account, or see which one this phone is signed in to.
+// The way into backup: create an account or sign in, or see which account this phone is signed
+// in to and sign out of it.
 export default function BackupScreen() {
   const status = useAuthStore((state) => state.status);
   const email = useAuthStore((state) => state.email);
+  const signOut = useAuthStore((state) => state.signOut);
+  const [signingOut, setSigningOut] = useState(false);
+
+  async function leave() {
+    setSigningOut(true);
+    const signedOut = await signOut().finally(() => setSigningOut(false));
+    if (!signedOut) Alert.alert('Could not sign out', useAuthStore.getState().error ?? undefined);
+  }
 
   return (
     <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={styles.page}>
@@ -17,17 +27,40 @@ export default function BackupScreen() {
         phone loses nothing.
       </Text>
       {status === 'signed-in' ? (
-        <View style={styles.card}>
-          <Text style={styles.secondaryText}>Signed in as</Text>
-          <Text style={styles.text}>{email}</Text>
-        </View>
+        <>
+          <View style={styles.card}>
+            <Text style={styles.secondaryText}>Signed in as</Text>
+            <Text style={styles.text}>{email}</Text>
+          </View>
+          <Pressable
+            style={({ pressed }) => [
+              styles.secondaryButton,
+              signingOut && styles.buttonDisabled,
+              pressed && styles.buttonPressed,
+            ]}
+            onPress={leave}
+            disabled={signingOut}
+          >
+            <Text style={styles.secondaryButtonText}>
+              {signingOut ? 'Signing Out…' : 'Sign Out'}
+            </Text>
+          </Pressable>
+        </>
       ) : (
-        <Pressable
-          style={({ pressed }) => [styles.primaryButton, pressed && styles.buttonPressed]}
-          onPress={() => router.push('/create-account')}
-        >
-          <Text style={styles.primaryButtonText}>Create Account</Text>
-        </Pressable>
+        <>
+          <Pressable
+            style={({ pressed }) => [styles.primaryButton, pressed && styles.buttonPressed]}
+            onPress={() => router.push('/create-account')}
+          >
+            <Text style={styles.primaryButtonText}>Create Account</Text>
+          </Pressable>
+          <Pressable
+            style={({ pressed }) => [styles.secondaryButton, pressed && styles.buttonPressed]}
+            onPress={() => router.push('/sign-in')}
+          >
+            <Text style={styles.secondaryButtonText}>Sign In</Text>
+          </Pressable>
+        </>
       )}
     </ScrollView>
   );
@@ -72,6 +105,22 @@ const styles = StyleSheet.create({
     fontSize: 18,
     lineHeight: 20,
     color: colors.textOnFill,
+  },
+  secondaryButton: {
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.primary,
+  },
+  secondaryButtonText: {
+    fontSize: 18,
+    lineHeight: 20,
+    color: colors.primary,
+  },
+  buttonDisabled: {
+    opacity: 0.4,
   },
   buttonPressed: {
     opacity: 0.6,
