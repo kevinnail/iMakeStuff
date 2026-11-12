@@ -1,10 +1,26 @@
 import {
   EMAIL_MAX_LENGTH,
   getCreateAccountErrors,
+  getSignInErrors,
   isValidEmail,
   PASSWORD_MAX_LENGTH,
   weakPasswordError,
 } from '@/utils/authFormValidate';
+
+describe('getSignInErrors', () => {
+  // Otherwise an account made before a password rule changed could never sign in again.
+  it('finds nothing wrong with an email and any password', () => {
+    expect(getSignInErrors({ email: '  maker@example.com  ', password: 'x' })).toEqual({});
+  });
+
+  // Otherwise an empty form goes to the server and the maker sees its error instead of what to fix.
+  it('names both fields wrong on an empty form', () => {
+    expect(getSignInErrors({ email: '', password: '' })).toEqual({
+      email: 'Enter a valid email address.',
+      password: 'Enter your password.',
+    });
+  });
+});
 
 const goodForm = { email: 'maker@example.com', password: 'glass2026', confirm: 'glass2026' };
 
