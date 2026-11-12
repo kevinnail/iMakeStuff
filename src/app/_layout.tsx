@@ -1,6 +1,9 @@
 import { DarkTheme, Stack, ThemeProvider } from 'expo-router';
+import { useEffect } from 'react';
 
 import { FirstRunGuide } from '@/components/FirstRunGuide';
+import { authClient } from '@/services/authClient';
+import { useAuthStore } from '@/store/authStore';
 import { colors } from '@/theme';
 
 // Colors the headers, back buttons, and every screen's background.
@@ -17,6 +20,16 @@ const navigationTheme = {
 };
 
 export default function RootLayout() {
+  // better-auth reads the session kept in the Keychain once when the app opens. Copying it into
+  // the store is what keeps the phone signed in across restarts.
+  const setSession = useAuthStore((state) => state.setSession);
+  const { data: session, isPending } = authClient.useSession();
+
+  useEffect(() => {
+    if (isPending) return;
+    setSession(session);
+  }, [session, isPending, setSession]);
+
   return (
     <ThemeProvider value={navigationTheme}>
       <Stack>
@@ -35,6 +48,10 @@ export default function RootLayout() {
         <Stack.Screen
           name="create-account"
           options={{ title: 'Create Account', headerBackButtonDisplayMode: 'minimal' }}
+        />
+        <Stack.Screen
+          name="sign-in"
+          options={{ title: 'Sign In', headerBackButtonDisplayMode: 'minimal' }}
         />
       </Stack>
       <FirstRunGuide />
