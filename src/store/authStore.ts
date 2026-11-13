@@ -14,6 +14,10 @@ interface AuthState {
   signUp: (email: string, password: string) => Promise<boolean>;
   // Signs in to an existing account. False on failure, with error set.
   signIn: (email: string, password: string) => Promise<boolean>;
+  // Emails a link for setting a new password. False on failure, with error set.
+  requestPasswordReset: (email: string) => Promise<boolean>;
+  // Sets a new password with the token from the emailed link. False on failure, with error set.
+  resetPassword: (token: string, newPassword: string) => Promise<boolean>;
   // Ends the session on the server and in the Keychain. The phone's data stays as it is.
   // False on failure, with error set, and still signed in.
   signOut: () => Promise<boolean>;
@@ -76,6 +80,36 @@ export const useAuthStore = create<AuthState>((set) => ({
     }
 
     set({ status: 'signed-in', email: trimmed, userId: data.user.id, error: null });
+    return true;
+  },
+
+  requestPasswordReset: async (email) => {
+    set({ error: null });
+
+    // The server adds where the emailed link lands (evencraft://reset-password), so no
+    // redirectTo is sent from here.
+    const { error } = await authClient
+      .requestPasswordReset({ email: email.trim() })
+      .catch(() => ({ error: { message: UNREACHABLE_MESSAGE } }));
+
+    if (error) {
+      set({ error: messageFromAuthError(error) });
+      return false;
+    }
+    return true;
+  },
+
+  resetPassword: async (token, newPassword) => {
+    set({ error: null });
+
+    const { error } = await authClient
+      .resetPassword({ newPassword, token })
+      .catch(() => ({ error: { message: UNREACHABLE_MESSAGE } }));
+
+    if (error) {
+      set({ error: messageFromAuthError(error) });
+      return false;
+    }
     return true;
   },
 
