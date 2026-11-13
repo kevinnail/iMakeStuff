@@ -35,7 +35,7 @@ export default function CreateAccountScreen() {
   return (
     <ScrollView
       contentInsetAdjustmentBehavior="automatic"
-      automaticallyAdjustKeyboardInsets
+      alwaysBounceVertical={false}
       keyboardShouldPersistTaps="handled"
       contentContainerStyle={styles.page}
     >
