@@ -5,12 +5,16 @@ jest.mock('@/services/authClient', () => ({
   authClient: {
     signUp: { email: jest.fn() },
     signIn: { email: jest.fn() },
+    requestPasswordReset: jest.fn(),
+    resetPassword: jest.fn(),
     signOut: jest.fn(),
   },
 }));
 
 const signUpEmailMock = authClient.signUp.email as unknown as jest.Mock;
 const signInEmailMock = authClient.signIn.email as unknown as jest.Mock;
+const requestPasswordResetMock = authClient.requestPasswordReset as unknown as jest.Mock;
+const resetPasswordMock = authClient.resetPassword as unknown as jest.Mock;
 const signOutMock = authClient.signOut as unknown as jest.Mock;
 
 const signedOut = { status: 'signed-out', email: null, userId: null, error: null } as const;
@@ -25,6 +29,8 @@ beforeEach(() => {
   useAuthStore.setState(signedOut);
   signUpEmailMock.mockReset();
   signInEmailMock.mockReset();
+  requestPasswordResetMock.mockReset();
+  resetPasswordMock.mockReset();
   signOutMock.mockReset();
 });
 
@@ -71,6 +77,57 @@ describe('authStore.signIn', () => {
         error: 'Could not reach the server. Check your connection and try again.',
       }),
     );
+  });
+});
+
+describe('authStore.requestPasswordReset', () => {
+  // Otherwise the reset email goes to an address with stray spaces and never arrives.
+  it('asks for a reset email for the trimmed address', async () => {
+    requestPasswordResetMock.mockResolvedValue({ data: { status: true }, error: null });
+
+    const result = await useAuthStore.getState().requestPasswordReset('  maker@example.com  ');
+
+    expect(result).toBe(true);
+    expect(requestPasswordResetMock).toHaveBeenCalledWith({ email: 'maker@example.com' });
+    expect(useAuthStore.getState().error).toBeNull();
+  });
+
+  // Otherwise a phone with no connection says to check the email for a link that was never sent.
+  it('fails with a connection message when the server is unreachable', async () => {
+    requestPasswordResetMock.mockRejectedValue(new TypeError('Network request failed'));
+
+    const result = await useAuthStore.getState().requestPasswordReset('maker@example.com');
+
+    expect(result).toBe(false);
+    expect(useAuthStore.getState().error).toBe(
+      'Could not reach the server. Check your connection and try again.',
+    );
+  });
+});
+
+describe('authStore.resetPassword', () => {
+  // Otherwise the new password never reaches the server, or goes without the link's token.
+  it('sends the token and the new password', async () => {
+    resetPasswordMock.mockResolvedValue({ data: { status: true }, error: null });
+
+    const result = await useAuthStore.getState().resetPassword('token-1', 'kiln2027');
+
+    expect(result).toBe(true);
+    expect(resetPasswordMock).toHaveBeenCalledWith({ newPassword: 'kiln2027', token: 'token-1' });
+    expect(useAuthStore.getState().error).toBeNull();
+  });
+
+  // Otherwise a used or expired link looks like it worked and the maker is still locked out.
+  it('fails with the server message when the token is refused', async () => {
+    resetPasswordMock.mockResolvedValue({
+      data: null,
+      error: { message: 'Invalid token', status: 400 },
+    });
+
+    const result = await useAuthStore.getState().resetPassword('token-1', 'kiln2027');
+
+    expect(result).toBe(false);
+    expect(useAuthStore.getState().error).toBe('Invalid token');
   });
 });
 
