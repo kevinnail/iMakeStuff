@@ -21,20 +21,15 @@ export function weakPasswordError(password: string): string | null {
   return null;
 }
 
-export type CreateAccountField = 'email' | 'password' | 'confirm';
+export type NewPasswordField = 'password' | 'confirm';
 
-// What's wrong with each field of the create account form. An empty result means it can be sent.
-export function getCreateAccountErrors(form: {
-  email: string;
+// What's wrong with a new password and its second entry, for creating an account and for
+// resetting a forgotten password. An empty result means it can be sent.
+export function getNewPasswordErrors(form: {
   password: string;
   confirm: string;
-}): Partial<Record<CreateAccountField, string>> {
-  const errors: Partial<Record<CreateAccountField, string>> = {};
-  const email = form.email.trim();
-
-  if (!isValidEmail(email)) errors.email = 'Enter a valid email address.';
-  else if (email.length > EMAIL_MAX_LENGTH)
-    errors.email = `Email can't be over ${EMAIL_MAX_LENGTH} characters.`;
+}): Partial<Record<NewPasswordField, string>> {
+  const errors: Partial<Record<NewPasswordField, string>> = {};
 
   if (form.password.length < PASSWORD_MIN_LENGTH)
     errors.password = `Password must be at least ${PASSWORD_MIN_LENGTH} characters.`;
@@ -46,6 +41,24 @@ export function getCreateAccountErrors(form: {
   }
 
   if (form.confirm !== form.password) errors.confirm = 'Passwords do not match.';
+
+  return errors;
+}
+
+export type CreateAccountField = 'email' | NewPasswordField;
+
+// What's wrong with each field of the create account form. An empty result means it can be sent.
+export function getCreateAccountErrors(form: {
+  email: string;
+  password: string;
+  confirm: string;
+}): Partial<Record<CreateAccountField, string>> {
+  const errors: Partial<Record<CreateAccountField, string>> = getNewPasswordErrors(form);
+  const email = form.email.trim();
+
+  if (!isValidEmail(email)) errors.email = 'Enter a valid email address.';
+  else if (email.length > EMAIL_MAX_LENGTH)
+    errors.email = `Email can't be over ${EMAIL_MAX_LENGTH} characters.`;
 
   return errors;
 }
