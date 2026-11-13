@@ -1,6 +1,7 @@
 import {
   EMAIL_MAX_LENGTH,
   getCreateAccountErrors,
+  getNewPasswordErrors,
   getSignInErrors,
   isValidEmail,
   PASSWORD_MAX_LENGTH,
@@ -49,6 +50,21 @@ describe('weakPasswordError', () => {
   // Otherwise a reasonable password is refused for no reason the maker can see.
   it('accepts letters mixed with numbers', () => {
     expect(weakPasswordError('glass2026')).toBeNull();
+  });
+});
+
+describe('getNewPasswordErrors', () => {
+  // Otherwise a good new password is blocked and the maker can't finish resetting it.
+  it('finds nothing wrong with a strong password entered twice', () => {
+    expect(getNewPasswordErrors({ password: 'glass2026', confirm: 'glass2026' })).toEqual({});
+  });
+
+  // Otherwise a reset sets a weak password, or one the maker mistyped and can't sign in with.
+  it('names a weak password and a second entry that differs', () => {
+    expect(getNewPasswordErrors({ password: 'password', confirm: 'passwird' })).toEqual({
+      password: 'Use a mix of letters and numbers.',
+      confirm: 'Passwords do not match.',
+    });
   });
 });
 
