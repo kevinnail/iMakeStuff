@@ -53,6 +53,14 @@ export default function RootLayout() {
           name="sign-in"
           options={{ title: 'Sign In', headerBackButtonDisplayMode: 'minimal' }}
         />
+        <Stack.Screen
+          name="forgot-password"
+          options={{ title: 'Forgot Password', headerBackButtonDisplayMode: 'minimal' }}
+        />
+        <Stack.Screen
+          name="reset-password"
+          options={{ title: 'New Password', headerBackButtonDisplayMode: 'minimal' }}
+        />
       </Stack>
       <FirstRunGuide />
     </ThemeProvider>
