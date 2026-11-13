@@ -25,7 +25,8 @@ export default function SignInScreen() {
     setSending(true);
     const signedIn = await signIn(email, password).finally(() => setSending(false));
     if (signedIn) {
-      router.back();
+      // Not back(): arriving from the emailed reset link, there may be no screen behind this one.
+      router.dismissTo('/backup');
       return;
     }
     Alert.alert('Could not sign in', useAuthStore.getState().error ?? undefined);
@@ -34,7 +35,7 @@ export default function SignInScreen() {
   return (
     <ScrollView
       contentInsetAdjustmentBehavior="automatic"
-      automaticallyAdjustKeyboardInsets
+      alwaysBounceVertical={false}
       keyboardShouldPersistTaps="handled"
       contentContainerStyle={styles.page}
     >
@@ -78,6 +79,12 @@ export default function SignInScreen() {
       >
         <Text style={styles.primaryButtonText}>{sending ? 'Signing In…' : 'Sign In'}</Text>
       </Pressable>
+      <Pressable
+        style={({ pressed }) => [styles.linkButton, pressed && styles.buttonPressed]}
+        onPress={() => router.push('/forgot-password')}
+      >
+        <Text style={styles.linkButtonText}>Forgot password?</Text>
+      </Pressable>
     </ScrollView>
   );
 }
@@ -117,6 +124,15 @@ const styles = StyleSheet.create({
     fontSize: 18,
     lineHeight: 20,
     color: colors.textOnFill,
+  },
+  linkButton: {
+    alignItems: 'center',
+    paddingVertical: 10,
+  },
+  linkButtonText: {
+    fontSize: 18,
+    lineHeight: 20,
+    color: colors.primary,
   },
   buttonDisabled: {
     opacity: 0.4,
