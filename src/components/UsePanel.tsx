@@ -17,7 +17,6 @@ import type { PieceCategory } from '@/db/queries/pieceQueries';
 import { getAvailablePrep, getPrepPrice, type PartPrice } from '@/db/queries/prepQueries';
 import {
   addSupply,
-  getSupplies,
   updateSupply,
   type SupplyDetails,
   type SupplyRecord,
@@ -62,10 +61,6 @@ export const useLabels = {
     choose: 'Choose a supply',
   },
 };
-
-// Supplies are where every cost starts, so new prep waits for them to be set up first.
-const noSuppliesHelp =
-  'Prep costs what its supplies did, so add what you bought first, on the Pieces tab under Supplies. Then add the prep here.';
 
 // A prep or supply that can be picked, with its whole cost (null for by eye prep, and with no
 // supply behind a prep).
@@ -154,9 +149,9 @@ interface UsePanelProps {
 }
 
 // Slides up from the bottom to add a use of a prep or supply, or change one: which one, and how
-// much of it the piece or prep took: a share, or a count from a case of supplies. With nothing to
-// pick, it says why and how to fix it, and a prep or supply can be added right here, on its own
-// panel over this one, without leaving the form underneath. A counted
+// much of it the piece or prep took: a share, or a count from a case of supplies. While adding, a
+// prep or supply not saved yet can be added right here, on its own panel over this one, without
+// leaving the form underneath. A counted
 // prep not saved on the piece yet shows what the amount typed costs, its price per part, and the
 // supplies that price comes from, each with Update price.
 export function UsePanel({
@@ -180,17 +175,7 @@ export function UsePanel({
   const [addingItem, setAddingItem] = useState(false);
   const [price, setPrice] = useState<PartPrice | null>(null);
   const [repricing, setRepricing] = useState<SupplyRecord | null>(null);
-  // Whether any supply is saved, checked for an empty prep list. null until it's loaded.
-  const [hasSupplies, setHasSupplies] = useState<boolean | null>(null);
   const emptyList = items !== null && items.length === 0;
-  const canAddNew = kind === 'supply' || hasSupplies === true;
-  // An empty prep list's help waits for the supplies check, since it depends on it.
-  const emptyHelp =
-    kind === 'supply' || hasSupplies === true
-      ? labels.noneToUseHelp
-      : hasSupplies === false
-        ? noSuppliesHelp
-        : null;
   const sizeAmount = chosenItem?.size_amount ?? null;
   const sizeUnit = chosenItem?.size_unit ?? null;
   // A saved use keeps the price it was saved with, so only a new counted prep shows today's.
@@ -204,13 +189,6 @@ export function UsePanel({
     chosenItem !== null && price !== null && typedShare !== null
       ? `${formatAmount(typedShare, chosenItem)}: ${getPriceText(price, getShareValue(typedShare))}${getEstimatedText(price)}`
       : null;
-
-  useEffect(() => {
-    if (kind !== 'prep' || !emptyList) return;
-    getSupplies()
-      .then((supplies) => setHasSupplies(supplies.length > 0))
-      .catch(showError('Could not load your supplies'));
-  }, [kind, emptyList]);
 
   useEffect(() => {
     if (pricedId === null) return;
@@ -297,15 +275,7 @@ export function UsePanel({
           {emptyList && (
             <>
               <Text style={styles.label}>{labels.noneToUse}</Text>
-              {emptyHelp && <Text style={styles.secondaryText}>{emptyHelp}</Text>}
-              {canAddNew && (
-                <Pressable
-                  style={({ pressed }) => [styles.addButton, pressed && styles.buttonPressed]}
-                  onPress={() => setAddingItem(true)}
-                >
-                  <Text style={styles.saveButtonText}>{labels.newItem}</Text>
-                </Pressable>
-              )}
+              <Text style={styles.secondaryText}>{labels.noneToUseHelp}</Text>
             </>
           )}
           {items && items.length > 0 && (
@@ -320,6 +290,15 @@ export function UsePanel({
               placeholder={labels.choose}
               onSelect={({ item }) => choose(item)}
             />
+          )}
+          {/* While adding, one not saved yet can always be added here, list or no list. */}
+          {items && (
+            <Pressable
+              style={({ pressed }) => [styles.addButton, pressed && styles.buttonPressed]}
+              onPress={() => setAddingItem(true)}
+            >
+              <Text style={styles.saveButtonText}>{labels.newItem}</Text>
+            </Pressable>
           )}
           {missingFields.shown.includes('item') && <FieldError message={missingMessages.item} />}
           {chosenItem && (
@@ -355,18 +334,27 @@ export function UsePanel({
               <Text style={styles.label}>
                 {getPriceText(price, 1 / sizeAmount!)} each{getEstimatedText(price)}
               </Text>
+              {/* Each supply behind it: the name and Update price, then its cost of one and the
+                  day it was priced. */}
               {price.supplies.map((supply) => (
-                <View key={supply.id} style={styles.fieldRow}>
-                  <Text style={[styles.secondaryText, styles.amountLabel]}>
-                    {supply.name}: {formatSupplyPrice(supply)}, priced{' '}
-                    {formatDay(Date.parse(supply.priced_at))}
-                  </Text>
-                  <Pressable
-                    style={({ pressed }) => [styles.priceButton, pressed && styles.buttonPressed]}
-                    onPress={() => setRepricing(supply)}
-                  >
-                    <Text style={styles.priceButtonText}>Update price</Text>
-                  </Pressable>
+                <View key={supply.id}>
+                  <View style={styles.fieldRow}>
+                    <Text style={[styles.secondaryText, styles.amountLabel]} numberOfLines={1}>
+                      {supply.name}
+                    </Text>
+                    <Pressable
+                      style={({ pressed }) => [styles.priceButton, pressed && styles.buttonPressed]}
+                      onPress={() => setRepricing(supply)}
+                    >
+                      <Text style={styles.priceButtonText}>Update price</Text>
+                    </Pressable>
+                  </View>
+                  <View style={styles.fieldRow}>
+                    <Text style={styles.secondaryText}>{formatSupplyPrice(supply)}</Text>
+                    <Text style={styles.secondaryText}>
+                      Priced {formatDay(Date.parse(supply.priced_at))}
+                    </Text>
+                  </View>
                 </View>
               ))}
             </View>
