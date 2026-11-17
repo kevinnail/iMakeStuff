@@ -23,7 +23,7 @@ import {
   type PrepKind,
 } from '@/components/CountField';
 import { FieldError, useMissingFields } from '@/components/FieldError';
-import { JoinedButtons } from '@/components/JoinedButtons';
+import { LostButton } from '@/components/LostButton';
 import { NewPrepPanel } from '@/components/NewPrepPanel';
 import { UseChoices, type MissingUse } from '@/components/UseChoices';
 import type { AvailableItem, UseChoice } from '@/components/UsePanel';
@@ -37,9 +37,11 @@ import { defaultsToTemplate, type BatchSize, type SizeInput } from '@/utils/prep
 interface FinishPiecePanelProps {
   pieceName: string;
   category: PieceCategory;
+  initialLost: boolean;
   photoUri: string | null;
+  // Opens the camera. Not passed when the piece already has a photo from mid-work.
+  onTakePhoto?: () => void;
   availablePrep: AvailableItem[];
-
   initialPrep: UseChoice[];
   missingPrep: MissingUse[];
   availableSupplies: AvailableItem[];
@@ -63,24 +65,19 @@ interface FinishPiecePanelProps {
   ) => Promise<void>;
 }
 
-export type Outcome = 'good' | 'lost';
-
-export const outcomeOptions: { value: Outcome; label: string }[] = [
-  { value: 'good', label: 'Good' },
-  { value: 'lost', label: 'Lost' },
-];
-
 export function getNotesPlaceholder(lost: boolean, hasPhoto: boolean) {
   if (lost) return hasPhoto ? 'What happened?' : 'No photo: what happened?';
   return hasPhoto ? 'Notes' : 'No photo: describe the piece.';
 }
 
-// Slides up after the camera. Without a photo the notes are required, so a finished
-// piece can always be identified later.
+// Slides up on Done, with Take photo when the piece has none. Without a photo the notes are
+// required, so a finished piece can always be identified later.
 export function FinishPiecePanel({
   pieceName,
   category,
+  initialLost,
   photoUri,
+  onTakePhoto,
   availablePrep,
   initialPrep,
   missingPrep,
@@ -93,7 +90,7 @@ export function FinishPiecePanel({
   onCancel,
   onSave,
 }: FinishPiecePanelProps) {
-  const [outcome, setOutcome] = useState<Outcome>('good');
+  const [lost, setLost] = useState(initialLost);
   const [notes, setNotes] = useState('');
   const [chosenPrep, setChosenPrep] = useState(initialPrep);
   const [chosenSupplies, setChosenSupplies] = useState(initialSupplies);
@@ -107,8 +104,7 @@ export function FinishPiecePanel({
   const [showingPhoto, setShowingPhoto] = useState(false);
   const finishingPrep = category === 'prep';
   const saveAsTemplate =
-    templateChoice ??
-    defaultsToTemplate(finishingPrep && prepKind === 'counted', outcome === 'lost');
+    templateChoice ?? defaultsToTemplate(finishingPrep && prepKind === 'counted', lost);
   const [saving, setSaving] = useState(false);
   const trimmedNotes = notes.trim();
   const countsPrep = finishingPrep && !laterBatch;
@@ -143,7 +139,7 @@ export function FinishPiecePanel({
     }));
     onSave(
       trimmedNotes || null,
-      outcome === 'lost',
+      lost,
       !fromTemplate && saveAsTemplate,
       prepUses,
       supplyUses,
@@ -164,7 +160,7 @@ export function FinishPiecePanel({
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="on-drag"
           >
-            <JoinedButtons options={outcomeOptions} selected={outcome} onSelect={setOutcome} />
+            <LostButton lost={lost} onChange={setLost} />
             {/* A small photo, so the whole panel fits without scrolling. Tapping it shows it
                 full screen. */}
             <View style={styles.nameRow}>
@@ -174,6 +170,14 @@ export function FinishPiecePanel({
                 </Pressable>
               )}
               <Text style={styles.pieceName}>{pieceName}</Text>
+              {onTakePhoto && (
+                <Pressable
+                  style={({ pressed }) => [styles.photoButton, pressed && styles.buttonPressed]}
+                  onPress={onTakePhoto}
+                >
+                  <Text style={styles.photoButtonText}>{photoUri ? 'Retake' : 'Take photo'}</Text>
+                </Pressable>
+              )}
             </View>
             {/* Right under the name: what a piece's cost is divided from. */}
             {countsPrep && (
@@ -192,12 +196,11 @@ export function FinishPiecePanel({
               ]}
               value={notes}
               onChangeText={setNotes}
-              placeholder={getNotesPlaceholder(outcome === 'lost', photoUri !== null)}
+              placeholder={getNotesPlaceholder(lost, photoUri !== null)}
               placeholderTextColor={colors.secondaryText}
               multiline
               returnKeyType="done"
               submitBehavior="blurAndSubmit"
-              autoFocus={!photoUri}
             />
             {missingFields.shown.includes('identity') && (
               <FieldError message={missingMessages.identity} />
@@ -305,6 +308,21 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 20,
     color: colors.text,
+  },
+  photoButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    borderRadius: 8,
+  },
+  photoButtonText: {
+    fontSize: 16,
+    lineHeight: 18,
+    color: colors.text,
+  },
+  buttonPressed: {
+    opacity: 0.6,
   },
   photoScreen: {
     flex: 1,
