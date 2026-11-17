@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import { FirstRunGuide } from '@/components/FirstRunGuide';
 import { authClient } from '@/services/authClient';
 import { useAuthStore } from '@/store/authStore';
+import { useSubscriptionStore } from '@/store/subscriptionStore';
 import { colors } from '@/theme';
 
 // Colors the headers, back buttons, and every screen's background.
@@ -25,10 +26,22 @@ export default function RootLayout() {
   const setSession = useAuthStore((state) => state.setSession);
   const { data: session, isPending } = authClient.useSession();
 
+  // Sets up RevenueCat when the app opens, and loads the subscription and what's for sale.
+  const initSubscriptions = useSubscriptionStore((state) => state.init);
+  const identify = useSubscriptionStore((state) => state.identify);
+  const forget = useSubscriptionStore((state) => state.forget);
+
+  useEffect(() => {
+    initSubscriptions();
+  }, [initSubscriptions]);
+
+  // RevenueCat's user follows the session, so a purchase lands on the signed in account.
   useEffect(() => {
     if (isPending) return;
     setSession(session);
-  }, [session, isPending, setSession]);
+    if (session) identify(session.user.id);
+    else forget();
+  }, [session, isPending, setSession, identify, forget]);
 
   return (
     <ThemeProvider value={navigationTheme}>
