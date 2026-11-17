@@ -10,8 +10,10 @@ import {
   View,
   type HostInstance,
 } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { Chevron } from '@/components/Chevron';
+import { SwipeRow, type SwipeAction } from '@/components/SwipeRow';
 import { colors } from '@/theme';
 import { getPhotoUri } from '@/utils/photoStorage';
 
@@ -37,7 +39,8 @@ interface DropdownProps<Option extends DropdownOption> {
   selectedKey: Option['key'] | null;
   placeholder: string;
   onSelect: (option: Option) => void;
-
+  // Buttons shown by swiping an option left, like Remove on a template.
+  getSwipeActions?: (option: Option) => SwipeAction[];
   floating?: boolean;
 }
 
@@ -52,6 +55,7 @@ export function Dropdown<Option extends DropdownOption>({
   selectedKey,
   placeholder,
   onSelect,
+  getSwipeActions,
   floating = false,
 }: DropdownProps<Option>) {
   const fieldRef = useRef<HostInstance>(null);
@@ -89,23 +93,36 @@ export function Dropdown<Option extends DropdownOption>({
     </>
   );
 
-  const optionRows = options.map((option, index) => (
-    <Pressable
-      key={option.key}
-      style={({ pressed }) => [
-        styles.option,
-        option.photoFileName !== undefined && styles.photoRow,
-        index > 0 && styles.optionSeparator,
-        pressed && styles.optionPressed,
-      ]}
-      onPress={() => choose(option)}
-    >
-      <Text style={styles.check}>{option.key === selectedKey ? '✓' : ''}</Text>
-      <Thumbnail option={option} />
-      <Text style={styles.label}>{option.label}</Text>
-      {option.detail ? <Text style={styles.detail}>{option.detail}</Text> : null}
-    </Pressable>
-  ));
+  const optionRows = options.map((option, index) => {
+    const row = (
+      <Pressable
+        key={option.key}
+        style={({ pressed }) => [
+          styles.option,
+          option.photoFileName !== undefined && styles.photoRow,
+          getSwipeActions && styles.swipeOption,
+          index > 0 && styles.optionSeparator,
+          pressed && styles.optionPressed,
+        ]}
+        onPress={() => choose(option)}
+      >
+        <Text style={styles.check}>{option.key === selectedKey ? '✓' : ''}</Text>
+        <Thumbnail option={option} />
+        <Text style={styles.label}>{option.label}</Text>
+        {option.detail ? <Text style={styles.detail}>{option.detail}</Text> : null}
+      </Pressable>
+    );
+    if (!getSwipeActions) return row;
+    return (
+      <SwipeRow
+        key={option.key}
+        actions={getSwipeActions(option)}
+        backgroundColor={floating ? colors.surface : colors.background}
+      >
+        {row}
+      </SwipeRow>
+    );
+  });
 
   const photoRow = selectedOption?.photoFileName !== undefined && styles.photoRow;
 
@@ -127,20 +144,23 @@ export function Dropdown<Option extends DropdownOption>({
       )}
       {floating && (
         <Modal visible={open} transparent animationType="fade" onRequestClose={toggle}>
-          <Pressable style={styles.backdrop} onPress={toggle} />
-          {anchor && (
-            <View style={[styles.box, { top: anchor.y, left: anchor.x, width: anchor.width }]}>
-              <Pressable style={[styles.field, styles.boxField]} onPress={toggle}>
-                {field}
-              </Pressable>
-              <ScrollView
-                style={{ maxHeight: Math.min(360, windowHeight - anchor.y - 120) }}
-                contentContainerStyle={styles.boxList}
-              >
-                {optionRows}
-              </ScrollView>
-            </View>
-          )}
+          {/* A modal is outside the app's gesture root, so swipeable options need their own. */}
+          <GestureHandlerRootView style={styles.gestureRoot}>
+            <Pressable style={styles.backdrop} onPress={toggle} />
+            {anchor && (
+              <View style={[styles.box, { top: anchor.y, left: anchor.x, width: anchor.width }]}>
+                <Pressable style={[styles.field, styles.boxField]} onPress={toggle}>
+                  {field}
+                </Pressable>
+                <ScrollView
+                  style={{ maxHeight: Math.min(360, windowHeight - anchor.y - 120) }}
+                  contentContainerStyle={styles.boxList}
+                >
+                  {optionRows}
+                </ScrollView>
+              </View>
+            )}
+          </GestureHandlerRootView>
         </Modal>
       )}
     </View>
@@ -180,6 +200,9 @@ const styles = StyleSheet.create({
   list: {
     maxHeight: 240,
   },
+  gestureRoot: {
+    flex: 1,
+  },
   backdrop: {
     ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(0, 0, 0, 0.6)',
@@ -217,6 +240,10 @@ const styles = StyleSheet.create({
   },
   photoRow: {
     paddingVertical: 4,
+  },
+  // Tall enough for a swipe button's circle and the label under it.
+  swipeOption: {
+    paddingVertical: 12,
   },
   thumbnail: {
     width: 40,

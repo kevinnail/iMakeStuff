@@ -8,6 +8,7 @@ import { EntryTimesPanel } from '@/components/EntryTimesPanel';
 import { NewPrepPanel } from '@/components/NewPrepPanel';
 import { PieceEditForm } from '@/components/PieceEditForm';
 import { AssignedBar } from '@/components/AssignedBar';
+import { TableBox, type TableColumn } from '@/components/TableBox';
 import { Tag } from '@/components/Tag';
 import {
   getSavedChoice,
@@ -88,10 +89,10 @@ interface TotalsProps {
 interface UseLine {
   use: Share & { id: number };
   item: { id: number; name: string } & BatchSize;
-  // Under the name: Estimated or Actual on a by eye prep, nothing on an exact share.
-  note: string | null;
-  amount: string;
-  values: string[];
+  // At the right of the name: Estimated or Actual on a by eye prep, nothing on an exact share.
+  note: string | undefined;
+  // How much was used, then what it adds to the piece.
+  columns: TableColumn[];
 }
 
 interface UseQueries {
@@ -216,9 +217,9 @@ function DayTable({ days }: { days: WorkDay[] }) {
   );
 }
 
-// The heading, then the prep or supplies as one card: a row per use with its share and what it
-// adds to the piece (prep time and cost, or a supply's cost), tapped to change or remove it, and
-// Add prep or Add supply as the last row, the same as on Add Work.
+// The heading, then a box per use, the same as a piece on the Pieces tab: its name, then how much
+// was used and what it adds to the piece (prep time and cost, or a supply's cost). Tapping one
+// changes or removes it. Add prep or Add supply comes last, the same as on Add Work.
 function UsesSection({ kind, usedBy, lines, uses, onChange }: UsesSectionProps) {
   const labels = useLabels[kind];
   const [itemList, setItemList] = useState<AvailableItem[] | null>(null);
@@ -242,40 +243,23 @@ function UsesSection({ kind, usedBy, lines, uses, onChange }: UsesSectionProps) 
   return (
     <View style={styles.section}>
       <Text style={styles.heading}>{labels.heading}</Text>
-      <Card>
-        {lines.length === 0 && (
-          <View style={styles.row}>
-            <Text style={styles.secondaryText}>{labels.noneAdded}</Text>
-          </View>
-        )}
-        {lines.map((line) => (
-          <Pressable
-            key={line.use.id}
-            style={({ pressed }) => [styles.row, pressed && styles.buttonPressed]}
-            onPress={() => setChangingLine(line)}
-          >
-            <View style={styles.fill}>
-              <Text style={styles.text}>{line.item.name}</Text>
-              {line.note && <Text style={styles.note}>{line.note}</Text>}
-            </View>
-            <Text style={styles.value}>{line.amount}</Text>
-            <View style={styles.valuesColumn}>
-              {line.values.map((value) => (
-                <Text key={value} style={[styles.value, styles.numberColumn]}>
-                  {value}
-                </Text>
-              ))}
-            </View>
-            <Chevron />
-          </Pressable>
-        ))}
+      {lines.length === 0 && <Text style={styles.secondaryText}>{labels.noneAdded}</Text>}
+      {lines.map((line) => (
         <Pressable
-          style={({ pressed }) => [styles.row, pressed && styles.buttonPressed]}
-          onPress={openItemList}
+          key={line.use.id}
+          style={({ pressed }) => [styles.useRow, pressed && styles.buttonPressed]}
+          onPress={() => setChangingLine(line)}
         >
-          <Text style={styles.addText}>{labels.add}</Text>
+          <TableBox title={line.item.name} titleNote={line.note} columns={line.columns} />
+          <Chevron />
         </Pressable>
-      </Card>
+      ))}
+      <Pressable
+        style={({ pressed }) => [styles.addRow, pressed && styles.buttonPressed]}
+        onPress={openItemList}
+      >
+        <Text style={styles.addText}>{labels.add}</Text>
+      </Pressable>
       {itemList && (
         <UsePanel
           kind={kind}
@@ -456,12 +440,15 @@ export default function PieceScreen() {
     return {
       use: line,
       item,
-      note: byEye ? (line.used_up ? 'Actual' : 'Estimated') : null,
-      amount:
-        byEye && line.used_up ? formatPercent(getActualShare(line)) : formatAmount(line, item),
-      values: [
-        formatDuration(line.milliseconds),
-        ...(costLine.hasSupplies ? [formatCost(costLine.cents)] : []),
+      note: byEye ? (line.used_up ? 'Actual' : 'Estimated') : undefined,
+      columns: [
+        {
+          label: 'Used',
+          value:
+            byEye && line.used_up ? formatPercent(getActualShare(line)) : formatAmount(line, item),
+        },
+        { label: 'Time', value: formatDuration(line.milliseconds) },
+        { label: 'Cost', value: costLine.hasSupplies ? formatCost(costLine.cents) : ' - ' },
       ],
     };
   });
@@ -475,9 +462,11 @@ export default function PieceScreen() {
     return {
       use: line,
       item,
-      note: null,
-      amount: formatAmount(line, item),
-      values: [formatCost(line.cents)],
+      note: undefined,
+      columns: [
+        { label: 'Used', value: formatAmount(line, item) },
+        { label: 'Cost', value: formatCost(line.cents) },
+      ],
     };
   });
   const prepQueries: UseQueries = {
@@ -747,6 +736,15 @@ const styles = StyleSheet.create({
     fontVariant: ['tabular-nums'],
     color: colors.text,
   },
+  // A box and its arrow, like a piece on the Pieces tab.
+  useRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  addRow: {
+    paddingVertical: 8,
+  },
   addText: {
     fontSize: 18,
     lineHeight: 20,
@@ -754,10 +752,6 @@ const styles = StyleSheet.create({
   },
   numberColumn: {
     textAlign: 'right',
-  },
-  // Prep time over its cost, or a supply's cost: wide enough for "12h 55m" or "$120.00".
-  valuesColumn: {
-    width: 80,
   },
   estimatedColumn: {
     width: 90,

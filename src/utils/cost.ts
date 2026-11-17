@@ -50,12 +50,9 @@ export function formatEachCost(costCents: number, caseCount: number) {
   return `${formatCost(Math.round(costCents / caseCount))} each`;
 }
 
-// "$15.00", or "$15.00 each, case of 16 for $240.00" for a supply bought by the case.
+// The cost of one: "$15.00", or "$15.00 each" for a supply bought by the case.
 export function formatSupplyPrice({ cost_cents, case_count }: SupplyPrice) {
-  const each = formatEachCost(cost_cents, case_count);
-  return case_count === 1
-    ? formatCost(cost_cents)
-    : `${each}, case of ${case_count} for ${formatCost(cost_cents)}`;
+  return case_count === 1 ? formatCost(cost_cents) : formatEachCost(cost_cents, case_count);
 }
 
 function sumCents(lines: { cents: number }[]) {

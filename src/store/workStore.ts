@@ -21,7 +21,9 @@ import {
   finishPiece,
   getTemplates,
   getUnfinishedPieces,
+  renamePiece,
   setPiecePhoto,
+  setPieceTemplate,
   startFromTemplate,
   startPiece,
   switchToPiece,
@@ -64,6 +66,8 @@ interface WorkState {
   addPhoto: (piece: UnfinishedPiece, cameraPhotoUri: string) => Promise<void>;
   finish: (pieceId: number, input: FinishInput) => Promise<void>;
   remove: (pieceId: number) => Promise<void>;
+  rename: (pieceId: number, name: string) => Promise<void>;
+  removeTemplate: (templateId: number) => Promise<void>;
   takeBreak: () => Promise<void>;
   backToWork: () => Promise<void>;
   endDay: () => Promise<void>;
@@ -161,6 +165,15 @@ export const useWorkStore = create<WorkState>()((set) => ({
     const photoFileName = await deletePiece(pieceId);
     if (photoFileName) deletePhoto(photoFileName);
     await showWork(set);
+  },
+  // The new name reaches the Lock Screen too.
+  rename: async (pieceId, name) => {
+    await renamePiece(pieceId, name);
+    await showWork(set);
+  },
+  removeTemplate: async (templateId) => {
+    await setPieceTemplate(templateId, false);
+    set({ templates: await getTemplates() });
   },
   takeBreak: async () => {
     await startBreak();

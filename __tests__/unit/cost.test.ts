@@ -206,12 +206,8 @@ describe('formatSupplyPrice', () => {
   });
 
   // Otherwise a case would show only what was paid, and the price of one would need a calculator.
-  it('shows a case as the price of one, then the case', () => {
-    expect(formatSupplyPrice({ cost_cents: 24000, case_count: 16 })).toBe(
-      '$15.00 each, case of 16 for $240.00',
-    );
-    expect(formatSupplyPrice({ cost_cents: 25000, case_count: 16 })).toBe(
-      '$15.63 each, case of 16 for $250.00',
-    );
+  it('shows a case as the price of one', () => {
+    expect(formatSupplyPrice({ cost_cents: 24000, case_count: 16 })).toBe('$15.00 each');
+    expect(formatSupplyPrice({ cost_cents: 25000, case_count: 16 })).toBe('$15.63 each');
   });
 });

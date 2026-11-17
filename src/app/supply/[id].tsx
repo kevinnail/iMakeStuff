@@ -12,7 +12,7 @@ import {
   type SupplyRecord,
 } from '@/db/queries/supplyQueries';
 import { colors } from '@/theme';
-import { formatSupplyPrice } from '@/utils/cost';
+import { formatCost } from '@/utils/cost';
 import { formatDay } from '@/utils/formatTime';
 import { showError } from '@/utils/showError';
 
@@ -84,10 +84,29 @@ export default function SupplyScreen() {
         }}
       />
       <Card>
-        <View style={styles.row}>
-          <Text style={[styles.text, styles.fill]}>Cost</Text>
-          <Text style={[styles.value, styles.price]}>{formatSupplyPrice(supply)}</Text>
-        </View>
+        {supply.case_count === 1 ? (
+          <View style={styles.row}>
+            <Text style={[styles.text, styles.fill]}>Cost</Text>
+            <Text style={styles.value}>{formatCost(supply.cost_cents)}</Text>
+          </View>
+        ) : (
+          <>
+            <View style={styles.row}>
+              <Text style={[styles.text, styles.fill]}>Cost of one</Text>
+              <Text style={styles.value}>
+                {formatCost(Math.round(supply.cost_cents / supply.case_count))}
+              </Text>
+            </View>
+            <View style={styles.row}>
+              <Text style={[styles.text, styles.fill]}>Case price</Text>
+              <Text style={styles.value}>{formatCost(supply.cost_cents)}</Text>
+            </View>
+            <View style={styles.row}>
+              <Text style={[styles.text, styles.fill]}>Count per case</Text>
+              <Text style={styles.value}>{supply.case_count}</Text>
+            </View>
+          </>
+        )}
         <View style={styles.row}>
           <Text style={[styles.text, styles.fill]}>Priced</Text>
           <Text style={styles.value}>{formatDay(Date.parse(supply.priced_at))}</Text>
@@ -130,11 +149,6 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     fontVariant: ['tabular-nums'],
     color: colors.text,
-  },
-  // "$15.00 each, case of 16 for $240.00" wraps beside its label.
-  price: {
-    flexShrink: 1,
-    textAlign: 'right',
   },
   deleteText: {
     fontSize: 18,

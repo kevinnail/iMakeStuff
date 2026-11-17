@@ -1,5 +1,5 @@
 import { useFocusEffect } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -10,9 +10,11 @@ import {
   Text,
   TextInput,
   View,
+  type ScrollViewInstance,
   type StyleProp,
   type TextStyle,
 } from 'react-native';
+import Animated, { CurvedTransition, Easing, LinearTransition } from 'react-native-reanimated';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Dropdown } from '@/components/Dropdown';
@@ -20,6 +22,8 @@ import { FinishPiecePanel } from '@/components/FinishPiecePanel';
 import { showQuickStart } from '@/components/FirstRunGuide';
 import { getDeleteMessage } from '@/components/PieceEditForm';
 import { JoinedButtons } from '@/components/JoinedButtons';
+import { RenamePanel } from '@/components/RenamePanel';
+import { SwipeRow, type SwipeAction } from '@/components/SwipeRow';
 import { getTemplateChoices, type MissingUse } from '@/components/UseChoices';
 import { getSavedChoice, type UseChoice } from '@/components/UsePanel';
 import { StopTimePanel } from '@/components/StopTimePanel';
@@ -49,6 +53,7 @@ import { showError } from '@/utils/showError';
 
 interface Finishing {
   piece: UnfinishedPiece;
+  lost: boolean;
   cameraPhotoUri: string | null;
   availablePrep: AvailablePrep[];
   initialPrep: UseChoice[];
@@ -63,6 +68,74 @@ interface RunningTimeProps {
   baseMilliseconds?: number;
   style?: StyleProp<TextStyle>;
 }
+
+interface RowSlideKnobs {
+  style: 'straight' | 'spring' | 'curved';
+  durationMilliseconds: number;
+  delayMilliseconds: number;
+  easing: typeof Easing.linear;
+  springDamping: number;
+  springStiffness: number;
+  springMass: number;
+}
+
+// Knobs for how the rows slide when the running piece changes. Change a value, save, and the dev
+// build reloads with it. Each one is a setting on Reanimated's layout transition.
+const rowSlide: RowSlideKnobs = {
+  // Which motion:
+  //   'straight' slides each row in a straight line. Uses durationMilliseconds, delayMilliseconds,
+  //     and easing.
+  //   'spring' runs past its spot and settles back, like a spring. Uses delayMilliseconds and the
+  //     three spring numbers; durationMilliseconds and easing do nothing here.
+  //   'curved' moves along a slight curve, since across and down use different easing. Uses
+  //     durationMilliseconds and delayMilliseconds.
+  style: 'spring',
+  // style: 'curved',
+  // How long the slide takes. Reanimated's own default is 300.
+  durationMilliseconds: 600,
+  // A wait before the slide starts, after the tap.
+  delayMilliseconds: 0,
+  // How speed changes during a straight slide. Swap in any of these:
+  //   Easing.linear                    the same speed start to finish
+  //   Easing.inOut(Easing.quad)        Reanimated's own default: eases in and out
+  //   Easing.out(Easing.cubic)         starts fast, slows gently into place
+  //   Easing.in(Easing.cubic)          starts slow, ends fast
+  //   Easing.out(Easing.back(2))       runs past its spot and comes back; higher runs further
+  //   Easing.bounce                    bounces at the end like a dropped ball
+  //   Easing.bezier(0.2, 0.9, 0.3, 1)  your own curve, the same numbers as CSS cubic-bezier
+  // easing: Easing.out(Easing.cubic),
+  easing: Easing.out(Easing.cubic),
+  // How fast the spring's bounce dies down. Lower bounces longer; higher settles sooner.
+  springDamping: 12,
+  // How hard the spring pulls toward its spot. Higher is quicker and snappier.
+  springStiffness: 120,
+  // How heavy the row feels. Higher is slower and swings further.
+  springMass: 1,
+};
+
+function buildRowSlide({
+  style,
+  durationMilliseconds,
+  delayMilliseconds,
+  easing,
+  springDamping,
+  springStiffness,
+  springMass,
+}: RowSlideKnobs) {
+  if (style === 'spring') {
+    return LinearTransition.springify()
+      .damping(springDamping)
+      .stiffness(springStiffness)
+      .mass(springMass)
+      .delay(delayMilliseconds);
+  }
+  if (style === 'curved') {
+    return CurvedTransition.duration(durationMilliseconds).delay(delayMilliseconds);
+  }
+  return LinearTransition.duration(durationMilliseconds).easing(easing).delay(delayMilliseconds);
+}
+
+const rowSlideTransition = buildRowSlide(rowSlide);
 
 const categoryOptions: {
   value: PieceCategory;
@@ -98,6 +171,24 @@ function confirmDelete(piece: UnfinishedPiece, remove: (pieceId: number) => Prom
       },
     ],
   );
+}
+
+// Taking a template off the list keeps the piece itself. Pieces pick counted prep through its
+// template, so for counted prep the box says it leaves Add prep too.
+function confirmRemoveTemplate(
+  template: Template,
+  removeTemplate: (templateId: number) => Promise<void>,
+) {
+  const addPrepLine =
+    template.size_amount === null ? '' : " Pieces won't be able to pick it in Add prep anymore.";
+  Alert.alert(`Remove ${template.name} from templates?`, `It stays in Pieces.${addPrepLine}`, [
+    { text: 'Cancel', style: 'cancel' },
+    {
+      text: 'Remove',
+      style: 'destructive',
+      onPress: () => removeTemplate(template.id).catch(showError('Could not remove the template')),
+    },
+  ]);
 }
 
 // What the panel after Done starts with: the prep and supplies already on it, then its
@@ -264,6 +355,8 @@ export default function WorkScreen() {
     addPhoto,
     finish,
     remove,
+    rename,
+    removeTemplate,
     takeBreak,
     backToWork,
     endDay,
@@ -278,6 +371,7 @@ export default function WorkScreen() {
   const [openingPieceId, setOpeningPieceId] = useState<number | null>(null);
   const [photographingPieceId, setPhotographingPieceId] = useState<number | null>(null);
   const [pickingStopFor, setPickingStopFor] = useState<RunningEntry | null>(null);
+  const [renaming, setRenaming] = useState<UnfinishedPiece | null>(null);
   const trimmedName = name.trim();
   const placeholder = categoryOptions.find(({ value }) => value === category)?.placeholder;
   const templateOptions = templates
@@ -288,9 +382,22 @@ export default function WorkScreen() {
       photoFileName: template.photo_file_name,
       template,
     }));
-  const working = pieces.some((piece) => piece.running_since !== null);
+  // The running piece is the list's first row, stuck to the top while it scrolls, so a long list
+  // never hides it. The rest stay in the order they were started.
+  const runningPiece = pieces.find((piece) => piece.running_since !== null);
+  const pausedPieces = pieces.filter((piece) => piece.running_since === null);
+  const listedPieces = runningPiece ? [runningPiece, ...pausedPieces] : pausedPieces;
+  const runningPieceId = runningPiece?.id;
+  const pieceListRef = useRef<ScrollViewInstance>(null);
 
   useEffect(() => setTabBarHeight(bottomInset), [bottomInset, setTabBarHeight]);
+
+  // A new running piece takes the top row while the list may be scrolled, and the stuck row then
+  // stays half under the template box until the list is scrolled back. Scrolling to the top puts
+  // it in full view, where the tapped piece is going anyway.
+  useEffect(() => {
+    pieceListRef.current?.scrollTo({ y: 0, animated: true });
+  }, [runningPieceId]);
 
   // Reloads whenever the tab is shown, so fixes made on a day's page show here.
   useFocusEffect(
@@ -319,26 +426,132 @@ export default function WorkScreen() {
       .finally(() => setPhotographingPieceId(null));
   }
 
-  // The piece's clock keeps running through the camera and notes; Save sets the finish time.
-  // A photo taken before Done is the piece's photo, so the camera only opens without one.
-  async function openFinish(piece: UnfinishedPiece) {
+  // The piece's clock keeps running through the panel; Save sets the finish time. The camera
+  // never opens on its own: the photo is taken mid-work with Photo, or from the panel.
+  async function openFinish(piece: UnfinishedPiece, lost: boolean) {
     setOpeningPieceId(piece.id);
     try {
-      const cameraPhotoUri = piece.photo_file_name ? null : await takePhoto();
-      setFinishing({ piece, cameraPhotoUri, ...(await loadFinishUses(piece)) });
+      setFinishing({ piece, lost, cameraPhotoUri: null, ...(await loadFinishUses(piece)) });
     } finally {
       setOpeningPieceId(null);
     }
+  }
+
+  // Copied into the app's photos only when Save finishes the piece.
+  function photographFinish() {
+    takePhoto()
+      .then((uri) => {
+        if (uri) setFinishing((current) => current && { ...current, cameraPhotoUri: uri });
+      })
+      .catch(showError('Could not take the photo'));
+  }
+
+  // Swiping a row left shows what's needed mid-work besides swapping and Done.
+  function renderPiece(piece: UnfinishedPiece) {
+    const running = piece.running_since !== null;
+    // Only the running piece has a clock to pause.
+    const pauseActions: SwipeAction[] = running
+      ? [
+          {
+            label: 'Pause',
+            icon: 'pause.fill',
+            onPress: () => endDay().catch(showError('Could not pause')),
+          },
+        ]
+      : [];
+    const actions: SwipeAction[] = [
+      ...pauseActions,
+      { label: 'Rename', icon: 'pencil', onPress: () => setRenaming(piece) },
+      {
+        label: 'Lost',
+        icon: 'exclamationmark.triangle.fill',
+        color: colors.warning,
+        onPress: () => openFinish(piece, true).catch(showError('Could not open Done')),
+      },
+      {
+        label: 'Delete',
+        icon: 'trash.fill',
+        color: colors.danger,
+        onPress: () => confirmDelete(piece, remove),
+      },
+    ];
+
+    // Rows slide to their new places when the running piece changes, so a tapped row is seen
+    // moving to the top instead of jumping there.
+    return (
+      <Animated.View key={piece.id} layout={rowSlideTransition}>
+        <SwipeRow actions={actions} containerStyle={styles.swipeRow}>
+          <Pressable
+            style={[
+              styles.pieceRow,
+              running &&
+                (piece.category === 'prep' ? styles.prepRowCurrent : styles.pieceRowCurrent),
+            ]}
+            onPress={
+              !running
+                ? () => switchTo(piece.id).catch(showError('Could not switch pieces'))
+                : undefined
+            }
+            onLongPress={() => confirmDelete(piece, remove)}
+          >
+            <View style={styles.nameRow}>
+              <Text style={[styles.pieceName, running && styles.currentText]}>{piece.name}</Text>
+              {piece.category === 'prep' && <Tag label="Prep" onFill={running} />}
+            </View>
+            <View style={styles.pieceBottomRow}>
+              <View style={styles.timeArea}>
+                {piece.running_since ? (
+                  <RunningTime
+                    startedAt={piece.running_since}
+                    baseMilliseconds={piece.worked_milliseconds}
+                    style={styles.currentText}
+                  />
+                ) : (
+                  <Text style={styles.time}>{formatElapsed(piece.worked_milliseconds)}</Text>
+                )}
+              </View>
+              {running && (
+                <Pressable
+                  style={({ pressed }) => [styles.photoButton, pressed && styles.buttonPressed]}
+                  onPress={() => photograph(piece)}
+                  disabled={photographingPieceId !== null}
+                >
+                  <Text style={styles.photoText}>{piece.photo_file_name ? 'Retake' : 'Photo'}</Text>
+                </Pressable>
+              )}
+              <Pressable
+                style={({ pressed }) => [styles.doneButton, pressed && styles.buttonPressed]}
+                onPress={() => openFinish(piece, false).catch(showError('Could not open Done'))}
+                // Done waits for a photo still saving, or it would finish with the old one.
+                disabled={openingPieceId !== null || photographingPieceId !== null}
+              >
+                <Text
+                  style={[styles.doneText, openingPieceId === piece.id && styles.buttonTextHidden]}
+                >
+                  Done
+                </Text>
+                {openingPieceId === piece.id && (
+                  <ActivityIndicator color={colors.text} style={StyleSheet.absoluteFill} />
+                )}
+              </Pressable>
+            </View>
+          </Pressable>
+        </SwipeRow>
+      </Animated.View>
+    );
   }
 
   const finishPanel = finishing && (
     <FinishPiecePanel
       pieceName={finishing.piece.name}
       category={finishing.piece.category}
+      initialLost={finishing.lost}
       photoUri={
         finishing.cameraPhotoUri ??
         (finishing.piece.photo_file_name ? getPhotoUri(finishing.piece.photo_file_name) : null)
       }
+      // A photo taken mid-work is kept as it is; Retake for it is on the Work row.
+      onTakePhoto={finishing.piece.photo_file_name ? undefined : photographFinish}
       availablePrep={finishing.availablePrep}
       initialPrep={finishing.initialPrep}
       missingPrep={finishing.missingPrep}
@@ -405,6 +618,14 @@ export default function WorkScreen() {
           selectedKey={null}
           placeholder="Or start from a template"
           onSelect={({ template }) => startFrom(template)}
+          getSwipeActions={({ template }) => [
+            {
+              label: 'Remove',
+              icon: 'minus.circle.fill',
+              color: colors.danger,
+              onPress: () => confirmRemoveTemplate(template, removeTemplate),
+            },
+          ]}
           floating
         />
       )}
@@ -415,69 +636,13 @@ export default function WorkScreen() {
         />
       )}
 
-      <ScrollView style={styles.pieceList} contentContainerStyle={styles.pieceListContent}>
-        {pieces.map((piece) => (
-          <Pressable
-            key={piece.id}
-            style={[
-              styles.pieceRow,
-              piece.running_since !== null &&
-                (piece.category === 'prep' ? styles.prepRowCurrent : styles.pieceRowCurrent),
-            ]}
-            onPress={
-              piece.running_since === null
-                ? () => switchTo(piece.id).catch(showError('Could not switch pieces'))
-                : undefined
-            }
-            onLongPress={() => confirmDelete(piece, remove)}
-          >
-            <View style={styles.nameRow}>
-              <Text style={[styles.pieceName, piece.running_since !== null && styles.currentText]}>
-                {piece.name}
-              </Text>
-              {piece.category === 'prep' && (
-                <Tag label="Prep" onFill={piece.running_since !== null} />
-              )}
-            </View>
-            <View style={styles.pieceBottomRow}>
-              <View style={styles.timeArea}>
-                {piece.running_since ? (
-                  <RunningTime
-                    startedAt={piece.running_since}
-                    baseMilliseconds={piece.worked_milliseconds}
-                    style={styles.currentText}
-                  />
-                ) : (
-                  <Text style={styles.time}>{formatElapsed(piece.worked_milliseconds)}</Text>
-                )}
-              </View>
-              {piece.running_since !== null && (
-                <Pressable
-                  style={({ pressed }) => [styles.photoButton, pressed && styles.buttonPressed]}
-                  onPress={() => photograph(piece)}
-                  disabled={photographingPieceId !== null}
-                >
-                  <Text style={styles.photoText}>{piece.photo_file_name ? 'Retake' : 'Photo'}</Text>
-                </Pressable>
-              )}
-              <Pressable
-                style={({ pressed }) => [styles.doneButton, pressed && styles.buttonPressed]}
-                onPress={() => openFinish(piece).catch(showError('Could not open the camera'))}
-                // Done waits for a photo still saving, or it would finish with the old one.
-                disabled={openingPieceId !== null || photographingPieceId !== null}
-              >
-                <Text
-                  style={[styles.doneText, openingPieceId === piece.id && styles.buttonTextHidden]}
-                >
-                  Done
-                </Text>
-                {openingPieceId === piece.id && (
-                  <ActivityIndicator color={colors.text} style={StyleSheet.absoluteFill} />
-                )}
-              </Pressable>
-            </View>
-          </Pressable>
-        ))}
+      <ScrollView
+        ref={pieceListRef}
+        style={styles.pieceList}
+        contentContainerStyle={styles.pieceListContent}
+        stickyHeaderIndices={runningPiece ? [0] : []}
+      >
+        {listedPieces.map(renderPiece)}
       </ScrollView>
 
       {runningBreak && (
@@ -503,7 +668,7 @@ export default function WorkScreen() {
             <Text style={styles.buttonText}>Break</Text>
           </Pressable>
         )}
-        {(working || runningBreak) && (
+        {(runningPiece || runningBreak) && (
           <Pressable
             style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
             onPress={() => endDay().catch(showError('Could not end the day'))}
@@ -514,6 +679,13 @@ export default function WorkScreen() {
       </View>
       <TodayTable today={today} />
       {finishPanel}
+      {renaming && (
+        <RenamePanel
+          initialName={renaming.name}
+          onCancel={() => setRenaming(null)}
+          onSave={(newName) => rename(renaming.id, newName).then(() => setRenaming(null))}
+        />
+      )}
       {pickingStopFor && (
         <StopTimePanel
           title={
@@ -655,6 +827,10 @@ const styles = StyleSheet.create({
   },
   pieceListContent: {
     gap: 12,
+  },
+  // The rows' corners, so the swipe buttons behind them stay hidden there.
+  swipeRow: {
+    borderRadius: 12,
   },
   pieceRow: {
     gap: 12,
