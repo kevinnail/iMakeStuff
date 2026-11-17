@@ -11,7 +11,7 @@ import {
   type SupplyRecord,
 } from '@/db/queries/supplyQueries';
 import { colors } from '@/theme';
-import { formatSupplyPrice } from '@/utils/cost';
+import { formatCost, formatSupplyPrice } from '@/utils/cost';
 import { formatDay } from '@/utils/formatTime';
 import { showError } from '@/utils/showError';
 
@@ -62,13 +62,24 @@ export default function SuppliesScreen() {
             style={({ pressed }) => [styles.row, pressed && styles.buttonPressed]}
             onPress={() => router.push({ pathname: '/supply/[id]', params: { id: supply.id } })}
           >
+            {/* The cost of one is what a piece is charged, so it sits beside the name. The case
+                it came in and the day it was priced go on the line below. */}
             <View style={styles.details}>
-              <Text style={styles.name}>{supply.name}</Text>
-              <View style={styles.bottomRow}>
-                <Text style={[styles.detailText, styles.fill]}>
-                  Priced {formatDay(Date.parse(supply.priced_at))}
+              <View style={styles.lineRow}>
+                <Text style={styles.name} numberOfLines={1}>
+                  {supply.name}
                 </Text>
                 <Text style={styles.cost}>{formatSupplyPrice(supply)}</Text>
+              </View>
+              <View style={styles.lineRow}>
+                {supply.case_count > 1 && (
+                  <Text style={styles.detailText}>
+                    Case of {supply.case_count} for {formatCost(supply.cost_cents)}
+                  </Text>
+                )}
+                <Text style={[styles.detailText, styles.pricedText]}>
+                  Priced {formatDay(Date.parse(supply.priced_at))}
+                </Text>
               </View>
             </View>
             <Chevron />
@@ -99,26 +110,27 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 2,
   },
-  name: {
-    fontSize: 20,
-    color: colors.text,
-  },
-  bottomRow: {
+  lineRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
   },
-  fill: {
+  // A long name gives up its width and ends in "…". The cost beside it never does.
+  name: {
     flex: 1,
+    fontSize: 20,
+    color: colors.text,
+  },
+  // On the right, even when there's no case on the left.
+  pricedText: {
+    marginLeft: 'auto',
   },
   detailText: {
     fontSize: 16,
     color: colors.secondaryText,
   },
   cost: {
-    flexShrink: 1,
     fontSize: 18,
-    textAlign: 'right',
     fontVariant: ['tabular-nums'],
     color: colors.text,
   },
