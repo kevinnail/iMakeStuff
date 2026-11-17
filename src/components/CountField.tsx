@@ -62,9 +62,10 @@ const unitHelp =
   'The unit is what you split it into, like points, beads, or cm. Each piece then enters how many it used, and its share of the cost comes from that.';
 
 // A number and a unit: what a counted prep made. The app never interprets the unit. The unit is
-// picked from those saved before, or typed after New unit; with none saved, it's typed. The boxes
-// start empty, since an example in them reads as filled in; the example is the note under them,
-// which Save's message replaces when either is missing. The ? shows what the unit is for.
+// picked from those saved before, or typed after New unit; with none saved, it's typed. Each box
+// shows what it's for (Count, Unit) rather than an example, since an example reads as filled in;
+// the example is the note under them, which Save's message replaces when either is missing. The ?
+// shows what the unit is for.
 export function CountField({
   label,
   note,
@@ -109,6 +110,8 @@ export function CountField({
           style={[styles.input, styles.amountInput, missingNumber && styles.missingInput]}
           value={texts.amountText}
           onChangeText={(amountText) => onChange({ ...texts, amountText })}
+          placeholder="Count"
+          placeholderTextColor={colors.secondaryText}
           keyboardType="decimal-pad"
         />
         {hasSavedUnits && (
@@ -131,6 +134,8 @@ export function CountField({
             ]}
             value={texts.unitText}
             onChangeText={(unitText) => onChange({ ...texts, unitText })}
+            placeholder="Unit"
+            placeholderTextColor={colors.secondaryText}
             autoCapitalize="none"
             autoFocus={typingNewUnit}
           />
