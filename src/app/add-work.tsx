@@ -25,8 +25,9 @@ import {
 import { Dropdown } from '@/components/Dropdown';
 import { getOverlapMessage, useEntryTimes, yesterdayAt } from '@/components/EntryTimesPanel';
 import { FieldError, useMissingFields } from '@/components/FieldError';
-import { getNotesPlaceholder, outcomeOptions, type Outcome } from '@/components/FinishPiecePanel';
+import { getNotesPlaceholder } from '@/components/FinishPiecePanel';
 import { JoinedButtons } from '@/components/JoinedButtons';
+import { LostButton } from '@/components/LostButton';
 import { NewPrepPanel } from '@/components/NewPrepPanel';
 import { getTemplateChoices, UseChoices, type MissingUse } from '@/components/UseChoices';
 import type { UseChoice } from '@/components/UsePanel';
@@ -76,7 +77,7 @@ export default function AddWorkScreen() {
     yesterdayAt(10),
   );
   const [finishing, setFinishing] = useState(false);
-  const [outcome, setOutcome] = useState<Outcome>('good');
+  const [lost, setLost] = useState(false);
   // null until the switch is tapped.
   const [templateChoice, setTemplateChoice] = useState<boolean | null>(null);
   const [photoUri, setPhotoUri] = useState<string | null>(null);
@@ -95,8 +96,7 @@ export default function AddWorkScreen() {
   // A batch of a counted prep's template: the template knows its count, prep, and supplies.
   const laterBatch = category === 'prep' && template !== null && template.size_amount !== null;
   const saveAsTemplate =
-    templateChoice ??
-    defaultsToTemplate(category === 'prep' && prepKind === 'counted', outcome === 'lost');
+    templateChoice ?? defaultsToTemplate(category === 'prep' && prepKind === 'counted', lost);
   // Past work can't overlap anything.
   const overlap = overlaps.at(0);
   const templateOptions = templates.map((option) => ({
@@ -185,7 +185,7 @@ export default function AddWorkScreen() {
         finish: finishing
           ? {
               notes: trimmedNotes || null,
-              lost: outcome === 'lost',
+              lost,
               isTemplate: template === null && saveAsTemplate,
             }
           : null,
@@ -349,20 +349,13 @@ export default function AddWorkScreen() {
             {finishing && (
               <>
                 <View style={[styles.cardRow, styles.separator]}>
-                  <View style={styles.fill}>
-                    <JoinedButtons
-                      options={outcomeOptions}
-                      selected={outcome}
-                      onSelect={setOutcome}
-                      style={styles.trackOnCard}
-                    />
-                  </View>
+                  <LostButton lost={lost} onChange={setLost} />
                 </View>
                 <TextInput
                   style={styles.notesInput}
                   value={notes}
                   onChangeText={setNotes}
-                  placeholder={getNotesPlaceholder(outcome === 'lost', photoUri !== null)}
+                  placeholder={getNotesPlaceholder(lost, photoUri !== null)}
                   placeholderTextColor={colors.secondaryText}
                   multiline
                 />
@@ -449,7 +442,7 @@ const styles = StyleSheet.create({
     borderColor: colors.separator,
     borderRadius: 8,
   },
-  // Boxed like the name, under the outcome buttons' row.
+  // Boxed like the name, under the Lost button's row.
   notesInput: {
     marginBottom: 12,
     padding: 12,
