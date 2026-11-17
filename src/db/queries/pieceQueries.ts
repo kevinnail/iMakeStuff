@@ -62,6 +62,8 @@ export interface PieceListItem extends BatchSize {
   cost_estimated: boolean;
   // Every piece's share of this prep added together, 1 being all of it.
   used_share: number;
+  // How many pieces and prep used this prep, for the delete confirmation box.
+  used_by_count: number;
   used_up: number;
   // 1 when Add prep can pick it.
   usable: number;
@@ -345,6 +347,14 @@ export async function updatePiece(pieceId: number, changes: PieceChanges): Promi
 }
 
 // The pieces made from it are left with no template, and keep its kind.
+// The name alone, from the Work screen while the piece is being made. The schema refuses a blank
+// one.
+export async function renamePiece(pieceId: number, name: string): Promise<void> {
+  const database = await getDb();
+  const result = await database.runAsync('UPDATE pieces SET name = ? WHERE id = ?', name, pieceId);
+  if (result.changes === 0) throw new Error('That piece no longer exists.');
+}
+
 export async function deletePiece(pieceId: number): Promise<string | null> {
   const database = await getDb();
   let photoFileName: string | null = null;
@@ -448,13 +458,15 @@ export async function getPieces(): Promise<PieceListItem[]> {
          round(total(julianday(coalesce(work_segments.ended_at, 'now'))
            - julianday(work_segments.started_at)) * 86400000) AS worked_milliseconds,
          ${usedShareSql} AS used_share,
+         coalesce(prep_totals.used_by_count, 0) AS used_by_count,
          ${prepUsedUpSql('pieces')} AS used_up,
          ${availableSql('pieces')} AS usable,
          ${noCostSql} AS no_cost
        FROM pieces
        JOIN work_segments ON work_segments.piece_id = pieces.id
        LEFT JOIN (
-         SELECT prep_id, total(${shareSql}) AS used_share FROM prep_uses GROUP BY prep_id
+         SELECT prep_id, total(${shareSql}) AS used_share, count(*) AS used_by_count
+         FROM prep_uses GROUP BY prep_id
        ) AS prep_totals ON prep_totals.prep_id = pieces.id
        GROUP BY pieces.id
        ORDER BY pieces.finished_at IS NOT NULL, pieces.finished_at DESC, pieces.id DESC`,
