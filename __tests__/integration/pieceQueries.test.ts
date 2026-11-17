@@ -8,6 +8,7 @@ import {
   getPieces,
   getTemplates,
   getUnfinishedPieces,
+  renamePiece,
   setPieceLost,
   setPiecePhoto,
   setPieceTemplate,
@@ -536,6 +537,7 @@ describe('getPieces', () => {
         prep_milliseconds: null,
         prep_estimated: false,
         used_share: 0,
+        used_by_count: 0,
         used_up: 0,
         usable: 0,
         no_cost: 0,
@@ -555,6 +557,7 @@ describe('getPieces', () => {
         prep_milliseconds: null,
         prep_estimated: false,
         used_share: 0,
+        used_by_count: 0,
         used_up: 0,
         usable: 0,
         no_cost: 1,
@@ -574,12 +577,37 @@ describe('getPieces', () => {
         prep_milliseconds: null,
         prep_estimated: false,
         used_share: 0,
+        used_by_count: 0,
         used_up: 0,
         usable: 0,
         no_cost: 1,
         cost_cents: null,
         cost_estimated: false,
       },
+    ]);
+  });
+
+  // Otherwise deleting a prep from the Pieces tab wouldn't warn that it comes off the pieces that used it.
+  it('counts the pieces and prep that used each prep, and none for a piece', async () => {
+    await database.execAsync(`
+      INSERT INTO pieces (id, name, category, notes, finished_at) VALUES
+        (1, 'Blue points', 'prep', 'Cobalt', '2026-10-30T10:00:00.000Z'),
+        (2, 'Blue vase', 'piece', 'Tall', '2026-10-30T12:00:00.000Z'),
+        (3, 'Blue cane', 'prep', 'Twisted', '2026-10-30T14:00:00.000Z');
+      INSERT INTO work_segments (piece_id, started_at, ended_at) VALUES
+        (1, '2026-10-30T09:00:00.000Z', '2026-10-30T10:00:00.000Z'),
+        (2, '2026-10-30T11:00:00.000Z', '2026-10-30T12:00:00.000Z'),
+        (3, '2026-10-30T13:00:00.000Z', '2026-10-30T14:00:00.000Z');
+      INSERT INTO prep_uses (piece_id, prep_id, share_numerator, share_denominator) VALUES
+        (2, 1, 1, 4),
+        (3, 1, 2, 4);
+    `);
+
+    const counts = (await getPieces()).map(({ id, used_by_count }) => ({ id, used_by_count }));
+    expect(counts).toEqual([
+      { id: 3, used_by_count: 0 },
+      { id: 2, used_by_count: 0 },
+      { id: 1, used_by_count: 2 },
     ]);
   });
 
@@ -863,6 +891,40 @@ describe('deletePiece', () => {
   // Otherwise a stale page could report a piece as deleted when nothing was.
   it('fails for a piece that does not exist', async () => {
     await expect(deletePiece(999)).rejects.toThrow('That piece no longer exists.');
+  });
+});
+
+describe('renamePiece', () => {
+  const nameAndNotesSql = 'SELECT name, notes FROM pieces WHERE id = 1';
+
+  beforeEach(() =>
+    database.execAsync(
+      "INSERT INTO pieces (id, name, category, notes) VALUES (1, 'Sherlock bubbler', 'piece', 'Blue')",
+    ),
+  );
+
+  // Otherwise a piece started under the wrong name would keep it until it's finished.
+  it('changes the name and leaves the notes alone', async () => {
+    await renamePiece(1, 'Goblet');
+
+    expect(await database.getFirstAsync(nameAndNotesSql)).toEqual({
+      name: 'Goblet',
+      notes: 'Blue',
+    });
+  });
+
+  // Otherwise a running piece could be renamed to nothing and show as a blank row.
+  it('rejects a blank name and keeps the old one', async () => {
+    await expect(renamePiece(1, '   ')).rejects.toThrow(/CHECK constraint/);
+    expect(await database.getFirstAsync(nameAndNotesSql)).toEqual({
+      name: 'Sherlock bubbler',
+      notes: 'Blue',
+    });
+  });
+
+  // Otherwise renaming a piece deleted meanwhile would look like it worked.
+  it('fails for a piece that does not exist', async () => {
+    await expect(renamePiece(999, 'Goblet')).rejects.toThrow('That piece no longer exists.');
   });
 });
 
