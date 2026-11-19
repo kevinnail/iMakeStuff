@@ -20,6 +20,10 @@ export type PrepKind = 'counted' | 'byEye';
 interface CountFieldProps {
   label: string;
   note: string;
+  // What the ? shows: what the unit is for.
+  help: string;
+  // Shown in place of the note when Save finds the number or the unit missing.
+  missingMessage: string;
   texts: CountTexts;
   onChange: (texts: CountTexts) => void;
   // Save found the number or the unit missing.
@@ -58,17 +62,19 @@ export function readPrepCount(kind: PrepKind, { amountText, unitText }: CountTex
 // A saved unit is never empty, so the empty key can't clash with one.
 const newUnitKey = '';
 
-const unitHelp =
+const prepUnitHelp =
   'The unit is what you split it into, like points, beads, or cm. Each piece then enters how many it used, and its share of the cost comes from that.';
 
-// A number and a unit: what a counted prep made. The app never interprets the unit. The unit is
-// picked from those saved before, or typed after New unit; with none saved, it's typed. Each box
-// shows what it's for (Count, Unit) rather than an example, since an example reads as filled in;
-// the example is the note under them, which Save's message replaces when either is missing. The ?
-// shows what the unit is for.
+// A number and a unit: what a counted prep made, or a supply's size. The app never interprets the
+// unit. The unit is picked from those saved before, or typed after New unit; with none saved, it's
+// typed. Each box shows what it's for (Count, Unit) rather than an example, since an example reads
+// as filled in; the example is the note under them, which Save's message replaces when either is
+// missing. The ? shows what the unit is for.
 export function CountField({
   label,
   note,
+  help,
+  missingMessage,
   texts,
   onChange,
   missingNumber,
@@ -142,11 +148,11 @@ export function CountField({
         )}
       </View>
       {missingNumber || missingUnit ? (
-        <FieldError message={missingMessages.countNumber} />
+        <FieldError message={missingMessage} />
       ) : (
         <Text style={styles.note}>{note}</Text>
       )}
-      {showingHelp && <Text style={styles.note}>{unitHelp}</Text>}
+      {showingHelp && <Text style={styles.note}>{help}</Text>}
     </View>
   );
 }
@@ -166,6 +172,8 @@ export function PrepKindField({
         <CountField
           label="How many did it make?"
           note="Like 8 points."
+          help={prepUnitHelp}
+          missingMessage={missingMessages.countNumber}
           texts={texts}
           onChange={onChangeTexts}
           missingNumber={missing.includes('countNumber')}
