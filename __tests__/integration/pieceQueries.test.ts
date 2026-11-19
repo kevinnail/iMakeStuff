@@ -9,8 +9,10 @@ import {
   getTemplates,
   getUnfinishedPieces,
   renamePiece,
+  reopenPiece,
   setPieceLost,
   setPiecePhoto,
+  setPieceRating,
   setPieceTemplate,
   startPiece,
   switchToPiece,
@@ -59,6 +61,7 @@ describe('startPiece', () => {
         id: pieceId,
         name: 'Blue vase',
         category: 'piece',
+        notes: null,
         photo_file_name: null,
         worked_milliseconds: 0,
         template_id: null,
@@ -187,6 +190,7 @@ describe('getUnfinishedPieces', () => {
         id: pieceId,
         name: 'Blue vase',
         category: 'piece',
+        notes: null,
         photo_file_name: null,
         worked_milliseconds: 105 * 60 * 1000,
         template_id: null,
@@ -211,6 +215,7 @@ describe('endDay', () => {
         id: pieceId,
         name: 'Blue vase',
         category: 'piece',
+        notes: null,
         photo_file_name: null,
         worked_milliseconds: expect.any(Number),
         template_id: null,
@@ -300,13 +305,13 @@ describe('finishPiece', () => {
     ]);
   });
 
-  // Otherwise skipping the camera would make a piece impossible to finish.
-  it('saves a piece with notes and no photo', async () => {
+  // Otherwise a maker who skips the photo and the notes can't finish, and has to stop working to type.
+  it('saves a finished piece with only a name', async () => {
     const pieceId = await startPiece('Blue vase', 'piece');
 
     await finishPiece(pieceId, {
       endedAt,
-      notes: 'Cobalt glaze',
+      notes: null,
       photoFileName: null,
       lost: false,
       isTemplate: false,
@@ -317,38 +322,10 @@ describe('finishPiece', () => {
     });
 
     expect(await database.getFirstAsync<FinishedPieceRow>(finishedPieceSql, pieceId)).toEqual({
-      notes: 'Cobalt glaze',
+      notes: null,
       photo_file_name: null,
       finished_at: endedAt,
     });
-  });
-
-  // Otherwise a finished piece could have nothing to identify it, and its clock would stop anyway.
-  it('rejects a finish with neither a photo nor notes and keeps the clock running', async () => {
-    const pieceId = await startPiece('Blue vase', 'piece');
-
-    await expect(
-      finishPiece(pieceId, {
-        endedAt,
-        notes: null,
-        photoFileName: null,
-        lost: false,
-        isTemplate: false,
-        sizeAmount: null,
-        sizeUnit: null,
-        supplyUses: [],
-        prepUses: [],
-      }),
-    ).rejects.toThrow(/CHECK constraint/);
-
-    expect(await database.getFirstAsync<FinishedPieceRow>(finishedPieceSql, pieceId)).toEqual({
-      notes: null,
-      photo_file_name: null,
-      finished_at: null,
-    });
-    expect(await getUnfinishedPieces()).toEqual([
-      expect.objectContaining({ id: pieceId, running_since: expect.any(String) }),
-    ]);
   });
 
   // Otherwise finishing twice would overwrite the first photo and finish time.
@@ -411,26 +388,6 @@ describe('finishPiece as lost', () => {
       photo_file_name: 'crack.jpg',
       finished_at: endedAt,
     });
-  });
-
-  // Otherwise a lost piece could be saved with nothing to show what it was.
-  it('rejects a lost finish with neither a photo nor notes', async () => {
-    const pieceId = await startPiece('Blue vase', 'piece');
-
-    await expect(
-      finishPiece(pieceId, {
-        endedAt,
-        notes: null,
-        photoFileName: null,
-        lost: true,
-        isTemplate: false,
-        sizeAmount: null,
-        sizeUnit: null,
-        supplyUses: [],
-        prepUses: [],
-      }),
-    ).rejects.toThrow(/CHECK constraint/);
-    expect(await getUnfinishedPieces()).toEqual([expect.objectContaining({ id: pieceId })]);
   });
 });
 
@@ -506,6 +463,166 @@ describe('setPieceLost', () => {
       'Only a finished piece can be marked lost or good.',
     );
     expect(await database.getFirstAsync(lostPieceSql, pieceId)).toMatchObject({ lost: 0 });
+  });
+});
+
+describe('grading a piece', () => {
+  const ratingSql = 'SELECT rating FROM pieces WHERE id = ?';
+  const vaseEdit = {
+    name: 'Blue vase',
+    category: 'piece' as const,
+    notes: null,
+    photoFileName: null,
+    sizeAmount: null,
+    sizeUnit: null,
+  };
+
+  beforeEach(() =>
+    database.execAsync(`
+      INSERT INTO pieces (id, name, category, notes, finished_at, lost, rating) VALUES
+        (1, 'Blue vase', 'piece', NULL, '2026-10-30T17:00:00.000Z', 0, 4),
+        (2, 'Green bowl', 'piece', NULL, NULL, 0, NULL),
+        (3, 'Red cup', 'piece', NULL, '2026-10-30T18:00:00.000Z', 1, NULL),
+        (4, 'Blue points', 'prep', NULL, '2026-10-30T19:00:00.000Z', 0, NULL);
+    `),
+  );
+
+  // Otherwise the stars picked at Done are dropped and the piece page shows no grade.
+  it('saves the grade given at Done', async () => {
+    const pieceId = await startPiece('Amber bead', 'piece');
+
+    await finishPiece(pieceId, {
+      endedAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+      notes: null,
+      photoFileName: null,
+      lost: false,
+      rating: 5,
+      isTemplate: false,
+      sizeAmount: null,
+      sizeUnit: null,
+      supplyUses: [],
+      prepUses: [],
+    });
+
+    expect(await getPieceDetail(pieceId)).toMatchObject({
+      piece: { name: 'Amber bead', rating: 5 },
+    });
+  });
+
+  // Otherwise a grade given at Done could never be corrected or taken off from the piece's page.
+  it('changes and takes off a finished piece grade', async () => {
+    await setPieceRating(1, 2);
+    expect(await database.getFirstAsync(ratingSql, 1)).toEqual({ rating: 2 });
+
+    await setPieceRating(1, null);
+    expect(await database.getFirstAsync(ratingSql, 1)).toEqual({ rating: null });
+  });
+
+  // Otherwise a grade could land on work the stars don't apply to, or off the 1 to 5 scale.
+  it.each([
+    ['an unfinished piece', 2, 3],
+    ['a lost piece', 3, 3],
+    ['prep', 4, 3],
+    ['six stars', 1, 6],
+  ])('refuses a grade on %s', async (_case, pieceId, rating) => {
+    await expect(setPieceRating(pieceId, rating)).rejects.toThrow(/CHECK constraint/);
+  });
+
+  // Otherwise marking a graded piece lost fails, since a lost piece can't have a grade.
+  it('takes the grade off a piece marked lost', async () => {
+    await setPieceLost(1, true);
+
+    expect(await database.getFirstAsync(ratingSql, 1)).toEqual({ rating: null });
+  });
+
+  // Otherwise changing a graded piece to prep fails, since prep can't have a grade.
+  it('takes the grade off a piece changed to prep, and keeps it on a piece edited as a piece', async () => {
+    await updatePiece(1, vaseEdit);
+    expect(await database.getFirstAsync(ratingSql, 1)).toEqual({ rating: 4 });
+
+    await updatePiece(1, { ...vaseEdit, category: 'prep' });
+    expect(await database.getFirstAsync(ratingSql, 1)).toEqual({ rating: null });
+  });
+});
+
+describe('reopenPiece', () => {
+  const pieceStateSql = 'SELECT finished_at, lost, rating FROM pieces WHERE id = ?';
+
+  beforeEach(() =>
+    database.execAsync(`
+      INSERT INTO pieces (id, name, category, notes, photo_file_name, finished_at, lost, rating,
+          is_template) VALUES
+        (1, 'Blue vase', 'piece', 'Cobalt', 'vase.jpg', '2026-10-30T17:00:00.000Z', 0, 4, 0),
+        (2, 'Green bowl', 'piece', NULL, NULL, '2026-10-30T18:00:00.000Z', 1, NULL, 0),
+        (3, 'Red cup', 'piece', NULL, NULL, NULL, 0, NULL, 0),
+        (4, 'Bead', 'piece', NULL, NULL, '2026-10-30T19:00:00.000Z', 0, NULL, 1),
+        (5, 'Blue points', 'prep', NULL, NULL, '2026-10-29T17:00:00.000Z', 0, NULL, 0);
+      INSERT INTO work_segments (piece_id, started_at, ended_at) VALUES
+        (1, '2026-10-30T16:00:00.000Z', '2026-10-30T17:00:00.000Z'),
+        (2, '2026-10-30T17:00:00.000Z', '2026-10-30T18:00:00.000Z'),
+        (3, '2026-10-31T09:00:00.000Z', NULL);
+      INSERT INTO supplies (id, name, cost_cents) VALUES (1, 'Clear tubing', 4000);
+      INSERT INTO prep_uses (piece_id, prep_id, share_numerator, share_denominator)
+        VALUES (1, 5, 1, 4);
+      INSERT INTO supply_uses (piece_id, supply_id, share_numerator, share_denominator)
+        VALUES (1, 1, 1, 2);
+    `),
+  );
+
+  // Otherwise working on a piece again loses its time, notes, photo, or uses, and Done starts empty.
+  it('puts a finished piece back running with its time, notes, photo, and uses', async () => {
+    await reopenPiece(1);
+
+    expect(await database.getFirstAsync(pieceStateSql, 1)).toEqual({
+      finished_at: null,
+      lost: 0,
+      rating: null,
+    });
+    const reopened = (await getUnfinishedPieces()).find((piece) => piece.id === 1);
+    expect(reopened).toMatchObject({
+      notes: 'Cobalt',
+      photo_file_name: 'vase.jpg',
+      worked_milliseconds: 60 * 60 * 1000,
+      running_since: expect.any(String),
+    });
+    expect(await database.getAllAsync('SELECT prep_id FROM prep_uses WHERE piece_id = 1')).toEqual([
+      { prep_id: 5 },
+    ]);
+    expect(
+      await database.getAllAsync('SELECT supply_id FROM supply_uses WHERE piece_id = 1'),
+    ).toEqual([{ supply_id: 1 }]);
+  });
+
+  // Otherwise reopening a lost piece fails, since an unfinished piece can't be lost.
+  it('takes Lost off a lost piece', async () => {
+    await reopenPiece(2);
+
+    expect(await database.getFirstAsync(pieceStateSql, 2)).toMatchObject({ lost: 0 });
+  });
+
+  // Otherwise two pieces would collect the same minutes.
+  it('stops the piece that was running', async () => {
+    await reopenPiece(1);
+
+    const running = await database.getAllAsync(
+      'SELECT piece_id FROM work_segments WHERE ended_at IS NULL',
+    );
+    expect(running).toEqual([{ piece_id: 1 }]);
+  });
+
+  // Otherwise a template or prep could go back to unfinished, and the pieces made from or using
+  // it would lose what they take from it.
+  it.each([
+    ['a template', 4],
+    ['prep', 5],
+    ['an unfinished piece', 3],
+  ])('refuses %s and leaves it as it was', async (_case, pieceId) => {
+    const before = await database.getFirstAsync(pieceStateSql, pieceId);
+
+    await expect(reopenPiece(pieceId)).rejects.toThrow(
+      "Only a finished piece that isn't a template can be worked on again.",
+    );
+    expect(await database.getFirstAsync(pieceStateSql, pieceId)).toEqual(before);
   });
 });
 
@@ -650,6 +767,7 @@ describe('getPieceDetail', () => {
         finished_at: null,
         used_up_at: null,
         lost: 0,
+        rating: null,
         is_template: 0,
         size_amount: null,
         size_unit: null,
@@ -726,24 +844,6 @@ describe('updatePiece', () => {
     await expect(updatePiece(1, { ...vaseChanges, name: '   ' })).rejects.toThrow(
       /CHECK constraint/,
     );
-  });
-
-  // Otherwise editing could leave a finished piece with nothing to identify it.
-  it.each([
-    ['removing the photo from a piece with no notes', 1, { ...vaseChanges, photoFileName: null }],
-    [
-      'clearing the notes on a piece with no photo',
-      2,
-      {
-        name: 'Green bowl',
-        category: 'piece' as const,
-        notes: null,
-        photoFileName: null,
-        ...noSize,
-      },
-    ],
-  ])('rejects %s', async (_change, pieceId, changes) => {
-    await expect(updatePiece(pieceId, changes)).rejects.toThrow(/CHECK constraint/);
   });
 
   // Otherwise prep recorded as a piece by mistake would stay counted as output.
