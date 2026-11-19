@@ -58,8 +58,22 @@ const finish = {
   supplyUses: [],
 };
 
-const tube = { name: '32.7 × 4 tube', costCents: 1500, caseCount: 1 };
-const rod = { name: 'Cobalt rod', costCents: 1200, caseCount: 1 };
+const tube = {
+  name: '32.7 × 4 tube',
+  costCents: 1500,
+  caseCount: 1,
+  sizeAmount: null,
+  sizeUnit: null,
+  groupName: null,
+};
+const rod = {
+  name: 'Cobalt rod',
+  costCents: 1200,
+  caseCount: 1,
+  sizeAmount: null,
+  sizeUnit: null,
+  groupName: null,
+};
 
 let database: ReturnType<typeof createTestDb>;
 let tubeId: number;
@@ -239,8 +253,24 @@ describe('Same as', () => {
     const newerRodId = await addSupply({ ...rod, costCents: 1400 }, rodId);
 
     expect(await getSupplyKinds()).toEqual([
-      { id: newerRodId, name: 'Cobalt rod', cost_cents: 1400, case_count: 1 },
-      { id: tubeId, name: tube.name, cost_cents: 1500, case_count: 1 },
+      {
+        id: newerRodId,
+        name: 'Cobalt rod',
+        cost_cents: 1400,
+        case_count: 1,
+        size_amount: null,
+        size_unit: null,
+        group_name: null,
+      },
+      {
+        id: tubeId,
+        name: tube.name,
+        cost_cents: 1500,
+        case_count: 1,
+        size_amount: null,
+        size_unit: null,
+        group_name: null,
+      },
     ]);
   });
 
@@ -253,6 +283,9 @@ describe('Same as', () => {
       name: 'Cobalt rod',
       cost_cents: 10000,
       case_count: 10,
+      size_amount: null,
+      size_unit: null,
+      group_name: null,
     });
   });
 
