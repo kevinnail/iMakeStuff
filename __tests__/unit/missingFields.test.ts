@@ -7,9 +7,6 @@ import {
 
 const completePiece = {
   name: 'Flower pendant',
-  finished: false,
-  hasPhoto: false,
-  notes: '',
   countTexts: null,
 };
 
@@ -22,15 +19,6 @@ describe('getPieceMissing', () => {
   // Otherwise a piece named only with spaces would save with no name.
   it('names a blank name as missing', () => {
     expect(getPieceMissing({ ...completePiece, name: '   ' })).toEqual(['name']);
-  });
-
-  // Otherwise a finished piece with no photo or description could be saved and never identified.
-  it('needs a photo or notes once finished, and is satisfied by either', () => {
-    const finished = { ...completePiece, finished: true };
-
-    expect(getPieceMissing({ ...finished, notes: '  ' })).toEqual(['identity']);
-    expect(getPieceMissing({ ...finished, hasPhoto: true })).toEqual([]);
-    expect(getPieceMissing({ ...finished, notes: 'Blue swirl' })).toEqual([]);
   });
 
   // Otherwise counted prep could save with no count, and pieces using it would have nothing to divide its cost by.
@@ -58,16 +46,29 @@ describe('getOverlapMissing', () => {
 describe('getSupplyMissing', () => {
   // Otherwise a supply with a cost the app can't read would save, or a valid one would be refused.
   it('needs a name and a readable cost', () => {
-    expect(getSupplyMissing('Tube', '12.50', null)).toEqual([]);
-    expect(getSupplyMissing('Tube', 'twelve', null)).toEqual(['cost']);
-    expect(getSupplyMissing('', '', null)).toEqual(['name', 'cost']);
+    expect(getSupplyMissing('Tube', '12.50', null, null)).toEqual([]);
+    expect(getSupplyMissing('Tube', 'twelve', null, null)).toEqual(['cost']);
+    expect(getSupplyMissing('', '', null, null)).toEqual(['name', 'cost']);
   });
 
   // Otherwise a case with no count would save as a case of one, priced at the whole case.
   it('needs a count of 1 or more for a case', () => {
-    expect(getSupplyMissing('Tube', '240', '16')).toEqual([]);
-    expect(getSupplyMissing('Tube', '240', '')).toEqual(['caseCount']);
-    expect(getSupplyMissing('Tube', '240', '0')).toEqual(['caseCount']);
+    expect(getSupplyMissing('Tube', '240', '16', null)).toEqual([]);
+    expect(getSupplyMissing('Tube', '240', '', null)).toEqual(['caseCount']);
+    expect(getSupplyMissing('Tube', '240', '0', null)).toEqual(['caseCount']);
+  });
+
+  // Otherwise a supply could save with a size and no unit, or a unit and no size, and its uses couldn't be entered in it.
+  it('names the half of a size that is missing', () => {
+    expect(getSupplyMissing('Rod', '6', null, { amountText: '18', unitText: 'inches' })).toEqual(
+      [],
+    );
+    expect(getSupplyMissing('Rod', '6', null, { amountText: '18', unitText: ' ' })).toEqual([
+      'sizeUnit',
+    ]);
+    expect(getSupplyMissing('Rod', '6', null, { amountText: '0', unitText: 'inches' })).toEqual([
+      'sizeNumber',
+    ]);
   });
 });
 
