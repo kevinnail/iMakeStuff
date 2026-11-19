@@ -108,9 +108,6 @@ export function PieceEditForm({
   const missingFields = useMissingFields(
     getPieceMissing({
       name,
-      finished: piece.finished_at !== null,
-      hasPhoto: shownPhotoUri !== null,
-      notes,
       countTexts: category === 'prep' && prepKind === 'counted' ? countTexts : null,
     }),
   );
@@ -254,17 +251,10 @@ export function PieceEditForm({
           style={styles.notesInput}
           value={notes}
           onChangeText={setNotes}
-          placeholder={
-            piece.finished_at
-              ? getNotesPlaceholder(piece.lost === 1, shownPhotoUri !== null)
-              : 'Notes'
-          }
+          placeholder={getNotesPlaceholder(piece.lost === 1)}
           placeholderTextColor={colors.secondaryText}
           multiline
         />
-        {missingFields.shown.includes('identity') && (
-          <FieldError message={missingMessages.identity} style={styles.cardError} />
-        )}
       </View>
       <View style={styles.section}>
         <Text style={styles.heading}>Time</Text>
