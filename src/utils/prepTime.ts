@@ -170,10 +170,11 @@ export function formatPercent(value: number) {
   return `${Math.round(value * 100)}%`;
 }
 
-// Save as template, until it's tapped: pieces use counted prep through its template, and lost prep
-// can't be used.
-export function defaultsToTemplate(countedPrep: boolean, lost: boolean) {
-  return countedPrep && !lost;
+// Whether Done or Add Work saves it as a template. Counted prep always is unless it was lost, so
+// it gets no Save as template switch: pieces pick counted prep through its template, and lost prep
+// can't be used. Everything else follows the switch.
+export function savesAsTemplate(countedPrep: boolean, lost: boolean, switchOn: boolean) {
+  return countedPrep ? !lost : switchOn;
 }
 
 // A share is a guess while its batch is by eye and isn't all used yet.
