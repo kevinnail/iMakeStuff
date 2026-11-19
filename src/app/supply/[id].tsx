@@ -107,6 +107,16 @@ export default function SupplyScreen() {
             </View>
           </>
         )}
+        {supply.size_amount !== null && (
+          <View style={styles.row}>
+            <Text style={[styles.text, styles.fill]}>
+              {supply.case_count === 1 ? 'Size' : 'Size of each'}
+            </Text>
+            <Text style={styles.value}>
+              {supply.size_amount} {supply.size_unit}
+            </Text>
+          </View>
+        )}
         <View style={styles.row}>
           <Text style={[styles.text, styles.fill]}>Priced</Text>
           <Text style={styles.value}>{formatDay(Date.parse(supply.priced_at))}</Text>
