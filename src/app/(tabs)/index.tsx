@@ -19,7 +19,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { Dropdown } from '@/components/Dropdown';
 import { FinishPiecePanel } from '@/components/FinishPiecePanel';
-import { showQuickStart } from '@/components/FirstRunGuide';
+import { showGuide } from '@/components/FirstRunGuide';
 import { getDeleteMessage } from '@/components/PieceEditForm';
 import { JoinedButtons } from '@/components/JoinedButtons';
 import { RenamePanel } from '@/components/RenamePanel';
@@ -546,6 +546,7 @@ export default function WorkScreen() {
       pieceName={finishing.piece.name}
       category={finishing.piece.category}
       initialLost={finishing.lost}
+      initialNotes={finishing.piece.notes}
       photoUri={
         finishing.cameraPhotoUri ??
         (finishing.piece.photo_file_name ? getPhotoUri(finishing.piece.photo_file_name) : null)
@@ -562,12 +563,13 @@ export default function WorkScreen() {
       laterBatch={finishing.piece.template_counted === 1}
       fromTemplate={finishing.piece.template_id !== null}
       onCancel={() => setFinishing(null)}
-      onSave={(notes, lost, isTemplate, prepUses, supplyUses, size) =>
+      onSave={(notes, lost, rating, isTemplate, prepUses, supplyUses, size) =>
         finish(finishing.piece.id, {
           notes,
           cameraPhotoUri: finishing.cameraPhotoUri,
           savedPhotoFileName: finishing.piece.photo_file_name,
           lost,
+          rating,
           isTemplate,
           prepUses,
           supplyUses,
@@ -588,8 +590,8 @@ export default function WorkScreen() {
         />
         <Pressable
           style={({ pressed }) => [styles.helpButton, pressed && styles.buttonPressed]}
-          onPress={showQuickStart}
-          accessibilityLabel="Show Quick Start"
+          onPress={showGuide}
+          accessibilityLabel="Show the guide"
         >
           <Text style={styles.helpButtonText}>?</Text>
         </Pressable>

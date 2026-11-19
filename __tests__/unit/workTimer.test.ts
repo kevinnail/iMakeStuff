@@ -7,6 +7,7 @@ function piece(overrides: Partial<UnfinishedPiece>): UnfinishedPiece {
     id: 1,
     name: 'Blue vase',
     category: 'piece',
+    notes: null,
     photo_file_name: null,
     template_id: null,
     template_counted: 0,

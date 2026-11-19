@@ -34,7 +34,7 @@ a {
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  padding: 1rem 1.5rem;
+  padding: 0.25rem 1.5rem;
   border-bottom: 1px solid var(--separator);
 }
 
@@ -49,9 +49,14 @@ a {
 }
 
 .brand img {
-  width: 32px;
-  height: 32px;
+  width: 60px;
+  height: 60px;
   border-radius: 8px;
+}
+
+.top-bar-links {
+  display: flex;
+  gap: 1.25rem;
 }
 
 .top-bar-link {

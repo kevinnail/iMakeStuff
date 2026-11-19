@@ -1,5 +1,4 @@
 import {
-  defaultsToTemplate,
   formatAmount,
   formatShare,
   formatUnitAmount,
@@ -9,6 +8,7 @@ import {
   groupByPiece,
   parseAmount,
   rescaleShare,
+  savesAsTemplate,
   type PrepTimeShare,
   type UseShare,
 } from '@/utils/prepTime';
@@ -17,20 +17,21 @@ const hour = 60 * 60 * 1000;
 const minute = 60 * 1000;
 const second = 1000;
 
-describe('defaultsToTemplate', () => {
-  // Otherwise counted prep couldn't be picked by any piece until its page was opened.
-  it('is on for counted prep that came out good', () => {
-    expect(defaultsToTemplate(true, false)).toBe(true);
+describe('savesAsTemplate', () => {
+  // Otherwise counted prep saved with the switch off could never be picked by any piece.
+  it('saves counted prep that came out good as a template, whatever the switch says', () => {
+    expect(savesAsTemplate(true, false, false)).toBe(true);
   });
 
   // Otherwise a cracked batch would be offered on the Work screen as something to make again.
-  it('is off for lost counted prep', () => {
-    expect(defaultsToTemplate(true, true)).toBe(false);
+  it('never saves lost counted prep as a template', () => {
+    expect(savesAsTemplate(true, true, true)).toBe(false);
   });
 
-  // Otherwise every piece and by eye prep would fill the template list.
-  it('is off for anything not counted prep', () => {
-    expect(defaultsToTemplate(false, false)).toBe(false);
+  // Otherwise every piece and by eye prep would fill the template list, or the switch would do nothing.
+  it('follows the switch for anything not counted prep', () => {
+    expect(savesAsTemplate(false, false, false)).toBe(false);
+    expect(savesAsTemplate(false, false, true)).toBe(true);
   });
 });
 

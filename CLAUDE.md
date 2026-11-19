@@ -35,7 +35,7 @@ Every install follows the 2 week rule for the whole dependency tree:
 ## Rules for this app
 
 - **The Work screen is for use mid-work.** Everything needed while working (start, break, done, photo, notes) happens on it with no navigation; forms there are panels that slide up from the bottom. The rest of the app (Pieces, Days) is ordinary navigation, like any other app.
-- **A finished piece is always identifiable.** It needs a photo or a description; the database rejects one with neither.
+- **The name is enough to finish a piece.** A photo and notes are optional, so Done then Save never makes the maker stop working to type.
 - **The timer is timestamps, not a counter.** A running piece is a segment row with `started_at` and no `ended_at`. Elapsed time is computed from the clock, so iOS closing the app loses nothing.
 - **Photos are stored by file name only.** iOS changes the app's folder path on every update, so a stored full path breaks. Store the file name and rebuild the path at use (Crop Planner's `rebaseNoteImageUri` in `src/utils/imageStorage.ts`).
 - **Tests:** integration tests run the real SQL against an in-memory `better-sqlite3` database, the way Crop Planner does. No mocked data layer. Tests live in `__tests__/`, never beside the file they test.

@@ -425,7 +425,8 @@ export async function removePrepUse(useId: number): Promise<void> {
 export async function getSizeUnits(): Promise<string[]> {
   const database = await getDb();
   const rows = await database.getAllAsync<{ size_unit: string }>(
-    `SELECT DISTINCT size_unit FROM pieces WHERE size_unit IS NOT NULL
+    `SELECT size_unit FROM pieces WHERE size_unit IS NOT NULL
+     UNION SELECT size_unit FROM supplies WHERE size_unit IS NOT NULL
      ORDER BY size_unit COLLATE NOCASE`,
   );
   return rows.map((row) => row.size_unit);

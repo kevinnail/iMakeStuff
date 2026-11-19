@@ -38,7 +38,7 @@ import { getAvailableSupplies, type AvailableSupply } from '@/db/queries/supplyQ
 import { colors } from '@/theme';
 import { getOverlapMissing, getPieceMissing, missingMessages } from '@/utils/missingFields';
 import { showPhotoChoices, withSavedPhoto } from '@/utils/photoStorage';
-import { defaultsToTemplate } from '@/utils/prepTime';
+import { savesAsTemplate } from '@/utils/prepTime';
 import { showError } from '@/utils/showError';
 
 // A category starts an empty new piece or prep; existing fills one in from a template.
@@ -78,8 +78,7 @@ export default function AddWorkScreen() {
   );
   const [finishing, setFinishing] = useState(false);
   const [lost, setLost] = useState(false);
-  // null until the switch is tapped.
-  const [templateChoice, setTemplateChoice] = useState<boolean | null>(null);
+  const [templateChoice, setTemplateChoice] = useState(false);
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   // The photo's own shape once it loads, so it shows whole, the way the piece's page shows it.
   const [photoAspectRatio, setPhotoAspectRatio] = useState(3 / 4);
@@ -95,8 +94,8 @@ export default function AddWorkScreen() {
 
   // A batch of a counted prep's template: the template knows its count, prep, and supplies.
   const laterBatch = category === 'prep' && template !== null && template.size_amount !== null;
-  const saveAsTemplate =
-    templateChoice ?? defaultsToTemplate(category === 'prep' && prepKind === 'counted', lost);
+  const countedPrep = category === 'prep' && prepKind === 'counted';
+  const saveAsTemplate = savesAsTemplate(countedPrep, lost, templateChoice);
   // Past work can't overlap anything.
   const overlap = overlaps.at(0);
   const templateOptions = templates.map((option) => ({
@@ -109,9 +108,6 @@ export default function AddWorkScreen() {
   const missingFields = useMissingFields([
     ...getPieceMissing({
       name,
-      finished: finishing,
-      hasPhoto: photoUri !== null,
-      notes,
       countTexts: category === 'prep' && !laterBatch && prepKind === 'counted' ? countTexts : null,
     }),
     ...getOverlapMissing(overlap !== undefined),
@@ -147,7 +143,7 @@ export default function AddWorkScreen() {
     setMissingSupplies([]);
     setPrepKind('counted');
     setCountTexts({ amountText: '', unitText: '' });
-    setTemplateChoice(null);
+    setTemplateChoice(false);
     if (value !== 'existing') setCategory(value);
   }
 
@@ -355,14 +351,11 @@ export default function AddWorkScreen() {
                   style={styles.notesInput}
                   value={notes}
                   onChangeText={setNotes}
-                  placeholder={getNotesPlaceholder(lost, photoUri !== null)}
+                  placeholder={getNotesPlaceholder(lost)}
                   placeholderTextColor={colors.secondaryText}
                   multiline
                 />
-                {missingFields.shown.includes('identity') && (
-                  <FieldError message={missingMessages.identity} style={styles.cardError} />
-                )}
-                {template === null && (
+                {template === null && !countedPrep && (
                   <View style={[styles.cardRow, styles.separator]}>
                     <Text style={[styles.text, styles.fill]}>Save as template</Text>
                     <Switch

@@ -64,9 +64,6 @@ export function NewPrepPanel({ endsAt = yesterdayAt(10), onCancel, onSaved }: Ne
   const missingFields = useMissingFields([
     ...getPieceMissing({
       name,
-      finished: true,
-      hasPhoto: photoUri !== null,
-      notes,
       countTexts: prepKind === 'counted' ? countTexts : null,
     }),
     ...getOverlapMissing(overlap !== undefined),
@@ -205,20 +202,13 @@ export function NewPrepPanel({ endsAt = yesterdayAt(10), onCancel, onSaved }: Ne
             </Pressable>
             {photoUri && <Image source={{ uri: photoUri }} style={styles.photo} />}
             <TextInput
-              style={[
-                styles.input,
-                styles.notesInput,
-                missingFields.shown.includes('identity') && styles.missingInput,
-              ]}
+              style={[styles.input, styles.notesInput]}
               value={notes}
               onChangeText={setNotes}
-              placeholder={photoUri ? 'Notes' : 'No photo: describe it.'}
+              placeholder="Notes"
               placeholderTextColor={colors.secondaryText}
               multiline
             />
-            {missingFields.shown.includes('identity') && (
-              <FieldError message={missingMessages.identity} />
-            )}
           </ScrollView>
           <SafeAreaView edges={{ bottom: 'additive' }} style={styles.footer}>
             <View style={styles.buttonRow}>

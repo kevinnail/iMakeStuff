@@ -10,7 +10,7 @@ import { SwipeRow } from '@/components/SwipeRow';
 import { TableBox } from '@/components/TableBox';
 import { Tag } from '@/components/Tag';
 import { getPieces, type PieceListItem } from '@/db/queries/pieceQueries';
-import { useGuideStore, useGuideTarget, type GuideTarget } from '@/store/guideStore';
+import { useGuideStore, useGuideTarget } from '@/store/guideStore';
 import { useWorkStore } from '@/store/workStore';
 import { formatCost } from '@/utils/cost';
 import { formatDay, formatDuration } from '@/utils/formatTime';
@@ -19,10 +19,6 @@ import { getPhotoUri } from '@/utils/photoStorage';
 import { showError } from '@/utils/showError';
 
 type Section = 'work' | 'prep';
-
-// The guide's two steps on the Add Work button show it under the section each is about: blue for
-// pieces, green for prep.
-const guideSections: Partial<Record<GuideTarget, Section>> = { addWork: 'work', addPrep: 'prep' };
 
 type PieceFilter = 'all' | 'unfinished' | 'finished' | 'lost';
 
@@ -49,7 +45,7 @@ function PrepLeft({ prep }: { prep: PieceListItem }) {
 
 // A piece as one box: its photo, a title row with its name and date, and a table of Worked,
 // Prep, and Cost. Every piece has all three columns so they line up down the list; one with no
-// prep or cost shows " - " there.
+// prep or cost shows " - " there, except a finished piece with no cost, whose cell says so.
 function PieceTable({ piece }: { piece: PieceListItem }) {
   const columns = [
     { label: 'Worked', value: formatDuration(piece.worked_milliseconds) },
@@ -59,7 +55,13 @@ function PieceTable({ piece }: { piece: PieceListItem }) {
     },
     {
       label: piece.cost_estimated ? 'Cost, est.' : 'Cost',
-      value: piece.cost_cents === null ? ' - ' : formatCost(piece.cost_cents),
+      value:
+        piece.no_cost === 1
+          ? 'No cost'
+          : piece.cost_cents === null
+            ? ' - '
+            : formatCost(piece.cost_cents),
+      warning: piece.no_cost === 1,
     },
   ];
 
@@ -67,12 +69,7 @@ function PieceTable({ piece }: { piece: PieceListItem }) {
   return (
     <TableBox
       title={piece.name}
-      tags={
-        <>
-          {piece.lost === 1 && <Tag label="Lost" />}
-          {piece.no_cost === 1 && <Tag label="No cost" warning />}
-        </>
-      }
+      tags={piece.lost === 1 && <Tag label="Lost" />}
       titleNote={piece.finished_at ? formatDay(Date.parse(piece.finished_at)) : 'Unfinished'}
       columns={columns}
       photo={{ uri: piece.photo_file_name ? getPhotoUri(piece.photo_file_name) : null }}
@@ -82,10 +79,9 @@ function PieceTable({ piece }: { piece: PieceListItem }) {
 
 export default function PiecesScreen() {
   const { ref: suppliesRef, measure: measureSupplies } = useGuideTarget('supplies');
-  const { ref: addWorkRef, measure: measureAddWork } = useGuideTarget('addWork', 'addPrep');
-  const guideSection = useGuideStore((state) =>
-    state.target ? guideSections[state.target] : undefined,
-  );
+  const { ref: addWorkRef, measure: measureAddWork } = useGuideTarget('addWork');
+  // The guide's step on the Add Work button shows it under Work, in the blue of pieces.
+  const guideSection = useGuideStore((state) => (state.target === 'addWork' ? 'work' : undefined));
   // Through the Work store, so deleting the running piece also clears it from the Lock Screen.
   const remove = useWorkStore((state) => state.remove);
   const [pieces, setPieces] = useState<PieceListItem[]>([]);

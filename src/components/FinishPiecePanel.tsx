@@ -22,22 +22,25 @@ import {
   readPrepCount,
   type PrepKind,
 } from '@/components/CountField';
-import { FieldError, useMissingFields } from '@/components/FieldError';
+import { useMissingFields } from '@/components/FieldError';
 import { LostButton } from '@/components/LostButton';
 import { NewPrepPanel } from '@/components/NewPrepPanel';
+import { StarRating } from '@/components/StarRating';
 import { UseChoices, type MissingUse } from '@/components/UseChoices';
 import type { AvailableItem, UseChoice } from '@/components/UsePanel';
 import type { PieceCategory } from '@/db/queries/pieceQueries';
 import type { FinishPrepUse } from '@/db/queries/prepQueries';
 import type { FinishSupplyUse } from '@/db/queries/supplyQueries';
 import { colors } from '@/theme';
-import { getPieceMissing, missingMessages } from '@/utils/missingFields';
-import { defaultsToTemplate, type BatchSize, type SizeInput } from '@/utils/prepTime';
+import { getPieceMissing } from '@/utils/missingFields';
+import { savesAsTemplate, type BatchSize, type SizeInput } from '@/utils/prepTime';
 
 interface FinishPiecePanelProps {
   pieceName: string;
   category: PieceCategory;
   initialLost: boolean;
+  // A piece worked on again keeps the notes it had.
+  initialNotes: string | null;
   photoUri: string | null;
   // Opens the camera. Not passed when the piece already has a photo from mid-work.
   onTakePhoto?: () => void;
@@ -50,7 +53,7 @@ interface FinishPiecePanelProps {
   // Prep's count so far, from its template if it has one.
   initialSize: BatchSize;
   // A batch of a counted prep's template: the template knows its count, prep, and supplies, so
-  // Done asks only for a photo or notes.
+  // Done asks for none of them.
   laterBatch: boolean;
   // Started from a template, so Save as template isn't offered.
   fromTemplate: boolean;
@@ -58,6 +61,7 @@ interface FinishPiecePanelProps {
   onSave: (
     notes: string | null,
     lost: boolean,
+    rating: number | null,
     isTemplate: boolean,
     prepUses: FinishPrepUse[],
     supplyUses: FinishSupplyUse[],
@@ -65,17 +69,16 @@ interface FinishPiecePanelProps {
   ) => Promise<void>;
 }
 
-export function getNotesPlaceholder(lost: boolean, hasPhoto: boolean) {
-  if (lost) return hasPhoto ? 'What happened?' : 'No photo: what happened?';
-  return hasPhoto ? 'Notes' : 'No photo: describe the piece.';
+export function getNotesPlaceholder(lost: boolean) {
+  return lost ? 'What happened?' : 'Notes';
 }
 
-// Slides up on Done, with Take photo when the piece has none. Without a photo the notes are
-// required, so a finished piece can always be identified later.
+// Slides up on Done, with Take photo when the piece has none.
 export function FinishPiecePanel({
   pieceName,
   category,
   initialLost,
+  initialNotes,
   photoUri,
   onTakePhoto,
   availablePrep,
@@ -91,7 +94,8 @@ export function FinishPiecePanel({
   onSave,
 }: FinishPiecePanelProps) {
   const [lost, setLost] = useState(initialLost);
-  const [notes, setNotes] = useState('');
+  const [rating, setRating] = useState<number | null>(null);
+  const [notes, setNotes] = useState(initialNotes ?? '');
   const [chosenPrep, setChosenPrep] = useState(initialPrep);
   const [chosenSupplies, setChosenSupplies] = useState(initialSupplies);
   // New prep starts counted. A batch of a by eye template stays by eye.
@@ -99,21 +103,19 @@ export function FinishPiecePanel({
     fromTemplate ? getPrepKind(initialSize) : 'counted',
   );
   const [countTexts, setCountTexts] = useState(() => getCountTexts(initialSize));
-  // null until the switch is tapped.
-  const [templateChoice, setTemplateChoice] = useState<boolean | null>(null);
+  const [templateChoice, setTemplateChoice] = useState(false);
   const [showingPhoto, setShowingPhoto] = useState(false);
   const finishingPrep = category === 'prep';
-  const saveAsTemplate =
-    templateChoice ?? defaultsToTemplate(finishingPrep && prepKind === 'counted', lost);
+  // Only a good piece gets stars: a lost one isn't output, and prep shows in the pieces using it.
+  const grading = !finishingPrep && !lost;
+  const countedPrep = finishingPrep && prepKind === 'counted';
+  const saveAsTemplate = savesAsTemplate(countedPrep, lost, templateChoice);
   const [saving, setSaving] = useState(false);
   const trimmedNotes = notes.trim();
   const countsPrep = finishingPrep && !laterBatch;
   const missingFields = useMissingFields(
     getPieceMissing({
       name: pieceName,
-      finished: true,
-      hasPhoto: photoUri !== null,
-      notes,
       countTexts: countsPrep && prepKind === 'counted' ? countTexts : null,
     }),
   );
@@ -140,6 +142,7 @@ export function FinishPiecePanel({
     onSave(
       trimmedNotes || null,
       lost,
+      grading ? rating : null,
       !fromTemplate && saveAsTemplate,
       prepUses,
       supplyUses,
@@ -179,6 +182,7 @@ export function FinishPiecePanel({
                 </Pressable>
               )}
             </View>
+            {grading && <StarRating rating={rating} onChange={setRating} />}
             {/* Right under the name: what a piece's cost is divided from. */}
             {countsPrep && (
               <PrepKindField
@@ -190,21 +194,15 @@ export function FinishPiecePanel({
               />
             )}
             <TextInput
-              style={[
-                styles.notesInput,
-                missingFields.shown.includes('identity') && styles.missingInput,
-              ]}
+              style={styles.notesInput}
               value={notes}
               onChangeText={setNotes}
-              placeholder={getNotesPlaceholder(lost, photoUri !== null)}
+              placeholder={getNotesPlaceholder(lost)}
               placeholderTextColor={colors.secondaryText}
               multiline
               returnKeyType="done"
               submitBehavior="blurAndSubmit"
             />
-            {missingFields.shown.includes('identity') && (
-              <FieldError message={missingMessages.identity} />
-            )}
             {!laterBatch && (
               <UseChoices
                 kind="prep"
@@ -229,10 +227,9 @@ export function FinishPiecePanel({
               />
             )}
           </ScrollView>
-          {/* In the footer with Save, so it's never scrolled out of sight. Darker than the
-              part that scrolls, so it's clear where that part ends. */}
+
           <SafeAreaView edges={{ bottom: 'additive' }} style={styles.footer}>
-            {!fromTemplate && (
+            {!fromTemplate && !countedPrep && (
               <View style={styles.switchRow}>
                 <Text style={styles.switchLabel}>Save as template</Text>
                 <Switch
@@ -348,9 +345,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.separator,
     borderRadius: 8,
-  },
-  missingInput: {
-    borderColor: colors.danger,
   },
   useCard: {
     backgroundColor: colors.background,

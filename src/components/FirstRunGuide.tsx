@@ -29,8 +29,6 @@ const arrowWidth = 150;
 const arrowLabelPadding = 20;
 const arrowLabelLineHeight = 20;
 const arrowPointHeight = 34;
-// A labeled arrow's height, kept clear under the panel when every tab has an arrow.
-const labeledArrowHeight = arrowLabelPadding * 2 + arrowLabelLineHeight + arrowPointHeight;
 // How far apart the tab bar's buttons are, as a share of the screen width. iOS draws the tab bar
 // as a pill in the middle, narrower than the screen, and React Native can't measure it, so this is
 // measured off the phone (2026-11-07).
@@ -81,70 +79,43 @@ interface GuideStep {
   title: string;
   // One string per paragraph, or a definition of one of the app's words.
   body: (string | Definition)[];
-  // Shown under the paragraphs: the Quick Start map, or how a cost adds up.
-  extra?: 'map' | 'diagram';
-  // An arrow at every tab, for the step that names them.
-  pointsAtTabs?: true;
-  // The panel sits away from the outlined button, and never at the bottom, where it would cover
-  // the tab bar.
-  panelAt: 'top' | 'middle';
+  // Shown under the paragraphs: how a cost adds up.
+  extra?: 'diagram';
 }
 
-// What to do and where, then each of those on its own tab, then what it gets you. The last step
-// is on the Work tab, so the guide ends where work starts.
+// Timing work first, on the Work tab where the app opens, then supplies for cost and Add Work for
+// time that wasn't timed, each on its own tab, then what it gets you. Every step outlines the
+// button it's about and names it, except the last. The last step is on the Work tab, so the guide
+// ends where work starts.
 const guideSteps: GuideStep[] = [
   {
     tabIndex: 0,
-    target: null,
-    title: 'Quick Start',
+    target: 'start',
+    title: 'Time your work',
     body: [
-      'Navigation: the Work tab, Pieces tab, and Days tab.',
-      'Keeping track of your cost per piece depends on you doing these three things, in this order:',
+      "Type what you're making and tap Start. This is where you'll spend most of your time.",
+      'Pick Piece or Prep above it first:',
+      { term: 'Piece', meaning: 'your final product.' },
+      { term: 'Prep', meaning: 'parts you make ahead that go into your final products.' },
+      "Tap Done when it's made. That's where you add the prep and supplies it used, and new ones can be added right there.",
     ],
-    extra: 'map',
-    pointsAtTabs: true,
-    panelAt: 'top',
   },
   {
     tabIndex: 1,
     target: 'supplies',
-    title: 'Start with supplies',
+    title: 'Add your supplies',
     body: [
-      'Add your smallest priced unit of supplies on the Pieces tab. This is your one setup step: without it, nothing can show a cost.',
-      'Add what you bought and what it cost, like a $40 board, a $30 bag of clay, or a $15 tube of glass.',
+      'Supplies give your pieces a cost. Tap Supplies, then Add supply, and enter what you bought and what it cost, like a $40 board, a $30 bag of clay, or a $15 tube of glass.',
+      'Bought by length or weight, like an 18 inch rod? Give it a size with Used by length or weight, and a piece can use 3 inches of it.',
     ],
-    panelAt: 'middle',
-  },
-  {
-    tabIndex: 1,
-    target: 'addPrep',
-    title: 'Then add your prep',
-    body: [
-      'Have prep already made? Add it on the Pieces tab: tap Prep, then the green Add Work button, with the supplies it used and the times you made it.',
-      'No prep on hand? Skip ahead to timing your work.',
-    ],
-    panelAt: 'middle',
-  },
-  {
-    tabIndex: 0,
-    target: 'start',
-    title: 'Then time your work',
-    body: [
-      "This is where you'll spend most of your time, timing prep and pieces.",
-      { term: 'Piece', meaning: 'your final product.' },
-      { term: 'Prep', meaning: 'parts you make ahead that go into your final products.' },
-      "Tap Done when it's made: that's where you add the prep and supplies it used.",
-    ],
-    panelAt: 'middle',
   },
   {
     tabIndex: 1,
     target: 'addWork',
-    title: 'Manual Work Entry',
+    title: 'Add Work',
     body: [
-      'If you forget to use the app to track your time, you can use the Add Work feature to catch up afterward on the Pieces tab or the Days tab, with the date & times it really took.',
+      "Forgot to start the clock? Tap Add Work to add it afterward, with the date and times it really took. It's on the Days tab too.",
     ],
-    panelAt: 'middle',
   },
   {
     tabIndex: 0,
@@ -152,32 +123,8 @@ const guideSteps: GuideStep[] = [
     title: 'How it adds up',
     body: ['Each one feeds the next.'],
     extra: 'diagram',
-    panelAt: 'middle',
   },
 ];
-
-const quickStartMap = [
-  { action: 'Add your supplies', where: 'On the Pieces tab. Once, and when you buy more.' },
-  { action: 'Tap Start', where: 'On the Work tab. Every time you work.' },
-  { action: "Tap Done when it's made", where: 'And add the prep and supplies it used.' },
-];
-
-// What to do, where, and how often, numbered in the order to do it.
-function QuickStartMap() {
-  return (
-    <View style={styles.map}>
-      {quickStartMap.map(({ action, where }, index) => (
-        <View key={action} style={styles.mapRow}>
-          <Text style={styles.mapNumber}>{index + 1}</Text>
-          <View style={styles.fill}>
-            <Text style={styles.mapAction}>{action}</Text>
-            <GuideText text={where} />
-          </View>
-        </View>
-      ))}
-    </View>
-  );
-}
 
 type Scenario = 'withSupplies' | 'noSupplies';
 
@@ -273,55 +220,20 @@ function CostDiagram() {
   );
 }
 
-// Points down at a tab, just above the tab bar, with a label over the point when it has one. The
-// tabs are centered on the screen, tabSpacing apart.
-function TabArrow({ tabIndex, label }: { tabIndex: number; label?: string }) {
+// Points down at a tab, just above the tab bar, with a label over the point. The tabs are centered
+// on the screen, tabSpacing apart.
+function TabArrow({ tabIndex, label }: { tabIndex: number; label: string }) {
   const tabBarHeight = useGuideStore((state) => state.tabBarHeight);
   const { width } = useWindowDimensions();
   const tabMiddle = width / 2 + (tabIndex - (tabs.length - 1) / 2) * tabSpacing * width;
 
   return (
     <View style={[styles.tabArrow, { bottom: tabBarHeight, left: tabMiddle - arrowWidth / 2 }]}>
-      {label && (
-        <View style={styles.tabArrowLabelBox}>
-          <Text style={styles.tabArrowLabel}>{label}</Text>
-        </View>
-      )}
+      <View style={styles.tabArrowLabelBox}>
+        <Text style={styles.tabArrowLabel}>{label}</Text>
+      </View>
       <Text style={styles.tabArrowPoint}>↓</Text>
     </View>
-  );
-}
-
-// How far the Main tabs box reaches past the outer two arrows on each side.
-const mainTabsBoxOverhang = 40;
-
-// An arrow at every tab under one box spanning all of them, so it reads as naming the three
-// together rather than as the one-tab box on the steps after it. The middle tab is the screen's
-// middle.
-function MainTabsArrows() {
-  const tabBarHeight = useGuideStore((state) => state.tabBarHeight);
-  const { width } = useWindowDimensions();
-  const boxWidth = (tabs.length - 1) * tabSpacing * width + mainTabsBoxOverhang * 2;
-
-  return (
-    <>
-      <View
-        style={[
-          styles.tabArrowLabelBox,
-          styles.mainTabsBox,
-          {
-            bottom: tabBarHeight + arrowPointHeight,
-            left: (width - boxWidth) / 2,
-            width: boxWidth,
-          },
-        ]}
-      >
-        <Text style={styles.tabArrowLabel}>Tabs</Text>
-      </View>
-      {tabs.map((tab, index) => (
-        <TabArrow key={tab.name} tabIndex={index} />
-      ))}
-    </>
   );
 }
 
@@ -388,7 +300,7 @@ function showStep(index: number) {
 }
 
 // The Work tab's ? button: the guide again from its first step, for anyone who skipped it.
-export function showQuickStart() {
+export function showGuide() {
   showStep(0);
 }
 
@@ -430,20 +342,14 @@ export function FirstRunGuide() {
   return (
     <Modal visible transparent animationType="fade" onRequestClose={close}>
       <View style={styles.overlay}>
-        {/* On the step that points at the tabs, it stops at the tab bar, so the tabs are the one
-            bright thing on the screen. */}
-        <View style={[styles.dim, step.pointsAtTabs && { bottom: tabBarHeight }]} />
+        <View style={styles.dim} />
         {targetFrame && <GuideHighlight frame={targetFrame} />}
         {/* Kept below the status bar and above the tab bar, whose height includes the bottom of
             the screen. */}
         <View
           style={[
             styles.panelArea,
-            {
-              paddingTop: topInset + 16,
-              paddingBottom: tabBarHeight + 16 + (step.pointsAtTabs ? labeledArrowHeight : 0),
-            },
-            step.panelAt === 'top' ? styles.atTop : styles.atMiddle,
+            { paddingTop: topInset + 16, paddingBottom: tabBarHeight + 16 },
           ]}
         >
           <View style={styles.panel}>
@@ -465,7 +371,6 @@ export function FirstRunGuide() {
                   <DefinitionLine key={paragraph.term} {...paragraph} />
                 ),
               )}
-              {step.extra === 'map' && <QuickStartMap />}
               {step.extra === 'diagram' && <CostDiagram />}
             </ScrollView>
             <View style={styles.buttonRow}>
@@ -490,7 +395,6 @@ export function FirstRunGuide() {
         {step.target && (
           <TabArrow tabIndex={step.tabIndex} label={`${tabs[step.tabIndex].name} tab`} />
         )}
-        {step.pointsAtTabs && <MainTabsArrows />}
       </View>
     </Modal>
   );
@@ -513,15 +417,11 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderColor: colors.warning,
   },
+  // The panel in the middle: below the buttons near the top of Work and Pieces, and clear of the
+  // tab bar on any phone. Never at the bottom, where it would cover the tab bar.
   panelArea: {
     flex: 1,
     padding: 16,
-  },
-  atTop: {
-    justifyContent: 'flex-start',
-  },
-  // Below the buttons near the top of Work and Pieces, and clear of the tab bar on any phone.
-  atMiddle: {
     justifyContent: 'center',
   },
   // Shrinks to the room there is, and its middle scrolls.
@@ -573,26 +473,6 @@ const styles = StyleSheet.create({
   tabName: {
     fontWeight: '700',
     color: colors.primary,
-  },
-  map: {
-    gap: 12,
-  },
-  mapRow: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  mapNumber: {
-    width: 20,
-    fontSize: 20,
-    lineHeight: 24,
-    fontWeight: '600',
-    color: colors.primary,
-  },
-  mapAction: {
-    fontSize: 18,
-    lineHeight: 24,
-    fontWeight: '600',
-    color: colors.text,
   },
   diagram: {
     gap: 12,
@@ -682,9 +562,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
     boxShadow: `0px 0px 16px ${colors.warning}`,
     width: arrowWidth,
-  },
-  mainTabsBox: {
-    position: 'absolute',
   },
   tabArrowLabel: {
     fontSize: 18,

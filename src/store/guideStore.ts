@@ -4,7 +4,7 @@ import type { HostInstance } from 'react-native';
 import { create } from 'zustand';
 
 // A button the first-run guide points at. Its screen reports where it is, and the guide outlines it.
-export type GuideTarget = 'supplies' | 'start' | 'addWork' | 'addPrep';
+export type GuideTarget = 'supplies' | 'start' | 'addWork';
 
 // Where the target is on screen.
 export interface TargetFrame {

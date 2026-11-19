@@ -12,11 +12,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Dropdown } from '@/components/Dropdown';
 import { FieldError, useMissingFields } from '@/components/FieldError';
+import { SupplyFilter } from '@/components/SupplyFilter';
 import { SupplyPanel } from '@/components/SupplyPanel';
 import type { PieceCategory } from '@/db/queries/pieceQueries';
 import { getAvailablePrep, getPrepPrice, type PartPrice } from '@/db/queries/prepQueries';
 import {
   addSupply,
+  getAvailableSupplies,
   updateSupply,
   type SupplyDetails,
   type SupplyRecord,
@@ -26,6 +28,7 @@ import { formatCost, formatSupplyPrice } from '@/utils/cost';
 import { formatDay, formatDuration } from '@/utils/formatTime';
 import { getUseMissing, missingMessages } from '@/utils/missingFields';
 import { showError } from '@/utils/showError';
+import { allSuppliesKey, filterSupplies, type GroupKey } from '@/utils/supplyFilter';
 import {
   formatAmount,
   formatPercent,
@@ -72,15 +75,27 @@ export interface AvailableItem extends BatchSize {
   used_share?: number;
   // Prep only: true while a by eye prep behind a counted prep is open.
   cost_estimated?: boolean;
+  // Supply only: what it's listed under, or null with none.
+  group_name?: string | null;
 }
 
 // Beside each one in the list: how much of a by eye prep is assigned, a counted part's price, or
 // a supply's price.
-function getPickerDetail({ used_share, size_amount, cost_cents, cost_estimated }: AvailableItem) {
+function getPickerDetail({
+  used_share,
+  size_amount,
+  size_unit,
+  cost_cents,
+  cost_estimated,
+}: AvailableItem) {
   if (size_amount === null && used_share !== undefined)
     return `${formatPercent(used_share)} assigned`;
   if (cost_cents === null) return undefined;
   if (size_amount === null) return formatCost(cost_cents);
+  // A supply with a size: the cost of one and its size, since a price per inch would round away.
+  if (used_share === undefined && size_unit !== null) {
+    return `${formatCost(cost_cents)} for ${size_amount} ${size_unit}`;
+  }
   const each = `${formatCost(Math.round(cost_cents / size_amount))} each`;
   return cost_estimated ? `${each}, estimated` : each;
 }
@@ -175,7 +190,18 @@ export function UsePanel({
   const [addingItem, setAddingItem] = useState(false);
   const [price, setPrice] = useState<PartPrice | null>(null);
   const [repricing, setRepricing] = useState<SupplyRecord | null>(null);
+  const [groupKey, setGroupKey] = useState<GroupKey>(allSuppliesKey);
+  const [searchText, setSearchText] = useState('');
   const emptyList = items !== null && items.length === 0;
+  // A supply list narrows by group and name. The one picked stays in it, so the list always shows
+  // what's picked, including a supply just added that the filter leaves out.
+  const chosenAvailable = items?.find((item) => item.id === chosenItem?.id);
+  const filteredItems =
+    items && kind === 'supply' ? filterSupplies(items, groupKey, searchText) : items;
+  const shownItems =
+    filteredItems && chosenAvailable && !filteredItems.includes(chosenAvailable)
+      ? [chosenAvailable, ...filteredItems]
+      : filteredItems;
   const sizeAmount = chosenItem?.size_amount ?? null;
   const sizeUnit = chosenItem?.size_unit ?? null;
   // A saved use keeps the price it was saved with, so only a new counted prep shows today's.
@@ -244,15 +270,11 @@ export function UsePanel({
     choose(item);
   }
 
+  // Read back as the list reads it, so its size and price of one come from the same SQL.
   async function saveNewSupply(details: SupplyDetails, sameAsId: number | null) {
     const id = await addSupply(details, sameAsId);
-    keepNewItem({
-      id,
-      name: details.name,
-      size_amount: details.caseCount > 1 ? 1 : null,
-      size_unit: null,
-      cost_cents: Math.round(details.costCents / details.caseCount),
-    });
+    const available = await getAvailableSupplies(null);
+    keepNewItem(available.find((supply) => supply.id === id)!);
   }
 
   // The new price goes on everything priced from that supply, here and in the form's list.
@@ -278,9 +300,21 @@ export function UsePanel({
               <Text style={styles.secondaryText}>{labels.noneToUseHelp}</Text>
             </>
           )}
-          {items && items.length > 0 && (
+          {items && items.length > 0 && kind === 'supply' && (
+            <SupplyFilter
+              supplies={items}
+              groupKey={groupKey}
+              onChangeGroup={setGroupKey}
+              searchText={searchText}
+              onChangeSearch={setSearchText}
+            />
+          )}
+          {!emptyList && shownItems?.length === 0 && (
+            <Text style={styles.secondaryText}>No supplies match.</Text>
+          )}
+          {shownItems && shownItems.length > 0 && (
             <Dropdown
-              options={items.map((item) => ({
+              options={shownItems.map((item) => ({
                 key: item.id,
                 label: item.name,
                 detail: getPickerDetail(item),

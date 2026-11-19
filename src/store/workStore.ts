@@ -22,6 +22,7 @@ import {
   getTemplates,
   getUnfinishedPieces,
   renamePiece,
+  reopenPiece,
   setPiecePhoto,
   setPieceTemplate,
   startFromTemplate,
@@ -45,6 +46,7 @@ interface FinishInput extends SizeInput {
   cameraPhotoUri: string | null;
   savedPhotoFileName: string | null;
   lost: boolean;
+  rating: number | null;
   isTemplate: boolean;
   prepUses: FinishPrepUse[];
   supplyUses: FinishSupplyUse[];
@@ -66,6 +68,8 @@ interface WorkState {
   addPhoto: (piece: UnfinishedPiece, cameraPhotoUri: string) => Promise<void>;
   finish: (pieceId: number, input: FinishInput) => Promise<void>;
   remove: (pieceId: number) => Promise<void>;
+  // From a finished piece's page.
+  workAgain: (pieceId: number) => Promise<void>;
   rename: (pieceId: number, name: string) => Promise<void>;
   removeTemplate: (templateId: number) => Promise<void>;
   takeBreak: () => Promise<void>;
@@ -136,6 +140,7 @@ export const useWorkStore = create<WorkState>()((set) => ({
       cameraPhotoUri,
       savedPhotoFileName,
       lost,
+      rating,
       isTemplate,
       prepUses,
       supplyUses,
@@ -150,6 +155,7 @@ export const useWorkStore = create<WorkState>()((set) => ({
         notes,
         photoFileName: photoFileName ?? savedPhotoFileName,
         lost,
+        rating,
         isTemplate,
         prepUses,
         supplyUses,
@@ -159,6 +165,10 @@ export const useWorkStore = create<WorkState>()((set) => ({
     );
     // A new template is offered under the name box right away.
     if (isTemplate) set({ templates: await getTemplates() });
+    await showWork(set);
+  },
+  workAgain: async (pieceId) => {
+    await reopenPiece(pieceId);
     await showWork(set);
   },
   remove: async (pieceId) => {

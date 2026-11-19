@@ -52,8 +52,10 @@ export const SCHEMA_SQL = `
     -- it. By eye prep has none.
     size_amount     REAL,
     size_unit       TEXT,
-    -- A finished piece must be identifiable later: it needs a photo or a description.
-    CHECK (finished_at IS NULL OR photo_file_name IS NOT NULL OR trim(coalesce(notes, '')) <> ''),
+    -- How well it was made, 1 to 5 stars, never required. Only a finished piece that wasn't lost
+    -- gets one: a lost piece isn't output, and prep shows in the pieces that use it.
+    rating          INTEGER CHECK (rating IS NULL OR (rating BETWEEN 1 AND 5
+      AND finished_at IS NOT NULL AND lost = 0 AND category = 'piece')),
     CHECK (used_up_at IS NULL OR category = 'prep'),
     CHECK (lost = 0 OR finished_at IS NOT NULL),
     CHECK (is_template = 0 OR finished_at IS NOT NULL),
@@ -129,7 +131,14 @@ export const SCHEMA_SQL = `
     -- The first supply of its kind, picked with Same as, so a template's line for a rod that's
     -- all used fills in the newest open rod of its kind. Null on the first one. Not a reference:
     -- the kind stays together when its first supply is deleted.
-    kind_id     INTEGER
+    kind_id     INTEGER,
+    -- The size of one in the maker's own unit, like a rod of 18 inches or a bag of 1000 g, so uses
+    -- are entered in it. Both or neither; a supply with none is used by count or share.
+    size_amount REAL CHECK (size_amount IS NULL OR size_amount > 0),
+    size_unit TEXT CHECK ((size_unit IS NULL) = (size_amount IS NULL)
+      AND (size_unit IS NULL OR trim(size_unit) <> '')),
+    -- What it's listed under, like Color rods or Clear tubing. Null when it has none.
+    group_name TEXT CHECK (group_name IS NULL OR trim(group_name) <> '')
   );
 
   -- How many of a supply a piece or prep took, as entered: 1/4 of a tube, or 3 rods from a case

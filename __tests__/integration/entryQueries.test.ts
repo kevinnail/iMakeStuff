@@ -407,30 +407,6 @@ describe('addPastWork', () => {
     ).toEqual([{ lost: 1, finished_at: endedAt }]);
   });
 
-  // Otherwise a finished piece could be saved with nothing to identify it.
-  it('rejects finishing with neither a photo nor notes and saves nothing', async () => {
-    await expect(
-      addPastWork({
-        piece: {
-          name: 'Red cup',
-          category: 'piece',
-          templateId: null,
-          sizeAmount: null,
-          sizeUnit: null,
-        },
-        startedAt,
-        endedAt,
-        photoFileName: null,
-        finish: { notes: null, lost: false, isTemplate: false },
-        supplyUses: [],
-        prepUses: [],
-      }),
-    ).rejects.toThrow(/CHECK constraint/);
-
-    expect(await database.getAllAsync("SELECT id FROM pieces WHERE name = 'Red cup'")).toEqual([]);
-    expect(await database.getAllAsync(segmentsSql)).toEqual([]);
-  });
-
   // Otherwise past work could end before it starts and count negative time.
   it('rejects an end before its start and saves nothing', async () => {
     await expect(
@@ -519,7 +495,14 @@ describe('addPastWork', () => {
 
   // Otherwise prep added from New prep would have no cost, and neither would the pieces using it.
   it("lists new prep saved with a whole supply at that supply's cost", async () => {
-    const tubeId = await addSupply({ name: 'Clear tube', costCents: 1500, caseCount: 1 });
+    const tubeId = await addSupply({
+      name: 'Clear tube',
+      costCents: 1500,
+      caseCount: 1,
+      sizeAmount: null,
+      sizeUnit: null,
+      groupName: null,
+    });
 
     const pointsId = await addPastWork({
       piece: {
@@ -542,7 +525,14 @@ describe('addPastWork', () => {
 
   // Otherwise a supply's price could go on only one prep, and the next prep made from it would be refused.
   it('saves new prep with a supply another prep already took whole', async () => {
-    const tubeId = await addSupply({ name: 'Clear tube', costCents: 1500, caseCount: 1 });
+    const tubeId = await addSupply({
+      name: 'Clear tube',
+      costCents: 1500,
+      caseCount: 1,
+      sizeAmount: null,
+      sizeUnit: null,
+      groupName: null,
+    });
     const wholeTube = [{ supplyId: tubeId, share: { share_numerator: 1, share_denominator: 1 } }];
     const newPrep = (name: string, times: { startedAt: string; endedAt: string }) => ({
       ...times,
