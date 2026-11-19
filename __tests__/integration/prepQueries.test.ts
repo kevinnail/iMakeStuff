@@ -193,6 +193,19 @@ describe('getSizeUnits', () => {
 
     expect(await getSizeUnits()).toEqual(['Chips', 'points']);
   });
+
+  // Otherwise a supply's unit, like inches, would have to be typed again for the next supply or prep.
+  it('lists supply units with prep units, each once', async () => {
+    await database.execAsync(`
+      INSERT INTO pieces (name, category, size_amount, size_unit) VALUES ('Latticino', 'prep', 8, 'points');
+      INSERT INTO supplies (name, cost_cents, size_amount, size_unit) VALUES
+        ('Cobalt rod', 600, 18, 'inches'),
+        ('Clear rod', 500, 18, 'inches'),
+        ('Frit bag', 2000, 1000, 'points');
+    `);
+
+    expect(await getSizeUnits()).toEqual(['inches', 'points']);
+  });
 });
 
 describe('addPrepUse', () => {
