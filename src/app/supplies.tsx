@@ -3,6 +3,7 @@ import { useCallback, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Chevron } from '@/components/Chevron';
+import { SupplyFilter } from '@/components/SupplyFilter';
 import { SupplyPanel } from '@/components/SupplyPanel';
 import {
   addSupply,
@@ -14,14 +15,27 @@ import { colors } from '@/theme';
 import { formatCost, formatSupplyPrice } from '@/utils/cost';
 import { formatDay } from '@/utils/formatTime';
 import { showError } from '@/utils/showError';
+import {
+  allSuppliesKey,
+  filterSupplies,
+  keepOfferedGroup,
+  type GroupKey,
+} from '@/utils/supplyFilter';
 
-// Every supply with the day it was priced and its cost. Add supply in the header; a row opens the
-// supply's page.
+// Every supply with the day it was priced and its cost, each in its own box, narrowed by group and
+// name. Add supply in the header; a box opens the supply's page.
 export default function SuppliesScreen() {
   const [supplies, setSupplies] = useState<SupplyRecord[]>([]);
   const [adding, setAdding] = useState(false);
+  const [groupKey, setGroupKey] = useState<GroupKey>(allSuppliesKey);
+  const [searchText, setSearchText] = useState('');
+  const shownSupplies = filterSupplies(supplies, groupKey, searchText);
 
-  const load = useCallback(() => getSupplies().then(setSupplies), []);
+  const load = useCallback(async () => {
+    const freshSupplies = await getSupplies();
+    setSupplies(freshSupplies);
+    setGroupKey((current) => keepOfferedGroup(freshSupplies, current));
+  }, []);
 
   // Reloads every time the list is shown, so a change on a supply's page shows on going back.
   useFocusEffect(
@@ -51,12 +65,28 @@ export default function SuppliesScreen() {
         }}
       />
       <FlatList
-        data={supplies}
+        data={shownSupplies}
         keyExtractor={(supply) => String(supply.id)}
         contentInsetAdjustmentBehavior="automatic"
         contentContainerStyle={styles.list}
-        ItemSeparatorComponent={() => <View style={styles.separator} />}
-        ListEmptyComponent={<Text style={styles.detailText}>No supplies yet.</Text>}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        ListHeaderComponent={
+          supplies.length > 0 ? (
+            <SupplyFilter
+              supplies={supplies}
+              groupKey={groupKey}
+              onChangeGroup={setGroupKey}
+              searchText={searchText}
+              onChangeSearch={setSearchText}
+            />
+          ) : undefined
+        }
+        ListEmptyComponent={
+          <Text style={styles.detailText}>
+            {supplies.length === 0 ? 'No supplies yet.' : 'No supplies match.'}
+          </Text>
+        }
         renderItem={({ item: supply }) => (
           <Pressable
             style={({ pressed }) => [styles.row, pressed && styles.buttonPressed]}
@@ -94,17 +124,16 @@ export default function SuppliesScreen() {
 const styles = StyleSheet.create({
   list: {
     padding: 16,
-    gap: 12,
+    gap: 8,
   },
-  separator: {
-    height: StyleSheet.hairlineWidth,
-    marginTop: 12,
-    backgroundColor: colors.separator,
-  },
+  // Each supply in its own shaded box, so it reads as one thing on the page.
   row: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: colors.surface,
   },
   details: {
     flex: 1,
