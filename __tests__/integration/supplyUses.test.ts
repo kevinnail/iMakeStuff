@@ -14,6 +14,7 @@ import {
   getAvailableSupplies,
   getSupply,
   removeSupplyUse,
+  updateSupply,
 } from '@/db/queries/supplyQueries';
 import { addPrepUse, addSupplyUse } from '@/db/queries/prepQueries';
 import { formatAmount, parseAmount } from '@/utils/prepTime';
@@ -76,8 +77,22 @@ beforeEach(async () => {
   database = createTestDb();
   (getDb as jest.Mock).mockResolvedValue(database);
   await database.execAsync(fixturesSql);
-  tubeId = await addSupply({ name: '5 ft tube', costCents: 4000, caseCount: 1 });
-  bailId = await addSupply({ name: 'Silver bail', costCents: 300, caseCount: 1 });
+  tubeId = await addSupply({
+    name: '5 ft tube',
+    costCents: 4000,
+    caseCount: 1,
+    sizeAmount: null,
+    sizeUnit: null,
+    groupName: null,
+  });
+  bailId = await addSupply({
+    name: 'Silver bail',
+    costCents: 300,
+    caseCount: 1,
+    sizeAmount: null,
+    sizeUnit: null,
+    groupName: null,
+  });
 });
 
 describe('finishPiece with supplies', () => {
@@ -255,7 +270,14 @@ describe('cost', () => {
 describe('bought by the case', () => {
   // Otherwise a piece using one tube from a case would carry the whole case.
   it('gives a whole tube from a $240 case of 16 $15.00', async () => {
-    const caseId = await addSupply({ name: 'Clear tube', costCents: 24000, caseCount: 16 });
+    const caseId = await addSupply({
+      name: 'Clear tube',
+      costCents: 24000,
+      caseCount: 16,
+      sizeAmount: null,
+      sizeUnit: null,
+      groupName: null,
+    });
 
     await addSupplyUse(vaseId, supplyUse(caseId, 1, 1));
 
@@ -264,7 +286,14 @@ describe('bought by the case', () => {
 
   // Otherwise a share of a rod from a case would be a share of the whole case.
   it('gives a piece at 1/4 of a rod from a $100 case of 10 $2.50', async () => {
-    const caseId = await addSupply({ name: 'Cobalt rod', costCents: 10000, caseCount: 10 });
+    const caseId = await addSupply({
+      name: 'Cobalt rod',
+      costCents: 10000,
+      caseCount: 10,
+      sizeAmount: null,
+      sizeUnit: null,
+      groupName: null,
+    });
 
     await addSupplyUse(vaseId, supplyUse(caseId, 1, 4));
 
@@ -273,7 +302,14 @@ describe('bought by the case', () => {
 
   // Otherwise a case that doesn't divide evenly would lose or add a fraction of a cent per line.
   it('prices a tube from $250 for 16 at $15.63, in the picker and on the piece', async () => {
-    const caseId = await addSupply({ name: 'Clear tube', costCents: 25000, caseCount: 16 });
+    const caseId = await addSupply({
+      name: 'Clear tube',
+      costCents: 25000,
+      caseCount: 16,
+      sizeAmount: null,
+      sizeUnit: null,
+      groupName: null,
+    });
 
     await addSupplyUse(vaseId, supplyUse(caseId, 1, 1));
 
@@ -285,7 +321,14 @@ describe('bought by the case', () => {
 
   // Otherwise "3" rods from a case would be read as 3% of one rod.
   it('lists a case to be entered as a count, and a supply bought singly as a share', async () => {
-    const caseId = await addSupply({ name: 'Cobalt rod', costCents: 24000, caseCount: 400 });
+    const caseId = await addSupply({
+      name: 'Cobalt rod',
+      costCents: 24000,
+      caseCount: 400,
+      sizeAmount: null,
+      sizeUnit: null,
+      groupName: null,
+    });
 
     const available = await getAvailableSupplies(vaseId);
 
@@ -302,7 +345,14 @@ describe('bought by the case', () => {
 
   // Otherwise a piece using 3 rods from a case could only take part of one.
   it('gives a piece 3 rods from a $240 case of 400 $1.80, shown as 3', async () => {
-    const caseId = await addSupply({ name: 'Cobalt rod', costCents: 24000, caseCount: 400 });
+    const caseId = await addSupply({
+      name: 'Cobalt rod',
+      costCents: 24000,
+      caseCount: 400,
+      sizeAmount: null,
+      sizeUnit: null,
+      groupName: null,
+    });
     const [rod] = (await getAvailableSupplies(vaseId)).filter((supply) => supply.id === caseId);
 
     await addSupplyUse(vaseId, { supplyId: caseId, share: parseAmount('3', rod.size_amount)! });
@@ -322,9 +372,16 @@ describe('bought by the case', () => {
 
   // Otherwise a case of 0 would divide by zero and give every piece using it no real cost.
   it('rejects a case count of 0', async () => {
-    await expect(addSupply({ name: 'Clear tube', costCents: 24000, caseCount: 0 })).rejects.toThrow(
-      /CHECK constraint/,
-    );
+    await expect(
+      addSupply({
+        name: 'Clear tube',
+        costCents: 24000,
+        caseCount: 0,
+        sizeAmount: null,
+        sizeUnit: null,
+        groupName: null,
+      }),
+    ).rejects.toThrow(/CHECK constraint/);
   });
 });
 
@@ -363,5 +420,59 @@ describe('deleting', () => {
     await deletePiece(vaseId);
 
     expect(await getSupply(tubeId)).toMatchObject({ piece_count: 1 });
+  });
+});
+
+describe('by size', () => {
+  // A case of 10 rods for $60, each rod 18 inches.
+  const rodCase = {
+    name: 'Cobalt rod',
+    costCents: 6000,
+    caseCount: 10,
+    sizeAmount: 18,
+    sizeUnit: 'inches',
+    groupName: null,
+  };
+
+  // Otherwise 3 inches of a rod would be read as 3 rods, or 3% of one.
+  it('gives a piece 3 inches of an 18 inch $6.00 rod at $1.00, shown as 3 inches', async () => {
+    const rodId = await addSupply(rodCase);
+
+    await addSupplyUse(vaseId, { supplyId: rodId, share: parseAmount('3', 18)! });
+
+    expect(await getCostOf(vaseId)).toEqual({ cents: 100, estimated: false });
+    const [use] = (await getPieceDetail(vaseId))!.usedSupplies;
+    expect(formatAmount(use, use)).toBe('3 inches');
+  });
+
+  // Otherwise the use panel would ask for a count of rods instead of inches.
+  it('lists a supply with a size to be entered in its unit', async () => {
+    const rodId = await addSupply(rodCase);
+
+    expect(
+      (await getAvailableSupplies(vaseId)).find((supply) => supply.id === rodId),
+    ).toMatchObject({ size_amount: 18, size_unit: 'inches', cost_cents: 600 });
+  });
+
+  // Otherwise correcting a rod's length would change how many inches every piece used.
+  it('keeps each use at the inches entered when the size is corrected', async () => {
+    const rodId = await addSupply(rodCase);
+    await addSupplyUse(vaseId, { supplyId: rodId, share: parseAmount('3', 18)! });
+
+    await updateSupply(rodId, { ...rodCase, sizeAmount: 20 });
+
+    const [use] = (await getPieceDetail(vaseId))!.usedSupplies;
+    expect(formatAmount(use, use)).toBe('3 inches');
+    expect(await getCostOf(vaseId)).toEqual({ cents: 90, estimated: false });
+  });
+
+  // Otherwise a supply could save with half a size, and its uses couldn't be entered in it.
+  it.each([
+    ['a size with no unit', { sizeAmount: 18, sizeUnit: null }],
+    ['a unit with no size', { sizeAmount: null, sizeUnit: 'inches' }],
+    ['a size of 0', { sizeAmount: 0, sizeUnit: 'inches' }],
+    ['a blank unit', { sizeAmount: 18, sizeUnit: '  ' }],
+  ])('refuses %s', async (_case, size) => {
+    await expect(addSupply({ ...rodCase, ...size })).rejects.toThrow(/CHECK constraint/);
   });
 });
