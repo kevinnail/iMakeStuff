@@ -105,8 +105,22 @@ beforeEach(async () => {
   database = createTestDb();
   (getDb as jest.Mock).mockResolvedValue(database);
   await database.execAsync(fixturesSql);
-  tubeId = await addSupply({ name: '30 mm tube', costCents: 1500, caseCount: 1 });
-  fritBagId = await addSupply({ name: 'Frit, blue', costCents: 1000, caseCount: 1 });
+  tubeId = await addSupply({
+    name: '30 mm tube',
+    costCents: 1500,
+    caseCount: 1,
+    sizeAmount: null,
+    sizeUnit: null,
+    groupName: null,
+  });
+  fritBagId = await addSupply({
+    name: 'Frit, blue',
+    costCents: 1000,
+    caseCount: 1,
+    sizeAmount: null,
+    sizeUnit: null,
+    groupName: null,
+  });
   await finishPiece(pointsId, {
     ...finish,
     isTemplate: true,
@@ -225,7 +239,14 @@ describe('counted prep made from prep', () => {
     });
     await addPrepUse(vaseId, { prepId: beadsId, share: parseAmount('1', 10)! });
 
-    await updateSupply(tubeId, { name: '30 mm tube', costCents: 3000, caseCount: 1 });
+    await updateSupply(tubeId, {
+      name: '30 mm tube',
+      costCents: 3000,
+      caseCount: 1,
+      sizeAmount: null,
+      sizeUnit: null,
+      groupName: null,
+    });
 
     expect(await getSavedCost(vaseId, beadsId)).toBe(375);
     expect(await getListed(vaseId)).toMatchObject({ cost_cents: 38, cost_estimated: false });
@@ -243,7 +264,14 @@ describe("saving a counted use's cost", () => {
     expect(await getSavedCost(vaseId, beadsId)).toBeNull();
 
     await addSupplyUse(beadsId, { supplyId: tubeId, share: whole });
-    await updateSupply(tubeId, { name: '30 mm tube', costCents: 3000, caseCount: 1 });
+    await updateSupply(tubeId, {
+      name: '30 mm tube',
+      costCents: 3000,
+      caseCount: 1,
+      sizeAmount: null,
+      sizeUnit: null,
+      groupName: null,
+    });
 
     expect(await getSavedCost(vaseId, beadsId)).toBe(1500);
     expect(await getListed(vaseId)).toMatchObject({ cost_cents: 150, cost_estimated: false });
@@ -305,7 +333,14 @@ describe('a by eye prep behind other prep', () => {
     expect(await getSavedCost(vaseId, beadsId)).toBe(1000);
     expect(await getListed(vaseId)).toMatchObject({ cost_cents: 100, cost_estimated: false });
 
-    await updateSupply(fritBagId, { name: 'Frit, blue', costCents: 2000, caseCount: 1 });
+    await updateSupply(fritBagId, {
+      name: 'Frit, blue',
+      costCents: 2000,
+      caseCount: 1,
+      sizeAmount: null,
+      sizeUnit: null,
+      groupName: null,
+    });
 
     expect(await getListed(vaseId)).toMatchObject({ cost_cents: 100 });
 
