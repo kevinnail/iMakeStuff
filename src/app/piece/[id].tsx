@@ -8,6 +8,7 @@ import { EntryTimesPanel } from '@/components/EntryTimesPanel';
 import { NewPrepPanel } from '@/components/NewPrepPanel';
 import { PieceEditForm } from '@/components/PieceEditForm';
 import { AssignedBar } from '@/components/AssignedBar';
+import { StarRating } from '@/components/StarRating';
 import { TableBox, type TableColumn } from '@/components/TableBox';
 import { Tag } from '@/components/Tag';
 import {
@@ -18,9 +19,11 @@ import {
   type UseKind,
 } from '@/components/UsePanel';
 import { addPieceTime } from '@/db/queries/entryQueries';
+import { useWorkStore } from '@/store/workStore';
 import {
   getPieceDetail,
   setPieceLost,
+  setPieceRating,
   setPieceTemplate,
   type PieceCategory,
   type PieceRecord,
@@ -118,10 +121,10 @@ interface UsedByProps {
 
 type DayField = 'worked' | 'otherPieces' | 'onBreak';
 
-const dayColumns: { label: string; field: DayField; width: number }[] = [
-  { label: 'Worked', field: 'worked', width: 76 },
-  { label: 'Break', field: 'onBreak', width: 60 },
-  { label: 'Other pieces', field: 'otherPieces', width: 124 },
+const dayColumns: { label: string; field: DayField }[] = [
+  { label: 'Worked', field: 'worked' },
+  { label: 'Break', field: 'onBreak' },
+  { label: 'Other pieces', field: 'otherPieces' },
 ];
 
 function sumDays(days: WorkDay[], field: DayField) {
@@ -191,28 +194,40 @@ function Totals({ days, prepTime, cost, tag, noCost }: TotalsProps) {
   );
 }
 
-// One line per day, so a piece worked over many days still fits on one screen.
+// One line per day, so a piece worked over many days still fits on one screen. Built column by
+// column, so each column is as wide as its widest text and no cell wraps. The Day column also
+// takes any width left over.
 function DayTable({ days }: { days: WorkDay[] }) {
   return (
     <Card>
-      <View style={styles.row}>
-        <Text style={[styles.secondaryText, styles.fill]}>Day</Text>
-        {dayColumns.map(({ label, width }) => (
-          <Text key={label} style={[styles.secondaryText, styles.numberColumn, { width }]}>
-            {label}
-          </Text>
-        ))}
-      </View>
-      {days.map((day) => (
-        <View key={day.dayStart} style={styles.row}>
-          <Text style={[styles.tableValue, styles.fill]}>{formatDay(day.dayStart)}</Text>
-          {dayColumns.map(({ field, width }) => (
-            <Text key={field} style={[styles.tableValue, styles.numberColumn, { width }]}>
-              {formatDuration(day[field])}
+      <View style={styles.dayTable}>
+        <View style={styles.dayColumn}>
+          <Text style={[styles.secondaryText, styles.tableCell]}>Day</Text>
+          {days.map((day) => (
+            <Text
+              key={day.dayStart}
+              style={[styles.tableValue, styles.tableCell, styles.tableLine]}
+            >
+              {formatDay(day.dayStart)}
             </Text>
           ))}
         </View>
-      ))}
+        {dayColumns.map(({ label, field }) => (
+          <View key={field}>
+            <Text style={[styles.secondaryText, styles.tableCell, styles.durationCell]}>
+              {label}
+            </Text>
+            {days.map((day) => (
+              <Text
+                key={day.dayStart}
+                style={[styles.tableValue, styles.tableCell, styles.durationCell, styles.tableLine]}
+              >
+                {formatDuration(day[field])}
+              </Text>
+            ))}
+          </View>
+        ))}
+      </View>
     </Card>
   );
 }
@@ -375,6 +390,8 @@ function UsedBy({ usedBy, usedUp, size }: UsedByProps) {
 export default function PieceScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const pieceId = Number(id);
+  // Through the Work store, so the piece shows on Work and the Lock Screen right away.
+  const workAgain = useWorkStore((state) => state.workAgain);
   // undefined while loading, null when no piece has this id.
   const [page, setPage] = useState<PiecePage | null>();
   const [photoAspectRatio, setPhotoAspectRatio] = useState(3 / 4);
@@ -496,8 +513,18 @@ export default function PieceScreen() {
     setPieceLost(piece.id, lost).then(load).catch(showError('Could not save the piece'));
   }
 
+  function setRating(rating: number | null) {
+    setPieceRating(piece.id, rating).then(load).catch(showError('Could not save the piece'));
+  }
+
   function setTemplate(isTemplate: boolean) {
     setPieceTemplate(piece.id, isTemplate).then(load).catch(showError('Could not save the piece'));
+  }
+
+  function startWorkingAgain() {
+    workAgain(piece.id)
+      .then(() => router.navigate('/'))
+      .catch(showError('Could not start the piece'));
   }
 
   function setUsedUp(value: boolean) {
@@ -571,7 +598,8 @@ export default function PieceScreen() {
         </Card>
       )}
       {/* The rows that change the piece: a finished by eye prep's All used and how much of it
-          is assigned, a finished piece's switches, then Add time. */}
+          is assigned, a good piece's grade, a finished piece's switches, Work on it again, then
+          Add time. */}
       <Card>
         {finishedByEyePrep && (
           <View style={styles.row}>
@@ -591,6 +619,12 @@ export default function PieceScreen() {
             <View style={styles.fill}>
               <AssignedBar usedShare={usedShare} usedUp={usedUp} />
             </View>
+          </View>
+        )}
+        {piece.finished_at && piece.category === 'piece' && !piece.lost && (
+          <View style={styles.row}>
+            <Text style={[styles.text, styles.fill]}>Grade</Text>
+            <StarRating rating={piece.rating} onChange={setRating} />
           </View>
         )}
         {piece.finished_at && (
@@ -617,6 +651,15 @@ export default function PieceScreen() {
               trackColor={{ true: colors.primary }}
             />
           </View>
+        )}
+        {piece.finished_at && piece.category === 'piece' && piece.is_template === 0 && (
+          <Pressable
+            style={({ pressed }) => [styles.row, pressed && styles.buttonPressed]}
+            onPress={startWorkingAgain}
+          >
+            <Text style={[styles.text, styles.fill]}>Work on it again</Text>
+            <Chevron />
+          </Pressable>
         )}
         <Pressable
           style={({ pressed }) => [styles.row, pressed && styles.buttonPressed]}
@@ -793,5 +836,25 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontVariant: ['tabular-nums'],
     color: colors.text,
+  },
+  dayTable: {
+    flexDirection: 'row',
+  },
+  // Never narrower than its widest date (flexShrink stays at its default of 0).
+  dayColumn: {
+    flexGrow: 1,
+  },
+  tableCell: {
+    paddingVertical: 12,
+  },
+  // The space before a duration column sits inside its cells, so the lines between days run
+  // unbroken across the table.
+  durationCell: {
+    paddingLeft: 12,
+    textAlign: 'right',
+  },
+  tableLine: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.separator,
   },
 });
