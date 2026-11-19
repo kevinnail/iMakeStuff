@@ -6,6 +6,8 @@ import { colors } from '@/theme';
 export interface TableColumn {
   label: string;
   value: string;
+  // A value that marks the record as missing something, like No cost, in the warning color.
+  warning?: boolean;
 }
 
 interface TableBoxProps {
@@ -45,10 +47,10 @@ export function TableBox({ title, tags, titleNote, columns, photo }: TableBoxPro
           )}
         </View>
         <View style={styles.columns}>
-          {columns.map(({ label, value }, index) => (
+          {columns.map(({ label, value, warning }, index) => (
             <View key={label} style={[styles.column, index > 0 && styles.columnLine]}>
               <Text style={styles.label}>{label}</Text>
-              <Text style={styles.value}>{value}</Text>
+              <Text style={[styles.value, warning && styles.valueWarning]}>{value}</Text>
             </View>
           ))}
         </View>
@@ -88,19 +90,20 @@ const styles = StyleSheet.create({
   },
   title: {
     flexShrink: 1,
-    fontSize: 20,
+    fontSize: 16,
     fontWeight: '600',
     color: colors.text,
   },
   // At the right end of the title row, at its full width.
   titleNote: {
     marginLeft: 'auto',
-    fontSize: 16,
+    fontSize: 14,
+    fontWeight: '600',
     color: colors.text,
   },
   titleNoteUnfinished: {
     marginLeft: 'auto',
-    fontSize: 16,
+    fontSize: 14,
     color: colors.warning,
   },
   columns: {
@@ -126,8 +129,11 @@ const styles = StyleSheet.create({
   },
   value: {
     paddingVertical: 2,
-    fontSize: 16,
+    fontSize: 14,
     fontVariant: ['tabular-nums'],
-    color: colors.text,
+    color: colors.secondaryText,
+  },
+  valueWarning: {
+    color: colors.warning,
   },
 });
