@@ -57,7 +57,14 @@ const finish = {
   supplyUses: [],
 };
 
-const tube = { name: '32.7 × 4 tube', costCents: 1500, caseCount: 1 };
+const tube = {
+  name: '32.7 × 4 tube',
+  costCents: 1500,
+  caseCount: 1,
+  sizeAmount: null,
+  sizeUnit: null,
+  groupName: null,
+};
 
 let tubeId: number;
 
@@ -233,7 +240,14 @@ describe('counted prep in Add prep', () => {
 });
 
 describe('counted prep made with part of a supply', () => {
-  const rod = { name: 'Rod', costCents: 4000, caseCount: 1 };
+  const rod = {
+    name: 'Rod',
+    costCents: 4000,
+    caseCount: 1,
+    sizeAmount: null,
+    sizeUnit: null,
+    groupName: null,
+  };
   const cutId = 5;
   let rodId: number;
 
@@ -293,7 +307,14 @@ describe('Delete supply counts', () => {
 
   // Otherwise the confirmation would leave out a piece that used a supply directly.
   it('counts a piece using the supply directly', async () => {
-    const bailId = await addSupply({ name: 'Silver bail', costCents: 300, caseCount: 1 });
+    const bailId = await addSupply({
+      name: 'Silver bail',
+      costCents: 300,
+      caseCount: 1,
+      sizeAmount: null,
+      sizeUnit: null,
+      groupName: null,
+    });
     await addSupplyUse(pendantId, { supplyId: bailId, share: parseAmount('100')! });
 
     expect(await getSupply(bailId)).toMatchObject({ prep_count: 0, piece_count: 1 });
