@@ -15,6 +15,7 @@ import {
 import {
   getUsedSupplies,
   insertSupplyUse,
+  rescaleUses,
   type FinishSupplyUse,
   type UsedSupply,
 } from '@/db/queries/supplyQueries';
@@ -23,7 +24,6 @@ import { getCost } from '@/utils/cost';
 import {
   getPrepTime,
   groupByPiece,
-  rescaleShare,
   type BatchSize,
   type Share,
   type SizeInput,
@@ -36,9 +36,12 @@ export interface UnfinishedPiece extends BatchSize {
   id: number;
   name: string;
   category: PieceCategory;
+  // Set on a piece being worked on again, so its Done starts from them.
+  notes: string | null;
   photo_file_name: string | null;
   template_id: number | null;
-  // 1 for a batch of a counted prep that's still a template, whose Done needs only a photo or notes.
+  // 1 for a batch of a counted prep that's still a template, whose Done doesn't ask for its count,
+  // prep, or supplies.
   template_counted: number;
   worked_milliseconds: number;
   running_since: string | null;
@@ -79,6 +82,7 @@ export interface PieceRecord extends BatchSize {
   finished_at: string | null;
   used_up_at: string | null;
   lost: number;
+  rating: number | null;
   is_template: number;
   // 1 for a batch of a counted prep's template, which knows its prep and supplies.
   template_counted: number;
@@ -115,6 +119,8 @@ export interface FinishDetails extends SizeInput {
   notes: string | null;
   photoFileName: string | null;
   lost: boolean;
+  // 1 to 5 stars, or left out for none.
+  rating?: number | null;
   // Save as template, at Done.
   isTemplate: boolean;
   // Every prep and supply the piece ends up with. Uses already on it that aren't listed are removed.
@@ -193,6 +199,26 @@ export async function switchToPiece(pieceId: number): Promise<void> {
   await database.withTransactionAsync(() => startSegment(database, pieceId, startedAt));
 }
 
+// Work on it again, from a finished piece's page: it goes back to unfinished and starts running now.
+// Its time, notes, photo, and uses stay, so its next Done starts from them. It's no longer lost and
+// its grade comes off, since only a finished piece has either. Pieces only: prep's time and cost
+// reach the pieces that use it. Not a template, which pieces are made from.
+export async function reopenPiece(pieceId: number): Promise<void> {
+  const database = await getDb();
+  const startedAt = new Date().toISOString();
+  await database.withTransactionAsync(async () => {
+    const result = await database.runAsync(
+      `UPDATE pieces SET finished_at = NULL, lost = 0, rating = NULL
+       WHERE id = ? AND finished_at IS NOT NULL AND category = 'piece' AND is_template = 0`,
+      pieceId,
+    );
+    if (result.changes === 0) {
+      throw new Error("Only a finished piece that isn't a template can be worked on again.");
+    }
+    await startSegment(database, pieceId, startedAt);
+  });
+}
+
 export async function endDay(): Promise<void> {
   const database = await getDb();
   const endedAt = new Date().toISOString();
@@ -239,6 +265,7 @@ export async function finishPiece(
     notes,
     photoFileName,
     lost,
+    rating = null,
     isTemplate,
     prepUses,
     supplyUses,
@@ -254,13 +281,14 @@ export async function finishPiece(
       pieceId,
     );
     const result = await database.runAsync(
-      `UPDATE pieces SET finished_at = ?, notes = ?, photo_file_name = ?, lost = ?, is_template = ?,
-         size_amount = ?, size_unit = ?
+      `UPDATE pieces SET finished_at = ?, notes = ?, photo_file_name = ?, lost = ?, rating = ?,
+         is_template = ?, size_amount = ?, size_unit = ?
        WHERE id = ? AND finished_at IS NULL`,
       endedAt,
       notes,
       photoFileName,
       lost ? 1 : 0,
+      rating,
       isTemplate ? 1 : 0,
       sizeAmount,
       sizeUnit,
@@ -275,29 +303,6 @@ export async function finishPiece(
     );
     await saveCountedCosts(database);
   });
-}
-
-// A counted prep's count corrected after it was used: each use keeps the parts it entered (1 point
-// stays 1 point), so its share is worked out again against the new count.
-async function rescaleUses(
-  database: SQLiteDatabase,
-  prepId: number,
-  oldCount: number,
-  newCount: number,
-) {
-  const uses = await database.getAllAsync<Share & { id: number }>(
-    'SELECT id, share_numerator, share_denominator FROM prep_uses WHERE prep_id = ?',
-    prepId,
-  );
-  for (const use of uses) {
-    const share = rescaleShare(use, oldCount, newCount);
-    await database.runAsync(
-      'UPDATE prep_uses SET share_numerator = ?, share_denominator = ? WHERE id = ?',
-      share.share_numerator,
-      share.share_denominator,
-      use.id,
-    );
-  }
 }
 
 // Counted or By eye can't change once a piece has used the prep, since its uses were saved as one
@@ -326,9 +331,10 @@ export async function updatePiece(pieceId: number, changes: PieceChanges): Promi
     ) {
       throw new Error("Counted or By eye can't change once a piece used it.");
     }
+    // Prep has no grade, so a piece that becomes prep loses its own.
     await database.runAsync(
       `UPDATE pieces SET name = ?, category = ?, notes = ?, photo_file_name = ?, size_amount = ?,
-         size_unit = ?
+         size_unit = ?, rating = CASE WHEN ? = 'piece' THEN rating END
        WHERE id = ?`,
       changes.name,
       changes.category,
@@ -336,12 +342,13 @@ export async function updatePiece(pieceId: number, changes: PieceChanges): Promi
       changes.photoFileName,
       changes.sizeAmount,
       changes.sizeUnit,
+      changes.category,
       pieceId,
     );
     const { size_amount: oldCount } = current;
     const newCount = changes.sizeAmount;
     if (oldCount !== null && newCount !== null && newCount !== oldCount) {
-      await rescaleUses(database, pieceId, oldCount, newCount);
+      await rescaleUses(database, 'prep', pieceId, oldCount, newCount);
     }
   });
 }
@@ -390,15 +397,27 @@ export async function setPiecePhoto(pieceId: number, photoFileName: string | nul
   if (result.changes === 0) throw new Error('That piece no longer exists.');
 }
 
-// For a crack found after Done, or a wrong tap. Only a finished piece can be lost.
+// For a crack found after Done, or a wrong tap. Only a finished piece can be lost. A lost piece has
+// no grade, so its grade goes either way: it's taken off going lost, and a piece going good was lost.
 export async function setPieceLost(pieceId: number, lost: boolean): Promise<void> {
   const database = await getDb();
   const result = await database.runAsync(
-    'UPDATE pieces SET lost = ? WHERE id = ? AND finished_at IS NOT NULL',
+    'UPDATE pieces SET lost = ?, rating = NULL WHERE id = ? AND finished_at IS NOT NULL',
     lost ? 1 : 0,
     pieceId,
   );
   if (result.changes === 0) throw new Error('Only a finished piece can be marked lost or good.');
+}
+
+// From the piece's page. The schema refuses a grade on a piece that's unfinished, lost, or prep.
+export async function setPieceRating(pieceId: number, rating: number | null): Promise<void> {
+  const database = await getDb();
+  const result = await database.runAsync(
+    'UPDATE pieces SET rating = ? WHERE id = ?',
+    rating,
+    pieceId,
+  );
+  if (result.changes === 0) throw new Error('That piece no longer exists.');
 }
 
 export async function setPieceTemplate(pieceId: number, isTemplate: boolean): Promise<void> {
@@ -428,8 +447,8 @@ export async function getTemplates(): Promise<Template[]> {
 export async function getUnfinishedPieces(): Promise<UnfinishedPiece[]> {
   const database = await getDb();
   return database.getAllAsync<UnfinishedPiece>(
-    `SELECT pieces.id, pieces.name, pieces.category, pieces.photo_file_name, pieces.template_id,
-       pieces.size_amount, pieces.size_unit, ${templateCountedSql} AS template_counted,
+    `SELECT pieces.id, pieces.name, pieces.category, pieces.notes, pieces.photo_file_name,
+       pieces.template_id, pieces.size_amount, pieces.size_unit, ${templateCountedSql} AS template_counted,
        round(total(julianday(work_segments.ended_at) - julianday(work_segments.started_at))
          * 86400000) AS worked_milliseconds,
        max(CASE WHEN work_segments.ended_at IS NULL THEN work_segments.started_at END)
@@ -492,7 +511,7 @@ export async function getPieces(): Promise<PieceListItem[]> {
 export async function getPieceDetail(pieceId: number): Promise<PieceDetail | null> {
   const database = await getDb();
   const piece = await database.getFirstAsync<PieceRecord>(
-    `SELECT id, name, category, notes, photo_file_name, finished_at, used_up_at, lost,
+    `SELECT id, name, category, notes, photo_file_name, finished_at, used_up_at, lost, rating,
        is_template, size_amount, size_unit, ${templateCountedSql} AS template_counted,
        ${noCostSql} AS no_cost
      FROM pieces WHERE id = ?`,
