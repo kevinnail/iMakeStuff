@@ -439,12 +439,16 @@ export default function PieceScreen() {
   // Only prep has a count.
   const partCount = piece.size_amount;
   const finishedByEyePrep = finishedPrep && partCount === null;
-  const usedShare = usedBy.reduce((total, use) => total + getShareValue(use), 0);
+  // A run's shares are exact prices, so they aren't assigned. On a by eye prep, those are the
+  // measured ones.
+  const usedShare = usedBy
+    .filter((use) => !use.measured)
+    .reduce((total, use) => total + getShareValue(use), 0);
   // Every use carries whether its uses have closed the prep, so the page follows the same rule.
   const usedUp = piece.used_up_at !== null || usedBy.some((use) => use.used_up === 1);
 
-  // A counted prep's share is exact, so it needs no mark. A by eye one is a guess until it's all
-  // used, then shows what it really took.
+  // A counted prep's share is exact, and so is a run's, so it needs no mark. A by eye one is a
+  // guess until it's all used, then shows what it really took.
   const prepLines = prepTime.lines.map((line, index): UseLine => {
     const costLine = cost.prepLines[index];
     const item = {
@@ -453,16 +457,18 @@ export default function PieceScreen() {
       size_amount: line.size_amount,
       size_unit: line.size_unit,
     };
-    const byEye = !line.measured;
+    const guessed = !line.measured;
     return {
       use: line,
       item,
-      note: byEye ? (line.used_up ? 'Actual' : 'Estimated') : undefined,
+      note: guessed ? (line.used_up ? 'Actual' : 'Estimated') : undefined,
       columns: [
         {
           label: 'Used',
           value:
-            byEye && line.used_up ? formatPercent(getActualShare(line)) : formatAmount(line, item),
+            guessed && line.used_up
+              ? formatPercent(getActualShare(line))
+              : formatAmount(line, item),
         },
         { label: 'Time', value: formatDuration(line.milliseconds) },
         { label: 'Cost', value: costLine.hasSupplies ? formatCost(costLine.cents) : ' - ' },

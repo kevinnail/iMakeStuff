@@ -9,7 +9,7 @@ import {
   type NewSupplyUse,
   type SupplyRecord,
 } from '@/db/queries/supplyQueries';
-import { behindSql, prepUsedUpSql, shareSql, wholeUseSql } from '@/db/schema';
+import { behindSql, prepUsedUpSql, runUseSql, shareSql, wholeUseSql } from '@/db/schema';
 import { getCost } from '@/utils/cost';
 import {
   getTotalTime,
@@ -32,7 +32,7 @@ export interface FinishPrepUse extends NewPrepUse {
 export interface AvailablePrep extends BatchSize {
   id: number;
   name: string;
-  // Every piece's share of it added together, 1 being all of it.
+  // Every piece's share of it outside a run added together, 1 being all of it.
   used_share: number;
   // A counted prep's whole cost as it is now. Null for by eye prep, which the picker doesn't price,
   // or with no supply behind it.
@@ -129,17 +129,17 @@ export const noCostSql = `(pieces.finished_at IS NOT NULL
   AND NOT EXISTS (SELECT 1 FROM pieces AS template
     WHERE template.id = pieces.template_id AND template.size_amount IS NOT NULL))`;
 
-// The columns getActualShare needs: whether the prep is used up or counted, and every share
-// of it.
+// The columns getActualShare needs: whether the prep is used up, whether this share is exact
+// (counted prep, or a run's), and every share of it outside a run.
 const shareColumnsSql = `
   prep_uses.share_numerator, prep_uses.share_denominator,
   (SELECT ${prepUsedUpSql('prep')} FROM pieces AS prep
    WHERE prep.id = prep_uses.prep_id)
     AS used_up,
-  (SELECT size_amount IS NOT NULL FROM pieces AS prep WHERE prep.id = prep_uses.prep_id)
-    AS measured,
+  ((SELECT size_amount IS NOT NULL FROM pieces AS prep WHERE prep.id = prep_uses.prep_id)
+    OR ${runUseSql('prep_uses')}) AS measured,
   (SELECT total(${shareSql}) FROM prep_uses AS sibling
-   WHERE sibling.prep_id = prep_uses.prep_id) AS shares_total`;
+   WHERE sibling.prep_id = prep_uses.prep_id AND NOT ${runUseSql('sibling')}) AS shares_total`;
 
 // A prep can't use itself or prep made from it, however far down, or its cost would have no end.
 function madeFromSql(pieceIdSql: string) {
@@ -279,7 +279,7 @@ export async function getAvailablePrep(pieceId: number | null): Promise<Availabl
     `SELECT pieces.id, pieces.name, pieces.size_amount, pieces.size_unit,
        coalesce(pieces.kind_id, pieces.id) AS kind_id, total(${shareSql}) AS used_share
      FROM pieces
-     LEFT JOIN prep_uses ON prep_uses.prep_id = pieces.id
+     LEFT JOIN prep_uses ON prep_uses.prep_id = pieces.id AND NOT ${runUseSql('prep_uses')}
      WHERE ${availableSql('pieces')}
        AND pieces.id NOT IN (SELECT prep_id FROM prep_uses WHERE piece_id = ?)
        AND (? IS NULL OR NOT ${madeFromSql('?')})
