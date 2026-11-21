@@ -49,6 +49,8 @@ export interface UnfinishedPiece extends BatchSize {
   run_id: number | null;
   // How many of its run are finished, lost ones included, so each lap is seen to land.
   run_made: number;
+  // The grade on its run's newest finished piece, shown on its row so a star lap is seen to land.
+  run_last_rating: number | null;
 }
 
 export interface PieceListItem extends BatchSize {
@@ -130,6 +132,14 @@ export interface FinishDetails extends SizeInput {
   // Every prep and supply the piece ends up with. Uses already on it that aren't listed are removed.
   prepUses: FinishPrepUse[];
   supplyUses: FinishSupplyUse[];
+}
+
+export interface LapDetails {
+  // Without it, the piece is the run's last (End run).
+  startNext: boolean;
+  // From the run row's Lost and stars, which lap in place of Lap.
+  lost?: boolean;
+  rating?: number | null;
 }
 
 export interface PieceChanges {
@@ -259,11 +269,12 @@ async function copyRunUses(database: SQLiteDatabase, pieceId: number) {
 }
 
 // Lap, in a production run: the piece in hand is finished with the run's prep and supplies, and
-// the next copy starts at the same moment, so no time falls between them. Without startNext it's
-// the run's last piece (End run).
+// the next copy starts at the same moment, so no time falls between them. A star finishes it with
+// that grade and Lost finishes it lost. The schema refuses a grade on a lost piece, which rolls
+// the whole lap back.
 export async function lapPiece(
   pieceId: number,
-  { startNext }: { startNext: boolean },
+  { startNext, lost = false, rating = null }: LapDetails,
 ): Promise<void> {
   const database = await getDb();
   const lappedAt = new Date().toISOString();
@@ -275,8 +286,11 @@ export async function lapPiece(
     );
     if (ended.changes === 0) throw new Error("That piece isn't running.");
     const finished = await database.runAsync(
-      'UPDATE pieces SET finished_at = ? WHERE id = ? AND finished_at IS NULL AND run_id IS NOT NULL',
+      `UPDATE pieces SET finished_at = ?, lost = ?, rating = ?
+       WHERE id = ? AND finished_at IS NULL AND run_id IS NOT NULL`,
       lappedAt,
+      lost ? 1 : 0,
+      rating,
       pieceId,
     );
     if (finished.changes === 0) throw new Error("That piece isn't in a run.");
@@ -550,6 +564,9 @@ export async function getUnfinishedPieces(): Promise<UnfinishedPiece[]> {
        pieces.run_id,
        (SELECT count(*) FROM pieces AS made
         WHERE made.run_id = pieces.run_id AND made.finished_at IS NOT NULL) AS run_made,
+       (SELECT made.rating FROM pieces AS made
+        WHERE made.run_id = pieces.run_id AND made.finished_at IS NOT NULL
+        ORDER BY made.finished_at DESC, made.id DESC LIMIT 1) AS run_last_rating,
        round(total(julianday(work_segments.ended_at) - julianday(work_segments.started_at))
          * 86400000) AS worked_milliseconds,
        max(CASE WHEN work_segments.ended_at IS NULL THEN work_segments.started_at END)
