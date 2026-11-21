@@ -5,15 +5,20 @@ export const SQL_NOW = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')";
 // A use's share as a number, 1 being the whole prep or supply.
 export const shareSql = '(share_numerator * 1.0 / share_denominator)';
 
-// One use of all of a batch, saved as n/n.
-export function wholeUseSql(useTable: string, batchColumn: string, batchIdSql: string) {
-  return `EXISTS (SELECT 1 FROM ${useTable}
-    WHERE ${batchColumn} = ${batchIdSql} AND share_numerator = share_denominator)`;
+export function runUseSql(useTable: string) {
+  return `${useTable}.piece_id IN (SELECT id FROM pieces WHERE run_id IS NOT NULL)`;
 }
 
-// By eye prep closes by its All used switch or one use of all of it. Uses that add up to 100%
-// are guesses, so they leave it open until the switch closes it. Counted prep and supplies never
-// close.
+// One use of all of a batch, saved as n/n, by a piece outside a run.
+export function wholeUseSql(useTable: string, batchColumn: string, batchIdSql: string) {
+  return `EXISTS (SELECT 1 FROM ${useTable}
+    WHERE ${batchColumn} = ${batchIdSql} AND share_numerator = share_denominator
+      AND NOT ${runUseSql(useTable)})`;
+}
+
+// By eye prep closes by its All used switch or one use of all of it outside a run. Uses that add
+// up to 100% are guesses, so they leave it open until the switch closes it. Counted prep and
+// supplies never close.
 export function prepUsedUpSql(prepTable: string) {
   return `(${prepTable}.size_amount IS NULL AND (${prepTable}.used_up_at IS NOT NULL
     OR ${wholeUseSql('prep_uses', 'prep_id', `${prepTable}.id`)}))`;
