@@ -53,6 +53,8 @@ export const MIGRATIONS: string[] = [
     AND (size_unit IS NULL OR trim(size_unit) <> ''));`,
   // 4: an optional group on a supply, so supplies are listed under Color rods or Clear tubing.
   `ALTER TABLE supplies ADD COLUMN group_name TEXT CHECK (group_name IS NULL OR trim(group_name) <> '')`,
+  // 5: the production run (laps) a piece was made in.
+  `ALTER TABLE pieces ADD COLUMN run_id INTEGER CHECK (run_id IS NULL OR category = 'piece')`,
 ];
 
 // What migrating uses of the database, so tests can pass better-sqlite3 in its place.
