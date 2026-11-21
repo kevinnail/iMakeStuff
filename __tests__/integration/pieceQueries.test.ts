@@ -20,6 +20,7 @@ import {
   switchToPiece,
   updatePiece,
 } from '@/db/queries/pieceQueries';
+import { addPrepUse, addSupplyUse, setPrepUsedUp } from '@/db/queries/prepQueries';
 import { createTestDb } from '../setup';
 
 jest.mock('@/db/database', () => ({
@@ -747,6 +748,136 @@ describe('production runs', () => {
     await expect(startPiece('Dichroic cane', 'prep', true)).rejects.toThrow(/CHECK constraint/);
 
     expect(await database.getAllAsync('SELECT id FROM pieces')).toEqual([{ id: 1 }]);
+  });
+
+  describe('prep and supplies at each lap', () => {
+    const caneId = 2;
+    const pointsId = 3;
+    const fritId = 4;
+    const tubeId = 1;
+
+    // The template's lines: 20% of a by eye cane, 1 of 8 points pulled from a $40 tube, and a
+    // quarter tube. The points' whole cost is saved on a counted use once it's made.
+    const templateLines = {
+      prep: [
+        { prep_id: caneId, share_numerator: 20, share_denominator: 100, prep_cost_cents: null },
+        { prep_id: pointsId, share_numerator: 1, share_denominator: 8, prep_cost_cents: 4000 },
+      ],
+      supplies: [{ supply_id: tubeId, share_numerator: 1, share_denominator: 4 }],
+    };
+
+    beforeEach(() =>
+      database.execAsync(`
+        INSERT INTO pieces (id, name, category, finished_at, is_template, size_amount, size_unit) VALUES
+          (${caneId}, 'Dichroic cane', 'prep', '2026-10-29T17:00:00.000Z', 0, NULL, NULL),
+          (${pointsId}, 'Points', 'prep', '2026-10-29T18:00:00.000Z', 1, 8, 'points'),
+          (${fritId}, 'Frit mix', 'prep', '2026-10-29T19:00:00.000Z', 0, NULL, NULL);
+        INSERT INTO supplies (id, name, cost_cents) VALUES (${tubeId}, 'Clear tube', 4000);
+        INSERT INTO supply_uses (piece_id, supply_id, share_numerator, share_denominator) VALUES
+          (${pointsId}, ${tubeId}, 1, 1),
+          (1, ${tubeId}, 1, 4);
+        INSERT INTO prep_uses (piece_id, prep_id, share_numerator, share_denominator) VALUES
+          (1, ${caneId}, 20, 100),
+          (1, ${pointsId}, 1, 8);
+      `),
+    );
+
+    async function getUses(pieceId: number) {
+      return {
+        prep: await database.getAllAsync(
+          `SELECT prep_id, share_numerator, share_denominator, prep_cost_cents FROM prep_uses
+           WHERE piece_id = ? ORDER BY prep_id`,
+          pieceId,
+        ),
+        supplies: await database.getAllAsync(
+          `SELECT supply_id, share_numerator, share_denominator FROM supply_uses
+           WHERE piece_id = ? ORDER BY supply_id`,
+          pieceId,
+        ),
+      };
+    }
+
+    // Otherwise a run's pieces carry no prep or supplies, and every lap shows No cost.
+    it("gives the first lap the template's lines as they are, and each next lap the piece before it's", async () => {
+      // All used, so a piece's Done would look for another cane. A run keeps this one.
+      await setPrepUsedUp(caneId, true);
+      const firstId = await startFromTemplate(1, true);
+      await lapPiece(firstId, { startNext: true });
+      // Added on the first piece's page, so the next lap is seen to copy it and not the template.
+      await addPrepUse(firstId, {
+        prepId: fritId,
+        share: { share_numerator: 10, share_denominator: 100 },
+      });
+
+      await lapPiece(firstId + 1, { startNext: true });
+
+      const fritLine = {
+        prep_id: fritId,
+        share_numerator: 10,
+        share_denominator: 100,
+        prep_cost_cents: null,
+      };
+      const firstLines = { ...templateLines, prep: [...templateLines.prep, fritLine] };
+      expect(await getUses(firstId)).toEqual(firstLines);
+      expect(await getUses(firstId + 1)).toEqual(firstLines);
+      expect(await getUses(firstId + 2)).toEqual({ prep: [], supplies: [] });
+    });
+
+    // Otherwise a line added on the running piece's page would keep the run's other lines off it
+    // and every lap after, or its lap would fail on a line it already has.
+    it('adds the lines a piece is missing and leaves out a kind it already has', async () => {
+      const newCaneId = 5;
+      await database.execAsync(`
+        INSERT INTO pieces (id, name, category, finished_at, kind_id) VALUES
+          (${newCaneId}, 'Dichroic cane', 'prep', '2026-10-29T20:00:00.000Z', ${caneId});
+      `);
+      const firstId = await startFromTemplate(1, true);
+      // On the running piece's page: frit the template doesn't have, a newer cane of the
+      // template's cane's kind, and half a tube where the template has a quarter.
+      await addPrepUse(firstId, {
+        prepId: fritId,
+        share: { share_numerator: 10, share_denominator: 100 },
+      });
+      await addPrepUse(firstId, {
+        prepId: newCaneId,
+        share: { share_numerator: 25, share_denominator: 100 },
+      });
+      await addSupplyUse(firstId, {
+        supplyId: tubeId,
+        share: { share_numerator: 1, share_denominator: 2 },
+      });
+
+      await lapPiece(firstId, { startNext: true });
+
+      expect(await getUses(firstId)).toEqual({
+        prep: [
+          templateLines.prep[1],
+          { prep_id: fritId, share_numerator: 10, share_denominator: 100, prep_cost_cents: null },
+          {
+            prep_id: newCaneId,
+            share_numerator: 25,
+            share_denominator: 100,
+            prep_cost_cents: null,
+          },
+        ],
+        supplies: [{ supply_id: tubeId, share_numerator: 1, share_denominator: 2 }],
+      });
+    });
+
+    // Otherwise a tap landing after its lap, like a double tap, would start an extra piece or
+    // stack lines on the one just made.
+    it('refuses a lap on a finished piece and copies nothing', async () => {
+      const firstId = await startFromTemplate(1, true);
+      await lapPiece(firstId, { startNext: true });
+      const usesBefore = [await getUses(firstId), await getUses(firstId + 1)];
+
+      await expect(lapPiece(firstId, { startNext: true })).rejects.toThrow(
+        "That piece isn't running.",
+      );
+
+      expect([await getUses(firstId), await getUses(firstId + 1)]).toEqual(usesBefore);
+      expect(await getUnfinishedPieces()).toEqual([expect.objectContaining({ id: firstId + 1 })]);
+    });
   });
 });
 
