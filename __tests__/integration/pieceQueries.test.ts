@@ -8,12 +8,14 @@ import {
   getPieces,
   getTemplates,
   getUnfinishedPieces,
+  lapPiece,
   renamePiece,
   reopenPiece,
   setPieceLost,
   setPiecePhoto,
   setPieceRating,
   setPieceTemplate,
+  startFromTemplate,
   startPiece,
   switchToPiece,
   updatePiece,
@@ -69,6 +71,8 @@ describe('startPiece', () => {
         running_since: segments[0].started_at,
         size_amount: null,
         size_unit: null,
+        run_id: null,
+        run_made: 0,
       },
     ]);
   });
@@ -198,6 +202,8 @@ describe('getUnfinishedPieces', () => {
         running_since: null,
         size_amount: null,
         size_unit: null,
+        run_id: null,
+        run_made: 0,
       },
     ]);
   });
@@ -223,6 +229,8 @@ describe('endDay', () => {
         running_since: null,
         size_amount: null,
         size_unit: null,
+        run_id: null,
+        run_made: 0,
       },
     ]);
   });
@@ -623,6 +631,122 @@ describe('reopenPiece', () => {
       "Only a finished piece that isn't a template can be worked on again.",
     );
     expect(await database.getFirstAsync(pieceStateSql, pieceId)).toEqual(before);
+  });
+});
+
+describe('production runs', () => {
+  const runPieceSql = `SELECT id, name, template_id, kind_id, run_id, finished_at FROM pieces
+    WHERE run_id IS NOT NULL ORDER BY id`;
+
+  beforeEach(() =>
+    database.execAsync(`
+      INSERT INTO pieces (id, name, category, finished_at, is_template) VALUES
+        (1, 'Tumbler', 'piece', '2026-10-30T17:00:00.000Z', 1);
+    `),
+  );
+
+  // Otherwise Lap has no run to put the next copy in, and a run's pieces can't be found together.
+  it.each([
+    ['on the fly', () => startPiece('Tumbler', 'piece', true)],
+    ['from a template', () => startFromTemplate(1, true)],
+  ])('makes a piece started in Laps %s the first of its run', async (_case, start) => {
+    const pieceId = await start();
+
+    expect(await database.getFirstAsync('SELECT run_id FROM pieces WHERE id = ?', pieceId)).toEqual(
+      { run_id: pieceId },
+    );
+  });
+
+  // Otherwise seconds fall between laps, and a day of 30 pieces loses time no piece ever gets.
+  it('finishes the piece in hand and starts the next at the same moment', async () => {
+    const firstId = await startPiece('Tumbler', 'piece', true);
+
+    await lapPiece(firstId, { startNext: true });
+
+    const segments = await database.getAllAsync<SegmentRow>(segmentsSql);
+    expect(segments).toEqual([
+      { piece_id: firstId, started_at: expect.any(String), ended_at: segments[1].started_at },
+      { piece_id: firstId + 1, started_at: expect.any(String), ended_at: null },
+    ]);
+    expect(await database.getFirstAsync<FinishedPieceRow>(finishedPieceSql, firstId)).toEqual({
+      notes: null,
+      photo_file_name: null,
+      finished_at: segments[1].started_at,
+    });
+  });
+
+  // Otherwise the next copy loses its template or run, and the run's pieces stop adding up.
+  it('starts the copy with the same name, template, kind, and run', async () => {
+    const firstId = await startFromTemplate(1, true);
+
+    await lapPiece(firstId, { startNext: true });
+
+    expect(await database.getAllAsync(runPieceSql)).toEqual([
+      {
+        id: firstId,
+        name: 'Tumbler',
+        template_id: 1,
+        kind_id: 1,
+        run_id: firstId,
+        finished_at: expect.any(String),
+      },
+      {
+        id: firstId + 1,
+        name: 'Tumbler',
+        template_id: 1,
+        kind_id: 1,
+        run_id: firstId,
+        finished_at: null,
+      },
+    ]);
+  });
+
+  // Otherwise the count on the lap row stays put, and the maker can't see that a lap landed.
+  it("counts the run's finished pieces on the piece in hand", async () => {
+    const firstId = await startPiece('Tumbler', 'piece', true);
+    await lapPiece(firstId, { startNext: true });
+    await lapPiece(firstId + 1, { startNext: true });
+
+    expect(await getUnfinishedPieces()).toEqual([
+      expect.objectContaining({ id: firstId + 2, run_id: firstId, run_made: 2 }),
+    ]);
+  });
+
+  // Otherwise End run leaves a copy running, collecting time on a piece that's never made.
+  it('finishes the last piece with nothing started after it', async () => {
+    const firstId = await startPiece('Tumbler', 'piece', true);
+
+    await lapPiece(firstId, { startNext: false });
+
+    expect(await getUnfinishedPieces()).toEqual([]);
+    expect(await database.getAllAsync(runPieceSql)).toEqual([
+      expect.objectContaining({ id: firstId, finished_at: expect.any(String) }),
+    ]);
+  });
+
+  // Otherwise Lap could finish a piece that isn't in a run, or one set down, with time it never had.
+  it.each([
+    ['a piece not in a run', false, "That piece isn't in a run."],
+    ['a paused piece', true, "That piece isn't running."],
+  ])('refuses %s and changes nothing', async (_case, inRun, message) => {
+    const pieceId = await startPiece('Tumbler', 'piece', inRun);
+    if (inRun) await endDay();
+    const segmentsBefore = await database.getAllAsync(segmentsSql);
+
+    await expect(lapPiece(pieceId, { startNext: true })).rejects.toThrow(message);
+
+    expect(await database.getAllAsync(segmentsSql)).toEqual(segmentsBefore);
+    expect(await database.getAllAsync('SELECT id, finished_at FROM pieces ORDER BY id')).toEqual([
+      { id: 1, finished_at: '2026-10-30T17:00:00.000Z' },
+      { id: pieceId, finished_at: null },
+    ]);
+  });
+
+  // Otherwise prep could be made in laps, and a run of canes would count as finished pieces.
+  it('refuses a run on prep', async () => {
+    await expect(startPiece('Dichroic cane', 'prep', true)).rejects.toThrow(/CHECK constraint/);
+
+    expect(await database.getAllAsync('SELECT id FROM pieces')).toEqual([{ id: 1 }]);
   });
 });
 
