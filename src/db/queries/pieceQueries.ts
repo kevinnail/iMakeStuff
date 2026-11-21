@@ -19,7 +19,7 @@ import {
   type FinishSupplyUse,
   type UsedSupply,
 } from '@/db/queries/supplyQueries';
-import { prepUsedUpSql, shareSql } from '@/db/schema';
+import { prepUsedUpSql, runUseSql, shareSql } from '@/db/schema';
 import { getCost } from '@/utils/cost';
 import {
   getPrepTime,
@@ -67,7 +67,7 @@ export interface PieceListItem extends BatchSize {
   cost_cents: number | null;
   // true while any supply or prep behind its cost isn't used up.
   cost_estimated: boolean;
-  // Every piece's share of this prep added together, 1 being all of it.
+  // Every piece's share of this prep outside a run added together, 1 being all of it.
   used_share: number;
   // How many pieces and prep used this prep, for the delete confirmation box.
   used_by_count: number;
@@ -210,8 +210,57 @@ export async function startFromTemplate(templateId: number, inRun = false): Prom
   return pieceId;
 }
 
-// Lap, in a production run: the piece in hand is finished and the next copy starts at the same
-// moment, so no time falls between them. Without startNext it's the run's last piece (End run).
+// At a lap the piece takes the prep and supplies of its run's last finished piece, lost ones
+// included, or with none finished yet, its template's lines as they are: a run use is a price, so
+// a used-up cane isn't swapped. An on-the-fly run's first piece has nothing to take. Line by line,
+// like Done with a template's: a line of a kind the piece already has, added on its page or kept
+// from before it was worked on again, stays as it is.
+async function copyRunUses(database: SQLiteDatabase, pieceId: number) {
+  const source = await database.getFirstAsync<{ id: number | null }>(
+    `SELECT coalesce(
+       (SELECT previous.id FROM pieces AS previous
+        WHERE previous.run_id = pieces.run_id AND previous.id <> pieces.id
+          AND previous.finished_at IS NOT NULL
+        ORDER BY previous.finished_at DESC, previous.id DESC LIMIT 1),
+       pieces.template_id) AS id
+     FROM pieces WHERE pieces.id = ?`,
+    pieceId,
+  );
+  if (!source || source.id === null) return;
+  await database.runAsync(
+    `INSERT INTO prep_uses (piece_id, prep_id, share_numerator, share_denominator)
+     SELECT ?, prep_uses.prep_id, prep_uses.share_numerator, prep_uses.share_denominator
+     FROM prep_uses
+     JOIN pieces AS prep ON prep.id = prep_uses.prep_id
+     WHERE prep_uses.piece_id = ?
+       AND coalesce(prep.kind_id, prep.id) NOT IN (
+         SELECT coalesce(saved.kind_id, saved.id) FROM prep_uses AS saved_use
+         JOIN pieces AS saved ON saved.id = saved_use.prep_id
+         WHERE saved_use.piece_id = ?)`,
+    pieceId,
+    source.id,
+    pieceId,
+  );
+  await database.runAsync(
+    `INSERT INTO supply_uses (piece_id, supply_id, share_numerator, share_denominator)
+     SELECT ?, supply_uses.supply_id, supply_uses.share_numerator, supply_uses.share_denominator
+     FROM supply_uses
+     JOIN supplies ON supplies.id = supply_uses.supply_id
+     WHERE supply_uses.piece_id = ?
+       AND coalesce(supplies.kind_id, supplies.id) NOT IN (
+         SELECT coalesce(saved.kind_id, saved.id) FROM supply_uses AS saved_use
+         JOIN supplies AS saved ON saved.id = saved_use.supply_id
+         WHERE saved_use.piece_id = ?)`,
+    pieceId,
+    source.id,
+    pieceId,
+  );
+  await saveCountedCosts(database);
+}
+
+// Lap, in a production run: the piece in hand is finished with the run's prep and supplies, and
+// the next copy starts at the same moment, so no time falls between them. Without startNext it's
+// the run's last piece (End run).
 export async function lapPiece(
   pieceId: number,
   { startNext }: { startNext: boolean },
@@ -231,6 +280,7 @@ export async function lapPiece(
       pieceId,
     );
     if (finished.changes === 0) throw new Error("That piece isn't in a run.");
+    await copyRunUses(database, pieceId);
     if (!startNext) return;
     const next = await database.runAsync(
       `INSERT INTO pieces (name, category, template_id, kind_id, run_id)
@@ -535,7 +585,9 @@ export async function getPieces(): Promise<PieceListItem[]> {
        FROM pieces
        JOIN work_segments ON work_segments.piece_id = pieces.id
        LEFT JOIN (
-         SELECT prep_id, total(${shareSql}) AS used_share, count(*) AS used_by_count
+         SELECT prep_id, total(${shareSql}) FILTER (WHERE NOT ${runUseSql('prep_uses')})
+             AS used_share,
+           count(*) AS used_by_count
          FROM prep_uses GROUP BY prep_id
        ) AS prep_totals ON prep_totals.prep_id = pieces.id
        GROUP BY pieces.id
