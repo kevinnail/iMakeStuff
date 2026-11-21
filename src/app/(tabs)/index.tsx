@@ -26,11 +26,17 @@ import { RenamePanel } from '@/components/RenamePanel';
 import { SwipeRow, type SwipeAction } from '@/components/SwipeRow';
 import { getTemplateChoices, type MissingUse } from '@/components/UseChoices';
 import { getSavedChoice, type UseChoice } from '@/components/UsePanel';
+import { StarRating } from '@/components/StarRating';
 import { StopTimePanel } from '@/components/StopTimePanel';
 import { Tag } from '@/components/Tag';
 import type { WorkRecords } from '@/db/queries/dayQueries';
 import type { RunningEntry } from '@/db/queries/entryQueries';
-import type { PieceCategory, Template, UnfinishedPiece } from '@/db/queries/pieceQueries';
+import type {
+  LapDetails,
+  PieceCategory,
+  Template,
+  UnfinishedPiece,
+} from '@/db/queries/pieceQueries';
 import {
   getAvailablePrep,
   getPiecePrep,
@@ -186,7 +192,7 @@ function confirmDelete(piece: UnfinishedPiece, remove: (pieceId: number) => Prom
 // started, which won't be made.
 function confirmEndRun(
   piece: UnfinishedPiece,
-  lap: (pieceId: number, startNext: boolean) => Promise<void>,
+  lap: (pieceId: number, details: LapDetails) => Promise<void>,
   remove: (pieceId: number) => Promise<void>,
 ) {
   Alert.alert(
@@ -195,7 +201,8 @@ function confirmEndRun(
     [
       {
         text: `Finish ${piece.name}`,
-        onPress: () => lap(piece.id, false).catch(showError('Could not end the run')),
+        onPress: () =>
+          lap(piece.id, { startNext: false }).catch(showError('Could not end the run')),
       },
       {
         text: `Delete ${piece.name}`,
@@ -457,10 +464,11 @@ export default function WorkScreen() {
     startFromTemplate(template.id, inRun).catch(showError('Could not start'));
   }
 
-  // Lap waits for the lap to save, so a fast second tap can't finish the copy it just started.
-  function handleLap(piece: UnfinishedPiece) {
+  // Lap waits for the lap to save, so a fast second tap can't finish the copy it just started. A
+  // star or Lost is a lap too, with the piece in hand graded or lost.
+  function handleLap(piece: UnfinishedPiece, outcome: Omit<LapDetails, 'startNext'> = {}) {
     setLappingPieceId(piece.id);
-    lap(piece.id, true)
+    lap(piece.id, { startNext: true, ...outcome })
       .catch(showError('Could not save the lap'))
       .finally(() => setLappingPieceId(null));
   }
@@ -521,7 +529,10 @@ export default function WorkScreen() {
         label: 'Lost',
         icon: 'exclamationmark.triangle.fill',
         color: colors.warning,
-        onPress: () => openFinish(piece, true).catch(showError('Could not open Done')),
+        // On a run's piece in hand it's a lap, so the run carries on with the next copy.
+        onPress: lapRow
+          ? () => handleLap(piece, { lost: true })
+          : () => openFinish(piece, true).catch(showError('Could not open Done')),
       },
       {
         label: 'Delete',
@@ -548,7 +559,11 @@ export default function WorkScreen() {
             <View style={styles.nameRow}>
               <Text style={[styles.pieceName, running && styles.currentText]}>{piece.name}</Text>
               {piece.category === 'prep' && <Tag label="Prep" onFill={running} />}
-              {piece.run_id !== null && <Tag label={`×${piece.run_made}`} onFill={running} />}
+              {piece.run_id !== null && (
+                <Text style={[styles.runCount, running && styles.currentText]}>
+                  {`× ${piece.run_made}`}
+                </Text>
+              )}
             </View>
             <View style={styles.pieceBottomRow}>
               <View style={styles.timeArea}>
@@ -604,6 +619,25 @@ export default function WorkScreen() {
                 </>
               )}
             </View>
+
+            {lapRow && (
+              <View style={styles.lapOutcomeRow}>
+                <Pressable
+                  style={({ pressed }) => [styles.lapLostButton, pressed && styles.buttonPressed]}
+                  onPress={() => handleLap(piece, { lost: true })}
+                  disabled={lappingPieceId !== null}
+                >
+                  <Text style={styles.lapLostText}>Lost</Text>
+                </Pressable>
+                <StarRating
+                  rating={null}
+                  onChange={(rating) => handleLap(piece, { rating })}
+                  color={colors.textOnFill}
+                  disabled={lappingPieceId !== null}
+                  fadingRating={piece.run_last_rating}
+                />
+              </View>
+            )}
           </Pressable>
         </SwipeRow>
       </Animated.View>
@@ -747,10 +781,13 @@ export default function WorkScreen() {
             <Text style={styles.buttonText}>End day</Text>
           </Pressable>
         )}
-        {/* Down here, away from Lap, so ending a run is never a stray tap. */}
         {runningPiece && runningPiece.run_id !== null && (
           <Pressable
-            style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
+            style={({ pressed }) => [
+              styles.button,
+              styles.endRunButton,
+              pressed && styles.buttonPressed,
+            ]}
             onPress={() => confirmEndRun(runningPiece, lap, remove)}
           >
             <Text style={styles.buttonText}>End run</Text>
@@ -837,6 +874,9 @@ const styles = StyleSheet.create({
   buttonDisabled: {
     opacity: 0.4,
   },
+  endRunButton: {
+    backgroundColor: colors.laps,
+  },
   buttonPressed: {
     opacity: 0.6,
   },
@@ -845,7 +885,6 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     color: colors.textOnFill,
   },
-  // Dark so it shows on both a plain row and the running piece's row.
   doneButton: {
     paddingVertical: 10,
     paddingHorizontal: 20,
@@ -857,9 +896,8 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     color: colors.text,
   },
-  // Bigger than Done, so it's hit without looking.
   lapButton: {
-    paddingVertical: 16,
+    paddingVertical: 8,
     paddingHorizontal: 40,
     borderRadius: 8,
     backgroundColor: colors.background,
@@ -869,6 +907,29 @@ const styles = StyleSheet.create({
     lineHeight: 26,
     fontWeight: '700',
     color: colors.text,
+  },
+  lapOutcomeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: colors.textOnFill,
+  },
+  lapLostButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    borderStyle: 'solid',
+    borderWidth: 2,
+    borderColor: colors.danger,
+    backgroundColor: colors.background,
+  },
+  lapLostText: {
+    fontSize: 18,
+    lineHeight: 20,
+    color: colors.danger,
   },
 
   photoButton: {
@@ -921,7 +982,6 @@ const styles = StyleSheet.create({
   pieceListContent: {
     gap: 12,
   },
-  // The rows' corners, so the swipe buttons behind them stay hidden there.
   swipeRow: {
     borderRadius: 12,
   },
@@ -957,6 +1017,12 @@ const styles = StyleSheet.create({
   pieceName: {
     flexShrink: 1,
     fontSize: 24,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  runCount: {
+    fontSize: 24,
+    lineHeight: 26,
     fontWeight: '700',
     color: colors.text,
   },
