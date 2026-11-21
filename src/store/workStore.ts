@@ -21,6 +21,7 @@ import {
   finishPiece,
   getTemplates,
   getUnfinishedPieces,
+  lapPiece,
   renamePiece,
   reopenPiece,
   setPiecePhoto,
@@ -62,9 +63,12 @@ interface WorkState {
   // Everything since midnight, for the line about today on the Work screen.
   today: WorkRecords;
   load: () => Promise<void>;
-  start: (name: string, category: PieceCategory) => Promise<void>;
-  startFromTemplate: (templateId: number) => Promise<void>;
+  // inRun starts a production run (laps).
+  start: (name: string, category: PieceCategory, inRun: boolean) => Promise<void>;
+  startFromTemplate: (templateId: number, inRun: boolean) => Promise<void>;
   switchTo: (pieceId: number) => Promise<void>;
+  // Finishes a run's piece in hand, and with startNext starts the next copy.
+  lap: (pieceId: number, startNext: boolean) => Promise<void>;
   addPhoto: (piece: UnfinishedPiece, cameraPhotoUri: string) => Promise<void>;
   finish: (pieceId: number, input: FinishInput) => Promise<void>;
   remove: (pieceId: number) => Promise<void>;
@@ -116,16 +120,20 @@ export const useWorkStore = create<WorkState>()((set) => ({
     set({ templates: await getTemplates() });
     await showWork(set);
   },
-  start: async (name, category) => {
-    await startPiece(name, category);
+  start: async (name, category, inRun) => {
+    await startPiece(name, category, inRun);
     await showWork(set);
   },
-  startFromTemplate: async (templateId) => {
-    await startFromTemplate(templateId);
+  startFromTemplate: async (templateId, inRun) => {
+    await startFromTemplate(templateId, inRun);
     await showWork(set);
   },
   switchTo: async (pieceId) => {
     await switchToPiece(pieceId);
+    await showWork(set);
+  },
+  lap: async (pieceId, startNext) => {
+    await lapPiece(pieceId, { startNext });
     await showWork(set);
   },
   addPhoto: async (piece, cameraPhotoUri) => {
