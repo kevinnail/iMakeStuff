@@ -11,7 +11,7 @@ export const colors = {
   // Prep on the Work screen, so it never passes for a piece at a glance.
   prep: '#5FC8A0',
   // A production run (laps) on the Work screen, so a run never passes for a single piece.
-  laps: '#d0a7ff',
+  laps: '#6a7ef2',
   // Breaks, so they stand apart from work.
   accent: '#D18A6B',
   // A record missing something, like a piece with no cost.

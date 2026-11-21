@@ -29,6 +29,7 @@ import {
   startFromTemplate,
   startPiece,
   switchToPiece,
+  type LapDetails,
   type PieceCategory,
   type Template,
   type UnfinishedPiece,
@@ -68,7 +69,7 @@ interface WorkState {
   startFromTemplate: (templateId: number, inRun: boolean) => Promise<void>;
   switchTo: (pieceId: number) => Promise<void>;
   // Finishes a run's piece in hand, and with startNext starts the next copy.
-  lap: (pieceId: number, startNext: boolean) => Promise<void>;
+  lap: (pieceId: number, details: LapDetails) => Promise<void>;
   addPhoto: (piece: UnfinishedPiece, cameraPhotoUri: string) => Promise<void>;
   finish: (pieceId: number, input: FinishInput) => Promise<void>;
   remove: (pieceId: number) => Promise<void>;
@@ -132,8 +133,8 @@ export const useWorkStore = create<WorkState>()((set) => ({
     await switchToPiece(pieceId);
     await showWork(set);
   },
-  lap: async (pieceId, startNext) => {
-    await lapPiece(pieceId, { startNext });
+  lap: async (pieceId, details) => {
+    await lapPiece(pieceId, details);
     await showWork(set);
   },
   addPhoto: async (piece, cameraPhotoUri) => {

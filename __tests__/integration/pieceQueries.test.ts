@@ -74,6 +74,7 @@ describe('startPiece', () => {
         size_unit: null,
         run_id: null,
         run_made: 0,
+        run_last_rating: null,
       },
     ]);
   });
@@ -205,6 +206,7 @@ describe('getUnfinishedPieces', () => {
         size_unit: null,
         run_id: null,
         run_made: 0,
+        run_last_rating: null,
       },
     ]);
   });
@@ -232,6 +234,7 @@ describe('endDay', () => {
         size_unit: null,
         run_id: null,
         run_made: 0,
+        run_last_rating: null,
       },
     ]);
   });
@@ -710,6 +713,64 @@ describe('production runs', () => {
 
     expect(await getUnfinishedPieces()).toEqual([
       expect.objectContaining({ id: firstId + 2, run_id: firstId, run_made: 2 }),
+    ]);
+  });
+
+  // Otherwise a star's grade or Lost is dropped from the piece in hand, or the run stops at that tap.
+  it.each([
+    ['a star with its grade', { rating: 4 }, { lost: 0, rating: 4 }],
+    ['Lost as lost with no grade', { lost: true }, { lost: 1, rating: null }],
+  ])('saves a lap from %s and starts the next', async (_case, outcome, saved) => {
+    const firstId = await startPiece('Tumbler', 'piece', true);
+
+    await lapPiece(firstId, { startNext: true, ...outcome });
+
+    expect(
+      await database.getFirstAsync(
+        'SELECT finished_at, lost, rating FROM pieces WHERE id = ?',
+        firstId,
+      ),
+    ).toEqual({ finished_at: expect.any(String), ...saved });
+    expect(await getUnfinishedPieces()).toEqual([
+      expect.objectContaining({
+        id: firstId + 1,
+        run_id: firstId,
+        run_made: 1,
+        running_since: expect.any(String),
+      }),
+    ]);
+  });
+
+  // Otherwise a plain Lap after a star lap flashes the older grade, as if that tap had graded too.
+  it("gives the piece in hand the grade on its run's newest finished piece", async () => {
+    const firstId = await startPiece('Tumbler', 'piece', true);
+
+    await lapPiece(firstId, { startNext: true, rating: 4 });
+    expect(await getUnfinishedPieces()).toEqual([
+      expect.objectContaining({ id: firstId + 1, run_last_rating: 4 }),
+    ]);
+
+    await lapPiece(firstId + 1, { startNext: true });
+    expect(await getUnfinishedPieces()).toEqual([
+      expect.objectContaining({ id: firstId + 2, run_last_rating: null }),
+    ]);
+  });
+
+  // Otherwise a lost piece could carry a grade, or a failed lap could still start the next copy.
+  it('refuses a grade with lost and rolls back the whole lap, with no next piece', async () => {
+    const pieceId = await startPiece('Tumbler', 'piece', true);
+    const segmentsBefore = await database.getAllAsync(segmentsSql);
+
+    await expect(lapPiece(pieceId, { startNext: true, lost: true, rating: 3 })).rejects.toThrow(
+      /CHECK constraint/,
+    );
+
+    expect(await database.getAllAsync(segmentsSql)).toEqual(segmentsBefore);
+    expect(
+      await database.getAllAsync('SELECT id, finished_at, lost, rating FROM pieces ORDER BY id'),
+    ).toEqual([
+      { id: 1, finished_at: '2026-10-30T17:00:00.000Z', lost: 0, rating: null },
+      { id: pieceId, finished_at: null, lost: 0, rating: null },
     ]);
   });
 
