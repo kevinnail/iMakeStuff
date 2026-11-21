@@ -521,6 +521,58 @@ describe('closing a batch', () => {
   });
 });
 
+describe('prep used in a run', () => {
+  // Five finished pieces of one run.
+  const runPieceIds = [6, 7, 8, 9, 10];
+
+  beforeEach(() =>
+    database.execAsync(`
+      INSERT INTO pieces (id, name, category, finished_at, run_id)
+      SELECT value, 'Tumbler', 'piece', '2026-10-31T17:00:00.000Z', ${runPieceIds[0]}
+      FROM json_each('${JSON.stringify(runPieceIds)}');
+    `),
+  );
+
+  async function addRunUses(prepId: number, numerator: number) {
+    for (const pieceId of runPieceIds) await addPrepUse(pieceId, use(prepId, numerator));
+  }
+
+  // Otherwise marking a cane All used would spread it over a run's pieces, and a long run would
+  // leave each one a sliver of its cost.
+  it("keeps a run piece's share as entered when the cane is marked All used", async () => {
+    await addPrepUse(vaseId, use(caneId, 20));
+    await addRunUses(caneId, 20);
+
+    await setPrepUsedUp(caneId, true);
+
+    expect(await getActualPercents(caneId)).toEqual([100, 20, 20, 20, 20, 20]);
+  });
+
+  // Otherwise a run's laps would fill the cane's bar on Pieces, Add prep, and its page while the
+  // cane is still on the bench.
+  it("adds nothing to the cane's assigned share", async () => {
+    await addPrepUse(vaseId, use(caneId, 20));
+    await addRunUses(caneId, 20);
+
+    expect((await getPieces()).find((piece) => piece.id === caneId)?.used_share).toBe(0.2);
+    expect((await getAvailablePrep(bowlId)).find((prep) => prep.id === caneId)?.used_share).toBe(
+      0.2,
+    );
+    expect((await getPieceDetail(caneId))?.usedBy.map((row) => row.measured)).toEqual([
+      0, 1, 1, 1, 1, 1,
+    ]);
+  });
+
+  // Otherwise one run piece entered at all of a cane would close it and take it out of Add prep
+  // while the maker still has it.
+  it('leaves the cane open with a run piece at all of it', async () => {
+    await addPrepUse(runPieceIds[0], use(caneId, 100));
+
+    expect(await isUsedUp(caneId)).toBe(false);
+    expect((await getAvailablePrep(vaseId)).map((prep) => prep.id)).toContain(caneId);
+  });
+});
+
 describe('getPieceDetail for prep', () => {
   // Otherwise the prep's page couldn't show which pieces used it or how much is gone.
   it('lists the pieces that used the prep with their shares', async () => {
