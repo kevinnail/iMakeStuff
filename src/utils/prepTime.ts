@@ -9,9 +9,10 @@ export interface Share {
 export interface UseShare extends Share {
   // 1 once the prep or supply is used up.
   used_up: number;
-  // 1 when the batch is counted: its shares are exact, so they're final and never scale.
+  // 1 when the share is exact, so it's final and never scales: the batch is counted, or the use is
+  // by a piece in a run, which is a price.
   measured: number;
-  // Every piece's share of it added together, 1 being all of it.
+  // Every piece's share of it outside a run added together, 1 being all of it.
   shares_total: number;
 }
 
@@ -177,7 +178,7 @@ export function savesAsTemplate(countedPrep: boolean, lost: boolean, switchOn: b
   return countedPrep ? !lost : switchOn;
 }
 
-// A share is a guess while its batch is by eye and isn't all used yet.
+// A share is a guess while its batch is by eye and isn't all used yet, unless it's a run's.
 export function isEstimated(use: UseShare) {
   return !use.used_up && !use.measured;
 }
@@ -187,8 +188,8 @@ function wholeMinutes(milliseconds: number) {
   return Math.floor(milliseconds / minute) * minute;
 }
 
-// A by eye batch, once all used, spreads all of it over what used it. A counted batch's shares
-// are exact, so they never scale.
+// A by eye batch, once all used, spreads all of it over what used it outside a run. A counted
+// batch's shares and a run's are exact, so they never scale.
 export function getActualShare(share: UseShare) {
   const estimate = getShareValue(share);
   return share.used_up && !share.measured ? estimate / share.shares_total : estimate;
