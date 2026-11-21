@@ -17,6 +17,7 @@ function piece(overrides: Partial<UnfinishedPiece>): UnfinishedPiece {
     size_unit: null,
     run_id: null,
     run_made: 0,
+    run_last_rating: null,
     ...overrides,
   };
 }
