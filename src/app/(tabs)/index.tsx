@@ -137,14 +137,23 @@ function buildRowSlide({
 
 const rowSlideTransition = buildRowSlide(rowSlide);
 
-const categoryOptions: {
-  value: PieceCategory;
+// What Start makes: a piece, prep, or a production run of pieces (laps).
+type StartMode = PieceCategory | 'laps';
+
+const modeOptions: {
+  value: StartMode;
   label: string;
   placeholder: string;
   color?: string;
 }[] = [
   { value: 'piece', label: 'Piece', placeholder: 'What are you making?' },
   { value: 'prep', label: 'Prep', placeholder: 'What prep are you making?', color: colors.prep },
+  {
+    value: 'laps',
+    label: 'Laps',
+    placeholder: 'What are you making in this run?',
+    color: colors.laps,
+  },
 ];
 
 function formatElapsed(milliseconds: number) {
@@ -169,6 +178,31 @@ function confirmDelete(piece: UnfinishedPiece, remove: (pieceId: number) => Prom
         style: 'destructive',
         onPress: () => remove(piece.id).catch(showError('Could not delete the piece')),
       },
+    ],
+  );
+}
+
+// The piece in hand at the end of a run is either the last one made or the copy the last Lap
+// started, which won't be made.
+function confirmEndRun(
+  piece: UnfinishedPiece,
+  lap: (pieceId: number, startNext: boolean) => Promise<void>,
+  remove: (pieceId: number) => Promise<void>,
+) {
+  Alert.alert(
+    'End the run?',
+    `Finish ${piece.name} if it was made. Delete it if the last Lap started it.`,
+    [
+      {
+        text: `Finish ${piece.name}`,
+        onPress: () => lap(piece.id, false).catch(showError('Could not end the run')),
+      },
+      {
+        text: `Delete ${piece.name}`,
+        style: 'destructive',
+        onPress: () => remove(piece.id).catch(showError('Could not delete the piece')),
+      },
+      { text: 'Cancel', style: 'cancel' },
     ],
   );
 }
@@ -352,6 +386,7 @@ export default function WorkScreen() {
     start,
     startFromTemplate,
     switchTo,
+    lap,
     addPhoto,
     finish,
     remove,
@@ -366,14 +401,18 @@ export default function WorkScreen() {
   const setTabBarHeight = useGuideStore((state) => state.setTabBarHeight);
   const { bottom: bottomInset } = useSafeAreaInsets();
   const [name, setName] = useState('');
-  const [category, setCategory] = useState<PieceCategory>('piece');
+  const [mode, setMode] = useState<StartMode>('piece');
   const [finishing, setFinishing] = useState<Finishing | null>(null);
   const [openingPieceId, setOpeningPieceId] = useState<number | null>(null);
+  const [lappingPieceId, setLappingPieceId] = useState<number | null>(null);
   const [photographingPieceId, setPhotographingPieceId] = useState<number | null>(null);
   const [pickingStopFor, setPickingStopFor] = useState<RunningEntry | null>(null);
   const [renaming, setRenaming] = useState<UnfinishedPiece | null>(null);
   const trimmedName = name.trim();
-  const placeholder = categoryOptions.find(({ value }) => value === category)?.placeholder;
+  // A run is made of pieces.
+  const category: PieceCategory = mode === 'laps' ? 'piece' : mode;
+  const inRun = mode === 'laps';
+  const placeholder = modeOptions.find(({ value }) => value === mode)?.placeholder;
   const templateOptions = templates
     .filter((template) => template.category === category)
     .map((template) => ({
@@ -408,14 +447,22 @@ export default function WorkScreen() {
 
   function handleStart() {
     Keyboard.dismiss();
-    start(trimmedName, category)
+    start(trimmedName, category, inRun)
       .then(() => setName(''))
       .catch(showError('Could not start'));
   }
 
   function startFrom(template: Template) {
     Keyboard.dismiss();
-    startFromTemplate(template.id).catch(showError('Could not start'));
+    startFromTemplate(template.id, inRun).catch(showError('Could not start'));
+  }
+
+  // Lap waits for the lap to save, so a fast second tap can't finish the copy it just started.
+  function handleLap(piece: UnfinishedPiece) {
+    setLappingPieceId(piece.id);
+    lap(piece.id, true)
+      .catch(showError('Could not save the lap'))
+      .finally(() => setLappingPieceId(null));
   }
 
   function photograph(piece: UnfinishedPiece) {
@@ -449,6 +496,14 @@ export default function WorkScreen() {
   // Swiping a row left shows what's needed mid-work besides swapping and Done.
   function renderPiece(piece: UnfinishedPiece) {
     const running = piece.running_since !== null;
+    // A run's piece in hand has Lap where Done is.
+    const lapRow = running && piece.run_id !== null;
+    const runningRowStyle =
+      piece.category === 'prep'
+        ? styles.prepRowCurrent
+        : piece.run_id !== null
+          ? styles.lapRowCurrent
+          : styles.pieceRowCurrent;
     // Only the running piece has a clock to pause.
     const pauseActions: SwipeAction[] = running
       ? [
@@ -482,11 +537,7 @@ export default function WorkScreen() {
       <Animated.View key={piece.id} layout={rowSlideTransition}>
         <SwipeRow actions={actions} containerStyle={styles.swipeRow}>
           <Pressable
-            style={[
-              styles.pieceRow,
-              running &&
-                (piece.category === 'prep' ? styles.prepRowCurrent : styles.pieceRowCurrent),
-            ]}
+            style={[styles.pieceRow, running && runningRowStyle]}
             onPress={
               !running
                 ? () => switchTo(piece.id).catch(showError('Could not switch pieces'))
@@ -497,6 +548,7 @@ export default function WorkScreen() {
             <View style={styles.nameRow}>
               <Text style={[styles.pieceName, running && styles.currentText]}>{piece.name}</Text>
               {piece.category === 'prep' && <Tag label="Prep" onFill={running} />}
+              {piece.run_id !== null && <Tag label={`×${piece.run_made}`} onFill={running} />}
             </View>
             <View style={styles.pieceBottomRow}>
               <View style={styles.timeArea}>
@@ -510,30 +562,47 @@ export default function WorkScreen() {
                   <Text style={styles.time}>{formatElapsed(piece.worked_milliseconds)}</Text>
                 )}
               </View>
-              {running && (
+              {lapRow ? (
                 <Pressable
-                  style={({ pressed }) => [styles.photoButton, pressed && styles.buttonPressed]}
-                  onPress={() => photograph(piece)}
-                  disabled={photographingPieceId !== null}
+                  style={({ pressed }) => [styles.lapButton, pressed && styles.buttonPressed]}
+                  onPress={() => handleLap(piece)}
+                  disabled={lappingPieceId !== null}
                 >
-                  <Text style={styles.photoText}>{piece.photo_file_name ? 'Retake' : 'Photo'}</Text>
+                  <Text style={styles.lapText}>Lap</Text>
                 </Pressable>
+              ) : (
+                <>
+                  {running && (
+                    <Pressable
+                      style={({ pressed }) => [styles.photoButton, pressed && styles.buttonPressed]}
+                      onPress={() => photograph(piece)}
+                      disabled={photographingPieceId !== null}
+                    >
+                      <Text style={styles.photoText}>
+                        {piece.photo_file_name ? 'Retake' : 'Photo'}
+                      </Text>
+                    </Pressable>
+                  )}
+                  <Pressable
+                    style={({ pressed }) => [styles.doneButton, pressed && styles.buttonPressed]}
+                    onPress={() => openFinish(piece, false).catch(showError('Could not open Done'))}
+                    // Done waits for a photo still saving, or it would finish with the old one.
+                    disabled={openingPieceId !== null || photographingPieceId !== null}
+                  >
+                    <Text
+                      style={[
+                        styles.doneText,
+                        openingPieceId === piece.id && styles.buttonTextHidden,
+                      ]}
+                    >
+                      Done
+                    </Text>
+                    {openingPieceId === piece.id && (
+                      <ActivityIndicator color={colors.text} style={StyleSheet.absoluteFill} />
+                    )}
+                  </Pressable>
+                </>
               )}
-              <Pressable
-                style={({ pressed }) => [styles.doneButton, pressed && styles.buttonPressed]}
-                onPress={() => openFinish(piece, false).catch(showError('Could not open Done'))}
-                // Done waits for a photo still saving, or it would finish with the old one.
-                disabled={openingPieceId !== null || photographingPieceId !== null}
-              >
-                <Text
-                  style={[styles.doneText, openingPieceId === piece.id && styles.buttonTextHidden]}
-                >
-                  Done
-                </Text>
-                {openingPieceId === piece.id && (
-                  <ActivityIndicator color={colors.text} style={StyleSheet.absoluteFill} />
-                )}
-              </Pressable>
             </View>
           </Pressable>
         </SwipeRow>
@@ -583,9 +652,9 @@ export default function WorkScreen() {
     <SafeAreaView edges={['top', 'bottom']} style={styles.screen}>
       <View style={styles.categoryRow}>
         <JoinedButtons
-          options={categoryOptions}
-          selected={category}
-          onSelect={setCategory}
+          options={modeOptions}
+          selected={mode}
+          onSelect={setMode}
           style={styles.categoryButtons}
         />
         <Pressable
@@ -676,6 +745,15 @@ export default function WorkScreen() {
             onPress={() => endDay().catch(showError('Could not end the day'))}
           >
             <Text style={styles.buttonText}>End day</Text>
+          </Pressable>
+        )}
+        {/* Down here, away from Lap, so ending a run is never a stray tap. */}
+        {runningPiece && runningPiece.run_id !== null && (
+          <Pressable
+            style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
+            onPress={() => confirmEndRun(runningPiece, lap, remove)}
+          >
+            <Text style={styles.buttonText}>End run</Text>
           </Pressable>
         )}
       </View>
@@ -779,6 +857,19 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     color: colors.text,
   },
+  // Bigger than Done, so it's hit without looking.
+  lapButton: {
+    paddingVertical: 16,
+    paddingHorizontal: 40,
+    borderRadius: 8,
+    backgroundColor: colors.background,
+  },
+  lapText: {
+    fontSize: 24,
+    lineHeight: 26,
+    fontWeight: '700',
+    color: colors.text,
+  },
 
   photoButton: {
     paddingVertical: 8,
@@ -846,6 +937,9 @@ const styles = StyleSheet.create({
   },
   prepRowCurrent: {
     backgroundColor: colors.prep,
+  },
+  lapRowCurrent: {
+    backgroundColor: colors.laps,
   },
   pieceBottomRow: {
     flexDirection: 'row',

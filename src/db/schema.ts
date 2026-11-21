@@ -56,6 +56,10 @@ export const SCHEMA_SQL = `
     -- gets one: a lost piece isn't output, and prep shows in the pieces that use it.
     rating          INTEGER CHECK (rating IS NULL OR (rating BETWEEN 1 AND 5
       AND finished_at IS NOT NULL AND lost = 0 AND category = 'piece')),
+    -- The production run (laps) it was made in: the id of the run's first piece. Not a reference,
+    -- like kind_id, so a run stays together when its first piece is deleted. Prep isn't made in
+    -- laps.
+    run_id          INTEGER CHECK (run_id IS NULL OR category = 'piece'),
     CHECK (used_up_at IS NULL OR category = 'prep'),
     CHECK (lost = 0 OR finished_at IS NOT NULL),
     CHECK (is_template = 0 OR finished_at IS NOT NULL),

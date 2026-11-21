@@ -45,6 +45,10 @@ export interface UnfinishedPiece extends BatchSize {
   template_counted: number;
   worked_milliseconds: number;
   running_since: string | null;
+  // The production run it's part of, or null. Its Work row is in lap mode.
+  run_id: number | null;
+  // How many of its run are finished, lost ones included, so each lap is seen to land.
+  run_made: number;
 }
 
 export interface PieceListItem extends BatchSize {
@@ -159,7 +163,18 @@ async function startSegment(database: SQLiteDatabase, pieceId: number, startedAt
   );
 }
 
-export async function startPiece(name: string, category: PieceCategory): Promise<number> {
+// A run is known by its first piece's id, so the first piece points at itself. The schema refuses
+// a run on prep.
+async function startRun(database: SQLiteDatabase, pieceId: number) {
+  await database.runAsync('UPDATE pieces SET run_id = id WHERE id = ?', pieceId);
+}
+
+// In Laps, inRun makes the piece the first of a production run.
+export async function startPiece(
+  name: string,
+  category: PieceCategory,
+  inRun = false,
+): Promise<number> {
   const database = await getDb();
   const startedAt = new Date().toISOString();
   let pieceId = 0;
@@ -170,12 +185,13 @@ export async function startPiece(name: string, category: PieceCategory): Promise
       category,
     );
     pieceId = result.lastInsertRowId;
+    if (inRun) await startRun(database, pieceId);
     await startSegment(database, pieceId, startedAt);
   });
   return pieceId;
 }
 
-export async function startFromTemplate(templateId: number): Promise<number> {
+export async function startFromTemplate(templateId: number, inRun = false): Promise<number> {
   const database = await getDb();
   const startedAt = new Date().toISOString();
   let pieceId = 0;
@@ -188,9 +204,41 @@ export async function startFromTemplate(templateId: number): Promise<number> {
     );
     if (result.changes === 0) throw new Error("That piece isn't a template.");
     pieceId = result.lastInsertRowId;
+    if (inRun) await startRun(database, pieceId);
     await startSegment(database, pieceId, startedAt);
   });
   return pieceId;
+}
+
+// Lap, in a production run: the piece in hand is finished and the next copy starts at the same
+// moment, so no time falls between them. Without startNext it's the run's last piece (End run).
+export async function lapPiece(
+  pieceId: number,
+  { startNext }: { startNext: boolean },
+): Promise<void> {
+  const database = await getDb();
+  const lappedAt = new Date().toISOString();
+  await database.withTransactionAsync(async () => {
+    const ended = await database.runAsync(
+      'UPDATE work_segments SET ended_at = ? WHERE piece_id = ? AND ended_at IS NULL',
+      lappedAt,
+      pieceId,
+    );
+    if (ended.changes === 0) throw new Error("That piece isn't running.");
+    const finished = await database.runAsync(
+      'UPDATE pieces SET finished_at = ? WHERE id = ? AND finished_at IS NULL AND run_id IS NOT NULL',
+      lappedAt,
+      pieceId,
+    );
+    if (finished.changes === 0) throw new Error("That piece isn't in a run.");
+    if (!startNext) return;
+    const next = await database.runAsync(
+      `INSERT INTO pieces (name, category, template_id, kind_id, run_id)
+       SELECT name, category, template_id, coalesce(kind_id, id), run_id FROM pieces WHERE id = ?`,
+      pieceId,
+    );
+    await startSegment(database, next.lastInsertRowId, lappedAt);
+  });
 }
 
 export async function switchToPiece(pieceId: number): Promise<void> {
@@ -449,6 +497,9 @@ export async function getUnfinishedPieces(): Promise<UnfinishedPiece[]> {
   return database.getAllAsync<UnfinishedPiece>(
     `SELECT pieces.id, pieces.name, pieces.category, pieces.notes, pieces.photo_file_name,
        pieces.template_id, pieces.size_amount, pieces.size_unit, ${templateCountedSql} AS template_counted,
+       pieces.run_id,
+       (SELECT count(*) FROM pieces AS made
+        WHERE made.run_id = pieces.run_id AND made.finished_at IS NOT NULL) AS run_made,
        round(total(julianday(work_segments.ended_at) - julianday(work_segments.started_at))
          * 86400000) AS worked_milliseconds,
        max(CASE WHEN work_segments.ended_at IS NULL THEN work_segments.started_at END)

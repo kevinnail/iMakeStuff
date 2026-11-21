@@ -23,9 +23,10 @@ export function getWorkTimerContent(
   }
   const runningPiece = pieces.find((piece) => piece.running_since !== null);
   if (!runningPiece?.running_since) return null;
+  const pieceColor = runningPiece.run_id !== null ? colors.laps : colors.primary;
   return {
     title: runningPiece.name,
-    color: runningPiece.category === 'prep' ? colors.prep : colors.primary,
+    color: runningPiece.category === 'prep' ? colors.prep : pieceColor,
     countingFrom: Date.parse(runningPiece.running_since) - runningPiece.worked_milliseconds,
   };
 }

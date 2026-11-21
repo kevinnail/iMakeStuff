@@ -15,6 +15,8 @@ function piece(overrides: Partial<UnfinishedPiece>): UnfinishedPiece {
     running_since: null,
     size_amount: null,
     size_unit: null,
+    run_id: null,
+    run_made: 0,
     ...overrides,
   };
 }
@@ -46,6 +48,13 @@ describe('getWorkTimerContent', () => {
     ];
 
     expect(getWorkTimerContent(pieces, null)?.color).toBe(colors.prep);
+  });
+
+  // Otherwise the Lock Screen would show a run in the piece color, unlike its row on Work.
+  it('gives a piece in a run the Laps color', () => {
+    const pieces = [piece({ run_id: 1, running_since: '2026-11-05T10:00:00.000Z' })];
+
+    expect(getWorkTimerContent(pieces, null)?.color).toBe(colors.laps);
   });
 
   // Otherwise a break would keep counting on the paused piece, putting break time on it.

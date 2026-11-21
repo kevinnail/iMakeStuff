@@ -207,7 +207,9 @@ export default function DaysScreen() {
               ) : (
                 <View style={styles.photo} />
               )}
-              <Text style={styles.pieceName}>{piece.name}</Text>
+              <Text style={styles.pieceName} numberOfLines={1}>
+                {piece.name}
+              </Text>
               {piece.category === 'prep' && <Tag label="Prep" />}
               {piece.lost === 1 && <Tag label="Lost" />}
               {piece.no_cost === 1 && <Tag label="No cost" warning />}
